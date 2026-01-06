@@ -384,6 +384,81 @@ app.get('/api/members', async (c) => {
   return c.json({ success: true, data: results })
 })
 
+// --- 契約 API ---
+
+// API: 契約作成（月次明細自動生成）
+app.post('/api/contracts', async (c) => {
+  const { project_id, contract_name, start_date, end_date, contract_amount, notes } = await c.req.json()
+
+  // バリデーション
+  if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
+    return c.json({ error: '必須項目が入力されていません' }, 400)
+  }
+
+  // 月数を計算
+  const startDate = new Date(start_date)
+  const endDate = new Date(end_date)
+  
+  if (startDate > endDate) {
+    return c.json({ error: '開始日は終了日より前である必要があります' }, 400)
+  }
+
+  const months = []
+  let current = new Date(startDate)
+  while (current <= endDate) {
+    const yearMonth = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0')
+    months.push(yearMonth)
+    current.setMonth(current.getMonth() + 1)
+  }
+
+  if (months.length === 0) {
+    return c.json({ error: '契約期間が無効です' }, 400)
+  }
+
+  // 均等割の計算
+  const baseAmount = Math.floor(contract_amount / months.length)
+  const remainder = contract_amount - (baseAmount * months.length)
+
+  try {
+    // 契約を作成
+    const contractResult = await c.env.DB.prepare(`
+      INSERT INTO contracts (
+        project_id, contract_name, contract_start_date, contract_end_date, 
+        contract_amount, status, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      project_id, contract_name, start_date, end_date, 
+      contract_amount, 'active', notes || ''
+    ).run()
+
+    const contractId = contractResult.meta.last_row_id
+
+    // 月次明細を生成
+    for (let i = 0; i < months.length; i++) {
+      const monthAmount = i === 0 ? baseAmount + remainder : baseAmount
+      
+      await c.env.DB.prepare(`
+        INSERT INTO monthly_details (
+          contract_id, target_month, amount,
+          inspection_status, billing_status, payment_status
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        contractId, months[i], monthAmount,
+        '未検収', '未請求', '未入金'
+      ).run()
+    }
+
+    return c.json({ 
+      success: true, 
+      contract_id: contractId,
+      monthly_details_count: months.length
+    })
+  } catch (error) {
+    console.error('Contract creation error:', error)
+    return c.json({ error: 'データベースエラーが発生しました' }, 500)
+  }
+})
+
 // --- 月次明細 API ---
 
 // API: 月次明細の検収情報更新
@@ -1998,6 +2073,254 @@ app.get('/contracts/:id', async (c) => {
                 </div>
             </div>
         </div>
+    </body>
+    </html>
+  `)
+})
+
+// 契約作成画面
+app.get('/projects/:projectId/contracts/new', async (c) => {
+  const projectId = c.req.param('projectId')
+  
+  // 案件情報を取得
+  const project = await c.env.DB.prepare(`
+    SELECT p.*, l.company_name
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    WHERE p.id = ?
+  `).bind(projectId).first()
+  
+  if (!project) return c.notFound()
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>契約作成 - ${project.project_name}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-sm text-gray-500 mr-4">
+                  <i class="fas fa-user-circle mr-1"></i>管理者
+                </span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-4xl mx-auto p-8">
+            <!-- パンくずリスト -->
+            <div class="mb-6 text-sm">
+                <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/projects/${projectId}" class="text-blue-600 hover:text-blue-800">${project.project_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <span class="text-gray-700">契約作成</span>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h1 class="text-2xl font-bold text-gray-800 mb-6">
+                    <i class="fas fa-file-contract mr-2 text-blue-600"></i>新規契約作成
+                </h1>
+                
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+                    <p class="text-sm text-blue-700">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        契約期間から月次明細が自動生成されます。契約金額は期間で均等割されます。
+                    </p>
+                </div>
+
+                <form id="contract-form" class="space-y-6">
+                    <input type="hidden" name="project_id" value="${projectId}">
+
+                    <!-- 案件情報表示 -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">案件</label>
+                        <p class="text-gray-800 font-medium">${project.project_name}</p>
+                        <p class="text-sm text-gray-600">${project.company_name}</p>
+                    </div>
+
+                    <!-- 契約名 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            契約名 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" name="contract_name" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                               placeholder="例: Q1 2026 契約">
+                    </div>
+
+                    <!-- 契約期間 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                開始日 <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" name="start_date" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                終了日 <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" name="end_date" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <!-- 契約金額 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            契約金額（円） <span class="text-red-500">*</span>
+                        </label>
+                        <input type="number" name="contract_amount" required min="0" step="1"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                               placeholder="3000000">
+                    </div>
+
+                    <!-- 備考 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            備考
+                        </label>
+                        <textarea name="notes" rows="3"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                  placeholder="契約に関する補足情報"></textarea>
+                    </div>
+
+                    <!-- プレビュー -->
+                    <div id="preview" class="bg-gray-50 rounded-lg p-4 hidden">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-2">
+                            <i class="fas fa-eye mr-2"></i>月次明細プレビュー
+                        </h3>
+                        <div id="preview-content" class="text-sm text-gray-600"></div>
+                    </div>
+
+                    <!-- ボタン -->
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="location.href='/projects/${projectId}'"
+                                class="px-6 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                            キャンセル
+                        </button>
+                        <button type="button" onclick="previewContract()"
+                                class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                            <i class="fas fa-eye mr-2"></i>プレビュー
+                        </button>
+                        <button type="submit"
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-save mr-2"></i>契約を作成
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+            // プレビュー機能
+            function previewContract() {
+                const startDate = document.querySelector('input[name="start_date"]').value
+                const endDate = document.querySelector('input[name="end_date"]').value
+                const amount = parseInt(document.querySelector('input[name="contract_amount"]').value)
+
+                if (!startDate || !endDate || !amount) {
+                    alert('開始日、終了日、契約金額を入力してください')
+                    return
+                }
+
+                // 月数を計算
+                const start = new Date(startDate)
+                const end = new Date(endDate)
+                const months = []
+                
+                let current = new Date(start)
+                while (current <= end) {
+                    const yearMonth = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0')
+                    months.push(yearMonth)
+                    current.setMonth(current.getMonth() + 1)
+                }
+
+                // 均等割
+                const baseAmount = Math.floor(amount / months.length)
+                const remainder = amount - (baseAmount * months.length)
+
+                // プレビュー表示
+                const preview = document.getElementById('preview')
+                const content = document.getElementById('preview-content')
+                
+                let html = '<div class="space-y-2">'
+                html += '<p class="font-medium">期間: ' + months.length + 'ヶ月</p>'
+                html += '<table class="w-full text-sm mt-2">'
+                html += '<thead class="bg-gray-100"><tr><th class="px-2 py-1 text-left">対象月</th><th class="px-2 py-1 text-right">金額</th></tr></thead>'
+                html += '<tbody>'
+                
+                months.forEach((month, index) => {
+                    const monthAmount = index === 0 ? baseAmount + remainder : baseAmount
+                    html += '<tr><td class="px-2 py-1">' + month + '</td><td class="px-2 py-1 text-right">¥' + monthAmount.toLocaleString() + '</td></tr>'
+                })
+                
+                html += '</tbody></table>'
+                html += '<p class="mt-2 text-xs text-gray-500">※ 端数は最初の月に加算されます</p>'
+                html += '</div>'
+                
+                content.innerHTML = html
+                preview.classList.remove('hidden')
+            }
+
+            // フォーム送信
+            document.getElementById('contract-form').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                
+                if (!confirm('この内容で契約を作成しますか？')) return
+                
+                const formData = new FormData(e.target)
+                const data = {
+                    project_id: parseInt(formData.get('project_id')),
+                    contract_name: formData.get('contract_name'),
+                    start_date: formData.get('start_date'),
+                    end_date: formData.get('end_date'),
+                    contract_amount: parseInt(formData.get('contract_amount')),
+                    notes: formData.get('notes') || ''
+                }
+
+                try {
+                    const response = await axios.post('/api/contracts', data)
+                    alert('契約を作成しました')
+                    location.href = '/contracts/' + response.data.contract_id
+                } catch (error) {
+                    alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
+                }
+            })
+        </script>
     </body>
     </html>
   `)
