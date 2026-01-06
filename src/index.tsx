@@ -384,6 +384,130 @@ app.get('/api/members', async (c) => {
   return c.json({ success: true, data: results })
 })
 
+// --- 月次明細 API ---
+
+// API: 月次明細の検収情報更新
+app.put('/api/monthly-details/:id/inspection', async (c) => {
+  const id = c.req.param('id')
+  const { inspection_status, inspection_date } = await c.req.json()
+
+  // ステータス遷移のバリデーション
+  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
+  if (!current) return c.notFound()
+
+  // 変更履歴を記録
+  if (current.inspection_status !== inspection_status) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_detail', id, 'inspection_status', current.inspection_status, inspection_status, '管理者').run()
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE monthly_details 
+    SET inspection_status = ?, inspection_date = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(inspection_status, inspection_date, id).run()
+
+  return c.json({ success: true })
+})
+
+// API: 月次明細の請求情報更新
+app.put('/api/monthly-details/:id/billing', async (c) => {
+  const id = c.req.param('id')
+  const { billing_status, billing_date, invoice_number } = await c.req.json()
+
+  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
+  if (!current) return c.notFound()
+
+  // 変更履歴を記録
+  if (current.billing_status !== billing_status) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_detail', id, 'billing_status', current.billing_status, billing_status, '管理者').run()
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE monthly_details 
+    SET billing_status = ?, billing_date = ?, invoice_number = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(billing_status, billing_date, invoice_number, id).run()
+
+  return c.json({ success: true })
+})
+
+// API: 月次明細の金額更新
+app.put('/api/monthly-details/:id/amount', async (c) => {
+  const id = c.req.param('id')
+  const { amount } = await c.req.json()
+
+  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
+  if (!current) return c.notFound()
+
+  // 変更履歴を記録
+  await c.env.DB.prepare(`
+    INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind('monthly_detail', id, 'amount', current.amount.toString(), amount.toString(), '管理者').run()
+
+  await c.env.DB.prepare(`
+    UPDATE monthly_details 
+    SET amount = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(amount, id).run()
+
+  return c.json({ success: true })
+})
+
+// API: 入金履歴追加
+app.post('/api/payment-histories', async (c) => {
+  const { monthly_detail_id, payment_date, amount, notes } = await c.req.json()
+
+  await c.env.DB.prepare(`
+    INSERT INTO payment_histories (monthly_detail_id, payment_date, amount, notes)
+    VALUES (?, ?, ?, ?)
+  `).bind(monthly_detail_id, payment_date, amount, notes || '').run()
+
+  // 月次明細の合計入金額を更新
+  const payments = await c.env.DB.prepare(`
+    SELECT SUM(amount) as total FROM payment_histories WHERE monthly_detail_id = ?
+  `).bind(monthly_detail_id).first()
+
+  await c.env.DB.prepare(`
+    UPDATE monthly_details 
+    SET total_payment_amount = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(payments.total || 0, monthly_detail_id).run()
+
+  return c.json({ success: true })
+})
+
+// API: 入金履歴削除
+app.delete('/api/payment-histories/:id', async (c) => {
+  const id = c.req.param('id')
+
+  // 入金履歴を取得
+  const payment = await c.env.DB.prepare('SELECT * FROM payment_histories WHERE id = ?').bind(id).first()
+  if (!payment) return c.notFound()
+
+  // 削除
+  await c.env.DB.prepare('DELETE FROM payment_histories WHERE id = ?').bind(id).run()
+
+  // 月次明細の合計入金額を更新
+  const payments = await c.env.DB.prepare(`
+    SELECT SUM(amount) as total FROM payment_histories WHERE monthly_detail_id = ?
+  `).bind(payment.monthly_detail_id).first()
+
+  await c.env.DB.prepare(`
+    UPDATE monthly_details 
+    SET total_payment_amount = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(payments.total || 0, payment.monthly_detail_id).run()
+
+  return c.json({ success: true })
+})
+
 // --- ダッシュボード API ---
 app.get('/api/dashboard/summary', async (c) => {
   const { DB } = c.env
@@ -1874,6 +1998,466 @@ app.get('/contracts/:id', async (c) => {
                 </div>
             </div>
         </div>
+    </body>
+    </html>
+  `)
+})
+
+// 月次明細詳細画面
+app.get('/monthly/:id', async (c) => {
+  const id = c.req.param('id')
+  
+  // 月次明細情報と契約、案件、リード情報を取得
+  const monthly = await c.env.DB.prepare(`
+    SELECT 
+      md.*,
+      c.contract_name,
+      c.project_id,
+      c.contract_amount,
+      p.project_name,
+      p.lead_id,
+      l.company_name
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    JOIN leads l ON p.lead_id = l.id
+    WHERE md.id = ?
+  `).bind(id).first()
+  
+  if (!monthly) return c.notFound()
+
+  // 月次メンバーアサインを取得
+  const members = await c.env.DB.prepare(`
+    SELECT 
+      mma.*,
+      m.name as member_name,
+      m.email
+    FROM monthly_member_assignments mma
+    JOIN members m ON mma.member_id = m.id
+    WHERE mma.monthly_detail_id = ?
+    ORDER BY mma.allocation_ratio DESC
+  `).bind(id).all()
+
+  // 入金履歴を取得
+  const payments = await c.env.DB.prepare(`
+    SELECT * FROM payment_histories
+    WHERE monthly_detail_id = ?
+    ORDER BY payment_date DESC
+  `).bind(id).all()
+
+  // 変更履歴を取得
+  const histories = await c.env.DB.prepare(`
+    SELECT * FROM status_change_histories
+    WHERE table_name = 'monthly_detail' AND record_id = ?
+    ORDER BY changed_at DESC
+    LIMIT 10
+  `).bind(id).all()
+
+  // 統計計算
+  const totalPayment = payments.results.reduce((sum, p) => sum + (p.amount || 0), 0)
+  const remainingAmount = (monthly.amount || 0) - totalPayment
+  const allocationTotal = members.results.reduce((sum, m) => sum + (m.allocation_ratio || 0), 0)
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>月次明細詳細 - ${monthly.target_month}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-sm text-gray-500 mr-4">
+                  <i class="fas fa-user-circle mr-1"></i>管理者
+                </span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto p-8">
+            <!-- パンくずリスト -->
+            <div class="mb-6 text-sm">
+                <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/leads/${monthly.lead_id}" class="text-blue-600 hover:text-blue-800">${monthly.company_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/projects/${monthly.project_id}" class="text-blue-600 hover:text-blue-800">${monthly.project_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/contracts/${monthly.contract_id}" class="text-blue-600 hover:text-blue-800">${monthly.contract_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <span class="text-gray-700">月次明細 ${monthly.target_month}</span>
+            </div>
+
+            <!-- 基本情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800 mb-2">
+                            <i class="fas fa-calendar-alt mr-2 text-blue-600"></i>月次明細 ${monthly.target_month}
+                        </h1>
+                        <p class="text-gray-600">${monthly.contract_name}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-3xl font-bold text-blue-600">¥${(monthly.amount || 0).toLocaleString()}</p>
+                        <button onclick="openEditAmountModal()" class="text-sm text-blue-600 hover:text-blue-800 mt-2">
+                            <i class="fas fa-edit mr-1"></i>金額を編集
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 検収情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">
+                    <i class="fas fa-check-circle mr-2 text-green-600"></i>検収情報
+                </h2>
+                <form id="inspection-form" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">検収ステータス</label>
+                            <select name="inspection_status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="未検収" ${monthly.inspection_status === '未検収' ? 'selected' : ''}>未検収</option>
+                                <option value="検収済" ${monthly.inspection_status === '検収済' ? 'selected' : ''}>検収済</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">検収日</label>
+                            <input type="date" name="inspection_date" value="${monthly.inspection_date || ''}" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                            <i class="fas fa-save mr-2"></i>検収情報を更新
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 請求情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">
+                    <i class="fas fa-file-invoice mr-2 text-orange-600"></i>請求情報
+                </h2>
+                <form id="billing-form" class="space-y-4">
+                    <div class="grid grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">請求ステータス</label>
+                            <select name="billing_status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="未請求" ${monthly.billing_status === '未請求' ? 'selected' : ''}>未請求</option>
+                                <option value="請求済" ${monthly.billing_status === '請求済' ? 'selected' : ''}>請求済</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">請求日</label>
+                            <input type="date" name="billing_date" value="${monthly.billing_date || ''}" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">請求書番号</label>
+                            <input type="text" name="invoice_number" value="${monthly.invoice_number || ''}" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                   placeholder="INV-2026-001">
+                        </div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" class="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700">
+                            <i class="fas fa-save mr-2"></i>請求情報を更新
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 入金情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        <i class="fas fa-money-bill-wave mr-2 text-purple-600"></i>入金情報
+                    </h2>
+                    <button onclick="openAddPaymentModal()" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700">
+                        <i class="fas fa-plus mr-2"></i>入金を追加
+                    </button>
+                </div>
+
+                <!-- 入金サマリー -->
+                <div class="bg-purple-50 rounded-lg p-4 mb-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-sm text-gray-600">合計入金額</p>
+                            <p class="text-2xl font-bold text-purple-600">¥${totalPayment.toLocaleString()}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm text-gray-600">残額</p>
+                            <p class="text-2xl font-bold ${remainingAmount > 0 ? 'text-red-600' : 'text-green-600'}">
+                                ¥${remainingAmount.toLocaleString()}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="bg-purple-600 h-2 rounded-full" style="width: ${Math.min(100, (totalPayment / monthly.amount) * 100)}%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 入金履歴 -->
+                ${payments.results.length > 0 ? `
+                <table class="w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">入金日</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">備考</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        ${payments.results.map(p => `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3">${p.payment_date}</td>
+                            <td class="px-4 py-3 font-medium text-green-600">¥${(p.amount || 0).toLocaleString()}</td>
+                            <td class="px-4 py-3 text-gray-600">${p.notes || '-'}</td>
+                            <td class="px-4 py-3">
+                                <button onclick="deletePayment(${p.id})" class="text-red-600 hover:text-red-800">
+                                    <i class="fas fa-trash mr-1"></i>削除
+                                </button>
+                            </td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                ` : `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-inbox text-4xl mb-2"></i>
+                    <p>まだ入金がありません</p>
+                </div>
+                `}
+            </div>
+
+            <!-- 月次メンバーアサイン -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        <i class="fas fa-users mr-2 text-indigo-600"></i>アサインメンバー（この月のみ）
+                    </h2>
+                    <button onclick="openAddMemberModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                        <i class="fas fa-user-plus mr-2"></i>メンバーを追加
+                    </button>
+                </div>
+
+                ${allocationTotal !== 1.0 ? `
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                    <div class="flex">
+                        <i class="fas fa-exclamation-triangle text-yellow-600 mr-2 mt-1"></i>
+                        <p class="text-sm text-yellow-700">
+                            按分比率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
+                        </p>
+                    </div>
+                </div>
+                ` : ''}
+
+                ${members.results.length > 0 ? `
+                <table class="w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">備考</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        ${members.results.map(m => {
+                          const expectedRevenue = monthly.amount * m.allocation_ratio
+                          return `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3">
+                                <div class="font-medium">${m.member_name}</div>
+                                <div class="text-sm text-gray-500">${m.email || '-'}</div>
+                            </td>
+                            <td class="px-4 py-3">¥${(m.unit_price || 0).toLocaleString()}/月</td>
+                            <td class="px-4 py-3">
+                                <span class="font-medium">${(m.allocation_ratio * 100).toFixed(1)}%</span>
+                            </td>
+                            <td class="px-4 py-3 text-green-600 font-medium">
+                                ¥${Math.round(expectedRevenue).toLocaleString()}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600">${m.notes || '-'}</td>
+                            <td class="px-4 py-3">
+                                <button onclick="editMember(${m.id})" class="text-blue-600 hover:text-blue-800 mr-2">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteMember(${m.id})" class="text-red-600 hover:text-red-800">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+                ` : `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-user-slash text-4xl mb-2"></i>
+                    <p>まだメンバーがアサインされていません</p>
+                </div>
+                `}
+            </div>
+
+            <!-- 変更履歴 -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">
+                    <i class="fas fa-history mr-2 text-gray-600"></i>変更履歴
+                </h2>
+                ${histories.results.length > 0 ? `
+                <div class="space-y-3">
+                    ${histories.results.map(h => `
+                    <div class="border-l-4 border-gray-300 pl-4 py-2">
+                        <p class="text-sm text-gray-600">${h.changed_at}</p>
+                        <p class="text-gray-800">${h.field_name}: ${h.old_value || '-'} → ${h.new_value || '-'}</p>
+                        ${h.reason ? `<p class="text-sm text-gray-600 mt-1">理由: ${h.reason}</p>` : ''}
+                    </div>
+                    `).join('')}
+                </div>
+                ` : `
+                <p class="text-center text-gray-500 py-4">変更履歴はありません</p>
+                `}
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+            // 検収情報の更新
+            document.getElementById('inspection-form').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                const formData = new FormData(e.target)
+                const data = {
+                    inspection_status: formData.get('inspection_status'),
+                    inspection_date: formData.get('inspection_date') || null
+                }
+
+                try {
+                    await axios.put('/api/monthly-details/${id}/inspection', data)
+                    alert('検収情報を更新しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + error.message)
+                }
+            })
+
+            // 請求情報の更新
+            document.getElementById('billing-form').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                const formData = new FormData(e.target)
+                const data = {
+                    billing_status: formData.get('billing_status'),
+                    billing_date: formData.get('billing_date') || null,
+                    invoice_number: formData.get('invoice_number') || null
+                }
+
+                try {
+                    await axios.put('/api/monthly-details/${id}/billing', data)
+                    alert('請求情報を更新しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + error.message)
+                }
+            })
+
+            function openAddPaymentModal() {
+                const date = prompt('入金日 (YYYY-MM-DD):')
+                if (!date) return
+                
+                const amount = prompt('入金金額:')
+                if (!amount) return
+                
+                const notes = prompt('備考（任意）:')
+                
+                axios.post('/api/payment-histories', {
+                    monthly_detail_id: ${id},
+                    payment_date: date,
+                    amount: parseInt(amount),
+                    notes: notes || ''
+                }).then(() => {
+                    alert('入金を追加しました')
+                    location.reload()
+                }).catch(error => {
+                    alert('エラーが発生しました: ' + error.message)
+                })
+            }
+
+            function deletePayment(paymentId) {
+                if (!confirm('この入金履歴を削除しますか？')) return
+                
+                axios.delete('/api/payment-histories/' + paymentId)
+                    .then(() => {
+                        alert('入金履歴を削除しました')
+                        location.reload()
+                    })
+                    .catch(error => {
+                        alert('エラーが発生しました: ' + error.message)
+                    })
+            }
+
+            function openAddMemberModal() {
+                alert('メンバー追加機能は実装中です')
+                // TODO: Phase 1.5で実装
+            }
+
+            function editMember(memberId) {
+                alert('メンバー編集機能は実装中です')
+                // TODO: Phase 1.5で実装
+            }
+
+            function deleteMember(memberId) {
+                alert('メンバー削除機能は実装中です')
+                // TODO: Phase 1.5で実装
+            }
+
+            function openEditAmountModal() {
+                const newAmount = prompt('新しい金額:', ${monthly.amount})
+                if (!newAmount) return
+                
+                axios.put('/api/monthly-details/${id}/amount', {
+                    amount: parseInt(newAmount)
+                }).then(() => {
+                    alert('金額を更新しました')
+                    location.reload()
+                }).catch(error => {
+                    alert('エラーが発生しました: ' + error.message)
+                })
+            }
+        </script>
     </body>
     </html>
   `)
