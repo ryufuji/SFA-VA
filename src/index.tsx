@@ -1529,16 +1529,6 @@ app.get('/', async (c) => {
   const unbilledTotal = (unbilled[0] as any)?.total || 0
   const unpaidTotal = (unpaid[0] as any)?.total || 0
   
-  // 進行中の契約を取得
-  const { results: activeContracts } = await DB.prepare(`
-    SELECT c.*, p.project_name
-    FROM contracts c
-    JOIN projects p ON c.project_id = p.id
-    WHERE c.status = 'active'
-    ORDER BY c.contract_start_date DESC
-    LIMIT 10
-  `).all()
-  
   return c.html(`
     <!DOCTYPE html>
     <html lang="ja">
@@ -1644,53 +1634,11 @@ app.get('/', async (c) => {
         </div>
 
         <!-- 月次売上推移グラフ -->
-        <div class="bg-white shadow rounded-lg p-6 mb-8">
+        <div class="bg-white shadow rounded-lg p-6">
           <h2 class="text-lg font-semibold text-gray-900 mb-4">
             <i class="fas fa-chart-line mr-2"></i>月次売上推移(直近12ヶ月)
           </h2>
           <canvas id="salesChart" height="80"></canvas>
-        </div>
-
-        <!-- 進行中の契約 -->
-        <div class="bg-white shadow rounded-lg p-6">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-semibold text-gray-900">
-              <i class="fas fa-file-contract mr-2"></i>進行中の契約(上位10件)
-            </h2>
-          </div>
-          
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50">
-                <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件名</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">契約期間</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">契約金額</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
-                </tr>
-              </thead>
-              <tbody class="bg-white divide-y divide-gray-200">
-                ${activeContracts.map((contract: any) => `
-                  <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/contracts/${contract.id}'">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      ${contract.project_name}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      ${contract.contract_start_date} 〜 ${contract.contract_end_date}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ¥${parseInt(contract.contract_amount).toLocaleString()}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        <i class="fas fa-play-circle mr-1"></i>進行中
-                      </span>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
 
