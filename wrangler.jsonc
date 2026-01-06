@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "webapp",
+  "main": "./dist/_worker.js",
   "compatibility_date": "2026-01-06",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [

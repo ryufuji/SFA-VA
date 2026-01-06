@@ -445,6 +445,709 @@ app.get('/api/dashboard/sales-trend', async (c) => {
 // HTML Pages
 // ========================================
 
+// リード一覧
+app.get('/leads', async (c) => {
+  const { DB } = c.env
+  const { results: leads } = await DB.prepare(
+    'SELECT * FROM leads ORDER BY created_at DESC'
+  ).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>リード一覧 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span class="text-sm text-gray-500 mr-4">
+                <i class="fas fa-user-circle mr-1"></i>管理者
+              </span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="px-4 py-6 sm:px-0 flex justify-between items-center">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-users mr-2"></i>リード一覧
+          </h1>
+          <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <i class="fas fa-plus mr-2"></i>新規リード作成
+          </button>
+        </div>
+
+        <!-- データテーブル -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">会社名</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">担当者</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">メール</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">電話</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              ${leads.map((lead: any) => `
+                <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/leads/${lead.id}'">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    ${lead.company_name}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${lead.contact_person || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${lead.email || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${lead.phone || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    ${lead.status === 'active' 
+                      ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
+                      : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
+                    }
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 作成モーダル -->
+      <div id="create-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-users mr-2"></i>新規リード作成
+            </h3>
+            <button onclick="closeCreateModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="create-form" onsubmit="createLead(event)">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                会社名 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="company_name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                担当者名
+              </label>
+              <input type="text" name="contact_person"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メールアドレス
+              </label>
+              <input type="email" name="email"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                電話番号
+              </label>
+              <input type="tel" name="phone"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeCreateModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-plus mr-2"></i>作成
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        function openCreateModal() {
+          document.getElementById('create-modal').classList.remove('hidden');
+        }
+
+        function closeCreateModal() {
+          document.getElementById('create-modal').classList.add('hidden');
+          document.getElementById('create-form').reset();
+        }
+
+        async function createLead(event) {
+          event.preventDefault();
+          const form = event.target;
+          const formData = new FormData(form);
+          const data = Object.fromEntries(formData.entries());
+          
+          try {
+            const response = await axios.post('/api/leads', data);
+            if (response.data.success) {
+              alert('リードを作成しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + error.message);
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// リード詳細
+app.get('/leads/:id', async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  const lead = await DB.prepare('SELECT * FROM leads WHERE id = ?').bind(id).first() as any
+  if (!lead) {
+    return c.html('<h1>リードが見つかりません</h1>', 404)
+  }
+  
+  // 関連する案件を取得
+  const { results: projects } = await DB.prepare(
+    'SELECT * FROM projects WHERE lead_id = ? ORDER BY created_at DESC'
+  ).bind(id).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>リード詳細 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span class="text-sm text-gray-500 mr-4">
+                <i class="fas fa-user-circle mr-1"></i>管理者
+              </span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- パンくずリスト -->
+        <nav class="flex mb-4" aria-label="Breadcrumb">
+          <ol class="inline-flex items-center space-x-1 md:space-x-3">
+            <li>
+              <a href="/leads" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-users mr-1"></i>リード一覧
+              </a>
+            </li>
+            <li>
+              <span class="text-gray-400 mx-2">/</span>
+            </li>
+            <li class="text-gray-700">
+              ${lead.company_name}
+            </li>
+          </ol>
+        </nav>
+
+        <!-- ページヘッダー -->
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-user mr-2"></i>リード詳細
+          </h1>
+        </div>
+
+        <!-- 基本情報 -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 class="text-lg font-semibold text-gray-900 mb-4">
+            <i class="fas fa-info-circle mr-2"></i>基本情報
+          </h2>
+          <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt class="text-sm font-medium text-gray-500">会社名</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.company_name}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">担当者名</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.contact_person || '-'}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">メールアドレス</dt>
+              <dd class="mt-1 text-sm text-gray-900">
+                ${lead.email ? `<a href="mailto:${lead.email}" class="text-blue-600 hover:text-blue-800">${lead.email}</a>` : '-'}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">電話番号</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.phone || '-'}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">ステータス</dt>
+              <dd class="mt-1">
+                ${lead.status === 'active' 
+                  ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
+                  : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
+                }
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">登録日</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.created_at}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <!-- 案件一覧 -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-briefcase mr-2"></i>案件一覧
+            </h2>
+            <button onclick="openCreateProjectModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <i class="fas fa-plus mr-2"></i>案件を作成
+            </button>
+          </div>
+
+          ${projects.length > 0 ? `
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件名</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">作成日</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  ${projects.map((project: any) => `
+                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/projects/${project.id}'">
+                      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        ${project.project_name}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        ${project.status === 'active' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-play-circle mr-1"></i>進行中</span>' :
+                          project.status === 'won' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-trophy mr-1"></i>受注</span>' :
+                          project.status === 'lost' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-times-circle mr-1"></i>失注</span>' :
+                          '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
+                        }
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${project.created_at}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : `
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-inbox text-4xl mb-2"></i>
+              <p>案件がまだありません</p>
+            </div>
+          `}
+        </div>
+      </div>
+
+      <!-- 案件作成モーダル -->
+      <div id="create-project-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-briefcase mr-2"></i>新規案件作成
+            </h3>
+            <button onclick="closeCreateProjectModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="create-project-form" onsubmit="createProject(event)">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                案件名 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="project_name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeCreateProjectModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-plus mr-2"></i>作成
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        function openCreateProjectModal() {
+          document.getElementById('create-project-modal').classList.remove('hidden');
+        }
+
+        function closeCreateProjectModal() {
+          document.getElementById('create-project-modal').classList.add('hidden');
+          document.getElementById('create-project-form').reset();
+        }
+
+        async function createProject(event) {
+          event.preventDefault();
+          const form = event.target;
+          const formData = new FormData(form);
+          const data = Object.fromEntries(formData.entries());
+          data.lead_id = '${id}';
+          
+          try {
+            const response = await axios.post('/api/projects', data);
+            if (response.data.success) {
+              alert('案件を作成しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + error.message);
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// 案件詳細 (ハブ画面)
+app.get('/projects/:id', async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  const project = await DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first() as any
+  if (!project) {
+    return c.html('<h1>案件が見つかりません</h1>', 404)
+  }
+  
+  // リード情報を取得
+  const lead = await DB.prepare('SELECT * FROM leads WHERE id = ?').bind(project.lead_id).first() as any
+  
+  // 契約一覧を取得
+  const { results: contracts } = await DB.prepare(
+    'SELECT * FROM contracts WHERE project_id = ? ORDER BY contract_start_date DESC'
+  ).bind(id).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>案件詳細 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span class="text-sm text-gray-500 mr-4">
+                <i class="fas fa-user-circle mr-1"></i>管理者
+              </span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- パンくずリスト -->
+        <nav class="flex mb-4" aria-label="Breadcrumb">
+          <ol class="inline-flex items-center space-x-1 md:space-x-3">
+            <li>
+              <a href="/leads" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-users mr-1"></i>リード一覧
+              </a>
+            </li>
+            <li>
+              <span class="text-gray-400 mx-2">/</span>
+            </li>
+            <li>
+              <a href="/leads/${lead.id}" class="text-gray-500 hover:text-gray-700">
+                ${lead.company_name}
+              </a>
+            </li>
+            <li>
+              <span class="text-gray-400 mx-2">/</span>
+            </li>
+            <li class="text-gray-700">
+              ${project.project_name}
+            </li>
+          </ol>
+        </nav>
+
+        <!-- ページヘッダー -->
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-briefcase mr-2"></i>案件詳細
+          </h1>
+        </div>
+
+        <!-- 基本情報 -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 class="text-lg font-semibold text-gray-900 mb-4">
+            <i class="fas fa-info-circle mr-2"></i>基本情報
+          </h2>
+          <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt class="text-sm font-medium text-gray-500">案件名</dt>
+              <dd class="mt-1 text-sm text-gray-900">${project.project_name}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">リード</dt>
+              <dd class="mt-1 text-sm text-blue-600 hover:text-blue-800">
+                <a href="/leads/${lead.id}">${lead.company_name}</a>
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">ステータス</dt>
+              <dd class="mt-1">
+                ${project.status === 'active' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-play-circle mr-1"></i>進行中</span>' :
+                  project.status === 'won' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-trophy mr-1"></i>受注</span>' :
+                  project.status === 'lost' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-times-circle mr-1"></i>失注</span>' :
+                  '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
+                }
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">作成日</dt>
+              <dd class="mt-1 text-sm text-gray-900">${project.created_at}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <!-- 契約一覧 (最重要セクション) -->
+        <div class="bg-white shadow rounded-lg p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-file-contract mr-2"></i>契約一覧
+            </h2>
+            <button onclick="openCreateContractModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <i class="fas fa-plus mr-2"></i>契約を作成
+            </button>
+          </div>
+
+          ${contracts.length > 0 ? `
+            <div class="space-y-4">
+              ${contracts.map((contract: any) => `
+                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="location.href='/contracts/${contract.id}'">
+                  <div class="flex justify-between items-start mb-3">
+                    <div>
+                      <h3 class="text-base font-semibold text-gray-900">${contract.contract_name}</h3>
+                      <p class="text-sm text-gray-500 mt-1">
+                        <i class="fas fa-calendar-alt mr-1"></i>${contract.contract_start_date} 〜 ${contract.contract_end_date}
+                      </p>
+                    </div>
+                    <div class="text-right">
+                      <p class="text-lg font-bold text-gray-900">¥${parseInt(contract.contract_amount).toLocaleString()}</p>
+                      ${contract.status === 'active' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-play-circle mr-1"></i>進行中</span>' :
+                        contract.status === 'completed' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>' :
+                        '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Draft</span>'
+                      }
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-inbox text-4xl mb-2"></i>
+              <p>契約がまだありません</p>
+            </div>
+          `}
+        </div>
+      </div>
+
+      <!-- 契約作成モーダル -->
+      <div id="create-contract-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-file-contract mr-2"></i>新規契約作成
+            </h3>
+            <button onclick="closeCreateContractModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="create-contract-form" onsubmit="createContract(event)">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                契約名 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="contract_name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="例: Q1 2026 契約">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                開始日 <span class="text-red-500">*</span>
+              </label>
+              <input type="date" name="contract_start_date" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                終了日 <span class="text-red-500">*</span>
+              </label>
+              <input type="date" name="contract_end_date" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                契約金額 <span class="text-red-500">*</span>
+              </label>
+              <div class="relative">
+                <input type="number" name="contract_amount" min="0" required
+                  class="w-full px-3 py-2 pr-12 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="3000000">
+                <span class="absolute right-3 top-2 text-gray-500">円</span>
+              </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeCreateContractModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-plus mr-2"></i>作成
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        function openCreateContractModal() {
+          document.getElementById('create-contract-modal').classList.remove('hidden');
+        }
+
+        function closeCreateContractModal() {
+          document.getElementById('create-contract-modal').classList.add('hidden');
+          document.getElementById('create-contract-form').reset();
+        }
+
+        async function createContract(event) {
+          event.preventDefault();
+          const form = event.target;
+          const formData = new FormData(form);
+          const data = Object.fromEntries(formData.entries());
+          data.project_id = '${id}';
+          
+          try {
+            const response = await axios.post('/api/contracts', data);
+            if (response.data.success) {
+              alert('契約を作成しました（月次明細も自動生成されました）');
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + error.message);
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
+
 // トップダッシュボード
 app.get('/', async (c) => {
   const { DB } = c.env
@@ -683,6 +1386,494 @@ app.get('/', async (c) => {
           });
         })
       </script>
+    </body>
+    </html>
+  `)
+})
+
+// 案件詳細画面（ハブ画面）
+app.get('/projects/:id', async (c) => {
+  const id = c.req.param('id')
+  
+  // 案件情報とリード情報を取得
+  const project = await c.env.DB.prepare(`
+    SELECT p.*, l.company_name, l.contact_person 
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    WHERE p.id = ?
+  `).bind(id).first()
+  
+  if (!project) return c.notFound()
+
+  // 関連する契約を取得
+  const contracts = await c.env.DB.prepare(`
+    SELECT 
+      c.*,
+      (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id) as monthly_count,
+      (SELECT SUM(target_amount) FROM monthly_details WHERE contract_id = c.id) as total_amount
+    FROM contracts c
+    WHERE c.project_id = ?
+    ORDER BY c.start_date DESC
+  `).bind(id).all()
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>案件詳細 - ${project.project_name}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-sm text-gray-500 mr-4">
+                  <i class="fas fa-user-circle mr-1"></i>管理者
+                </span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto p-8">
+            <div class="mb-6">
+                <a href="/leads/${project.lead_id}" class="text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-arrow-left mr-2"></i>リード詳細に戻る
+                </a>
+            </div>
+
+            <!-- 案件基本情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800 mb-2">
+                            <i class="fas fa-folder-open mr-2 text-blue-600"></i>${project.project_name}
+                        </h1>
+                        <p class="text-gray-600">
+                            <i class="fas fa-building mr-2"></i>${project.company_name}
+                            ${project.contact_person ? ` / ${project.contact_person}` : ''}
+                        </p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-sm font-semibold ${
+                      project.status === 'active' ? 'bg-green-100 text-green-800' :
+                      project.status === 'won' ? 'bg-blue-100 text-blue-800' :
+                      project.status === 'lost' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-800'
+                    }">
+                        ${project.status === 'active' ? '商談中' :
+                          project.status === 'won' ? '受注' :
+                          project.status === 'lost' ? '失注' : project.status}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-sm text-gray-600">予算見込</label>
+                        <p class="text-gray-800 font-medium">
+                            ${project.estimated_value ? `¥${project.estimated_value.toLocaleString()}` : '-'}
+                        </p>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">営業担当</label>
+                        <p class="text-gray-800">${project.sales_owner || '-'}</p>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">作成日</label>
+                        <p class="text-gray-800">${project.created_at}</p>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-600">更新日</label>
+                        <p class="text-gray-800">${project.updated_at}</p>
+                    </div>
+                </div>
+
+                ${project.notes ? `
+                <div class="mt-4">
+                    <label class="text-sm text-gray-600">備考</label>
+                    <p class="text-gray-800 whitespace-pre-wrap">${project.notes}</p>
+                </div>
+                ` : ''}
+            </div>
+
+            <!-- 契約一覧 -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">
+                        <i class="fas fa-file-contract mr-2 text-blue-600"></i>契約一覧
+                    </h2>
+                    <button onclick="location.href='/projects/${id}/contracts/new'" 
+                            class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-plus mr-2"></i>契約を追加
+                    </button>
+                </div>
+
+                ${contracts.results.length > 0 ? `
+                <div class="grid grid-cols-1 gap-4">
+                    ${contracts.results.map(contract => `
+                    <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
+                         onclick="location.href='/contracts/${contract.id}'">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 class="font-bold text-gray-800">${contract.contract_name}</h3>
+                                <p class="text-sm text-gray-600">
+                                    ${contract.start_date} 〜 ${contract.end_date}
+                                </p>
+                            </div>
+                            <span class="px-2 py-1 rounded text-xs font-semibold ${
+                              contract.status === 'active' ? 'bg-green-100 text-green-800' :
+                              contract.status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                              contract.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }">
+                                ${contract.status === 'active' ? '進行中' :
+                                  contract.status === 'completed' ? '完了' :
+                                  contract.status === 'cancelled' ? 'キャンセル' : contract.status}
+                            </span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm">
+                            <div class="text-gray-600">
+                                <i class="fas fa-calendar-alt mr-1"></i>
+                                月次明細: ${contract.monthly_count}件
+                            </div>
+                            <div class="text-lg font-bold text-blue-600">
+                                ¥${(contract.total_amount || 0).toLocaleString()}
+                            </div>
+                        </div>
+                    </div>
+                    `).join('')}
+                </div>
+                ` : `
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-file-contract text-5xl mb-3"></i>
+                    <p class="text-lg">まだ契約がありません</p>
+                    <p class="text-sm mt-2">「契約を追加」ボタンから新しい契約を作成してください</p>
+                </div>
+                `}
+            </div>
+        </div>
+    </body>
+    </html>
+  `)
+})
+
+// 契約詳細画面（タブ構造）
+app.get('/contracts/:id', async (c) => {
+  const id = c.req.param('id')
+  const tab = c.req.query('tab') || 'monthly' // デフォルトは月次明細タブ
+  
+  // 契約情報と案件情報を取得
+  const contract = await c.env.DB.prepare(`
+    SELECT 
+      c.*,
+      p.project_name,
+      p.lead_id,
+      l.company_name
+    FROM contracts c
+    JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    WHERE c.id = ?
+  `).bind(id).first()
+  
+  if (!contract) return c.notFound()
+
+  // 月次明細を取得
+  const monthlyDetails = await c.env.DB.prepare(`
+    SELECT 
+      md.*,
+      md.total_payment_amount as paid_amount
+    FROM monthly_details md
+    WHERE md.contract_id = ?
+    ORDER BY md.target_month ASC
+  `).bind(id).all()
+
+  // アサインされたメンバーを取得
+  const members = await c.env.DB.prepare(`
+    SELECT 
+      cma.*,
+      m.name as member_name,
+      m.email
+    FROM contract_member_assignments cma
+    JOIN members m ON cma.member_id = m.id
+    WHERE cma.contract_id = ?
+    ORDER BY cma.allocation_ratio DESC
+  `).bind(id).all()
+
+  // 統計情報を計算
+  const totalAmount = monthlyDetails.results.reduce((sum, md) => sum + (md.amount || 0), 0)
+  const paidAmount = monthlyDetails.results.reduce((sum, md) => sum + (md.paid_amount || 0), 0)
+  const inspectedCount = monthlyDetails.results.filter(md => md.inspection_status === '検収済').length
+  const billedCount = monthlyDetails.results.filter(md => md.billing_status === '請求済').length
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>契約詳細 - ${contract.contract_name}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-sm text-gray-500 mr-4">
+                  <i class="fas fa-user-circle mr-1"></i>管理者
+                </span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto p-8">
+            <!-- パンくずリスト -->
+            <div class="mb-6 text-sm">
+                <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/leads/${contract.lead_id}" class="text-blue-600 hover:text-blue-800">${contract.company_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <a href="/projects/${contract.project_id}" class="text-blue-600 hover:text-blue-800">${contract.project_name}</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <span class="text-gray-700">${contract.contract_name}</span>
+            </div>
+
+            <!-- 契約基本情報 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800 mb-2">
+                            <i class="fas fa-file-contract mr-2 text-blue-600"></i>${contract.contract_name}
+                        </h1>
+                        <p class="text-gray-600">
+                            <i class="fas fa-calendar-alt mr-2"></i>
+                            ${contract.start_date} 〜 ${contract.end_date}
+                        </p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-sm font-semibold ${
+                      contract.status === 'active' ? 'bg-green-100 text-green-800' :
+                      contract.status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                      contract.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }">
+                        ${contract.status === 'active' ? '進行中' :
+                          contract.status === 'completed' ? '完了' :
+                          contract.status === 'cancelled' ? 'キャンセル' : contract.status}
+                    </span>
+                </div>
+
+                <!-- サマリーカード -->
+                <div class="grid grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-600 mb-1">契約金額</p>
+                        <p class="text-2xl font-bold text-blue-600">¥${totalAmount.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-600 mb-1">検収済</p>
+                        <p class="text-2xl font-bold text-green-600">${inspectedCount}/${monthlyDetails.results.length}件</p>
+                    </div>
+                    <div class="bg-orange-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-600 mb-1">請求済</p>
+                        <p class="text-2xl font-bold text-orange-600">${billedCount}/${monthlyDetails.results.length}件</p>
+                    </div>
+                    <div class="bg-purple-50 rounded-lg p-4">
+                        <p class="text-sm text-gray-600 mb-1">入金済</p>
+                        <p class="text-2xl font-bold text-purple-600">¥${paidAmount.toLocaleString()}</p>
+                    </div>
+                </div>
+
+                ${contract.notes ? `
+                <div class="border-t pt-4">
+                    <label class="text-sm text-gray-600 font-medium">備考</label>
+                    <p class="text-gray-800 mt-1 whitespace-pre-wrap">${contract.notes}</p>
+                </div>
+                ` : ''}
+            </div>
+
+            <!-- タブナビゲーション -->
+            <div class="bg-white rounded-lg shadow-md mb-6">
+                <div class="border-b border-gray-200">
+                    <nav class="flex -mb-px">
+                        <button onclick="location.href='/contracts/${id}?tab=monthly'" 
+                                class="px-6 py-4 border-b-2 font-medium text-sm ${
+                                  tab === 'monthly' 
+                                    ? 'border-blue-600 text-blue-600' 
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }">
+                            <i class="fas fa-calendar-check mr-2"></i>月次明細 (${monthlyDetails.results.length})
+                        </button>
+                        <button onclick="location.href='/contracts/${id}?tab=members'" 
+                                class="px-6 py-4 border-b-2 font-medium text-sm ${
+                                  tab === 'members' 
+                                    ? 'border-blue-600 text-blue-600' 
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }">
+                            <i class="fas fa-users mr-2"></i>アサインメンバー (${members.results.length})
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- タブコンテンツ -->
+                <div class="p-6">
+                    ${tab === 'monthly' ? `
+                    <!-- 月次明細タブ -->
+                    ${monthlyDetails.results.length > 0 ? `
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">対象月</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">入金</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${monthlyDetails.results.map(md => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 font-medium">${md.target_month}</td>
+                                <td class="px-4 py-3">¥${(md.amount || 0).toLocaleString()}</td>
+                                <td class="px-4 py-3">
+                                    ${md.inspection_status === '検収済' 
+                                      ? '<span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>'
+                                      : md.inspection_status === '未検収'
+                                      ? '<span class="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800"><i class="fas fa-clock mr-1"></i>未完</span>'
+                                      : '<span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">-</span>'
+                                    }
+                                </td>
+                                <td class="px-4 py-3">
+                                    ${md.billing_status === '請求済' 
+                                      ? '<span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"><i class="fas fa-file-invoice mr-1"></i>済</span>'
+                                      : '<span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">未</span>'
+                                    }
+                                </td>
+                                <td class="px-4 py-3">
+                                    ${(md.paid_amount || 0) > 0
+                                      ? `<span class="text-green-600 font-medium">¥${(md.paid_amount || 0).toLocaleString()}</span>`
+                                      : '<span class="text-gray-400">-</span>'
+                                    }
+                                </td>
+                                <td class="px-4 py-3">
+                                    <a href="/monthly/${md.id}" class="text-blue-600 hover:text-blue-800">
+                                        <i class="fas fa-edit mr-1"></i>詳細
+                                    </a>
+                                </td>
+                            </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    ` : `
+                    <div class="text-center py-12 text-gray-500">
+                        <i class="fas fa-calendar-times text-5xl mb-3"></i>
+                        <p class="text-lg">月次明細がありません</p>
+                    </div>
+                    `}
+                    ` : `
+                    <!-- メンバータブ -->
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold">アサインメンバー</h3>
+                        <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-user-plus mr-2"></i>メンバーを追加
+                        </button>
+                    </div>
+                    ${members.results.length > 0 ? `
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${members.results.map(m => {
+                              const allocationPercentage = (m.allocation_ratio * 100).toFixed(1)
+                              const expectedRevenue = totalAmount * m.allocation_ratio
+                              return `
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3">
+                                    <div class="font-medium">${m.member_name}</div>
+                                    <div class="text-sm text-gray-500">${m.email || '-'}</div>
+                                </td>
+                                <td class="px-4 py-3">¥${(m.unit_price || 0).toLocaleString()}/月</td>
+                                <td class="px-4 py-3">
+                                    <span class="font-medium">${allocationPercentage}%</span>
+                                </td>
+                                <td class="px-4 py-3 text-green-600 font-medium">
+                                    ¥${Math.round(expectedRevenue).toLocaleString()}
+                                </td>
+                                <td class="px-4 py-3">
+                                    <button class="text-blue-600 hover:text-blue-800">
+                                        <i class="fas fa-edit mr-1"></i>編集
+                                    </button>
+                                </td>
+                            </tr>
+                            `}).join('')}
+                        </tbody>
+                    </table>
+                    ` : `
+                    <div class="text-center py-12 text-gray-500">
+                        <i class="fas fa-user-slash text-5xl mb-3"></i>
+                        <p class="text-lg">アサインされたメンバーがいません</p>
+                        <p class="text-sm mt-2">「メンバーを追加」ボタンから追加してください</p>
+                    </div>
+                    `}
+                    `}
+                </div>
+            </div>
+        </div>
     </body>
     </html>
   `)
