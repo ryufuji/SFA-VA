@@ -3190,6 +3190,147 @@ app.get('/monthly/:id', async (c) => {
   `)
 })
 
+// 契約一覧画面
+app.get('/contracts', async (c) => {
+  const { DB } = c.env
+  
+  // 全契約を取得（案件・リード情報を含む）
+  const { results: contracts } = await DB.prepare(`
+    SELECT 
+      c.*,
+      p.project_name,
+      l.company_name,
+      (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id) as monthly_count,
+      (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id AND inspection_status = '検収済') as inspected_count,
+      (SELECT SUM(amount) FROM monthly_details WHERE contract_id = c.id) as total_amount
+    FROM contracts c
+    LEFT JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    ORDER BY c.created_at DESC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>契約一覧 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span class="text-sm text-gray-500 mr-4">
+                <i class="fas fa-user-circle mr-1"></i>管理者
+              </span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-file-contract mr-2"></i>契約一覧
+          </h1>
+        </div>
+
+        <!-- 契約一覧 -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+          ${contracts.length > 0 ? `
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約名</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件/顧客</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約期間</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約金額</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">進捗</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              ${contracts.map((contract: any) => `
+                <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/contracts/${contract.id}'">
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="font-medium text-gray-900">${contract.contract_name}</div>
+                    <div class="text-sm text-gray-500">${contract.monthly_count || 0}ヶ月</div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm text-gray-900">${contract.project_name || '-'}</div>
+                    <div class="text-sm text-gray-500">${contract.company_name || '-'}</div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${contract.contract_start_date} 〜<br>${contract.contract_end_date}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900">¥${(contract.contract_amount || 0).toLocaleString()}</div>
+                    ${contract.total_amount !== contract.contract_amount ? 
+                      '<div class="text-xs text-yellow-600">実績: ¥' + (contract.total_amount || 0).toLocaleString() + '</div>' 
+                      : ''}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm text-gray-900">
+                      検収: ${contract.inspected_count || 0}/${contract.monthly_count || 0}
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                      <div class="bg-green-600 h-2 rounded-full" style="width: ${contract.monthly_count > 0 ? (contract.inspected_count / contract.monthly_count * 100) : 0}%"></div>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    ${contract.status === 'active' ? 
+                      '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>進行中</span>' :
+                      contract.status === 'completed' ? 
+                      '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-flag-checkered mr-1"></i>完了</span>' :
+                      contract.status === 'terminated' ? 
+                      '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800"><i class="fas fa-times-circle mr-1"></i>終了</span>' :
+                      '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-file mr-1"></i>下書き</span>'
+                    }
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ` : `
+          <div class="text-center py-12 text-gray-500">
+            <i class="fas fa-inbox text-4xl mb-2"></i>
+            <p>契約がまだありません</p>
+          </div>
+          `}
+        </div>
+      </div>
+    </body>
+    </html>
+  `)
+})
+
 // メンバー管理画面
 app.get('/members', async (c) => {
   const { DB } = c.env
