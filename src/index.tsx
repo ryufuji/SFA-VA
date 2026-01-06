@@ -2675,6 +2675,10 @@ app.get('/monthly/:id', async (c) => {
   const totalPayment = payments.results.reduce((sum, p) => sum + (p.amount || 0), 0)
   const remainingAmount = (monthly.amount || 0) - totalPayment
   const allocationTotal = members.results.reduce((sum, m) => sum + (m.allocation_ratio || 0), 0)
+  
+  // 想定売上の合計を計算
+  const totalExpectedRevenue = members.results.reduce((sum, m) => sum + (m.unit_price * m.allocation_ratio), 0)
+  const revenueDifference = (monthly.amount || 0) - totalExpectedRevenue
 
   return c.html(`
     <!DOCTYPE html>
@@ -2764,13 +2768,16 @@ app.get('/monthly/:id', async (c) => {
                     </button>
                 </div>
 
-                ${allocationTotal !== 1.0 ? `
+                ${revenueDifference !== 0 ? `
                 <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
                     <div class="flex">
                         <i class="fas fa-exclamation-triangle text-yellow-600 mr-2 mt-1"></i>
-                        <p class="text-sm text-yellow-700">
-                            稼働率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
-                        </p>
+                        <div class="text-sm text-yellow-700">
+                            <p class="font-semibold mb-1">想定売上の合計が月次明細金額と一致しません</p>
+                            <p>月次明細金額: ¥${(monthly.amount || 0).toLocaleString()}</p>
+                            <p>想定売上合計: ¥${Math.round(totalExpectedRevenue).toLocaleString()}</p>
+                            <p class="font-semibold mt-1">差額: ¥${Math.abs(Math.round(revenueDifference)).toLocaleString()} ${revenueDifference > 0 ? '(不足)' : '(超過)'}</p>
+                        </div>
                     </div>
                 </div>
                 ` : ''}
