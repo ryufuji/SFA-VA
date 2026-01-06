@@ -15,6 +15,8 @@
 
 **案件詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/projects/1
 
+**契約一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts
+
 **契約詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts/2
 
 **月次明細詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/monthly/4
