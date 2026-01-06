@@ -618,9 +618,9 @@ app.post('/api/monthly-member-assignments', async (c) => {
     return c.json({ success: false, error: 'Required fields are missing' }, 400)
   }
 
-  // 按分比率は0-1の範囲
+  // 稼働率は0-1の範囲
   if (allocation_ratio < 0 || allocation_ratio > 1) {
-    return c.json({ success: false, error: 'Allocation ratio must be between 0 and 1' }, 400)
+    return c.json({ success: false, error: 'Work ratio must be between 0 and 1' }, 400)
   }
 
   // 既存のアサインを確認
@@ -650,7 +650,7 @@ app.put('/api/monthly-member-assignments/:id', async (c) => {
 
   // バリデーション
   if (allocation_ratio !== undefined && (allocation_ratio < 0 || allocation_ratio > 1)) {
-    return c.json({ success: false, error: 'Allocation ratio must be between 0 and 1' }, 400)
+    return c.json({ success: false, error: 'Work ratio must be between 0 and 1' }, 400)
   }
 
   // 更新
@@ -2184,7 +2184,7 @@ app.get('/contracts/:id', async (c) => {
                             <tr>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">稼働率</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
                             </tr>
@@ -2192,7 +2192,7 @@ app.get('/contracts/:id', async (c) => {
                         <tbody class="divide-y divide-gray-200">
                             ${members.results.map(m => {
                               const allocationPercentage = (m.allocation_ratio * 100).toFixed(1)
-                              const expectedRevenue = totalAmount * m.allocation_ratio
+                              const expectedRevenue = m.unit_price * m.allocation_ratio
                               return `
                             <tr class="hover:bg-gray-50">
                                 <td class="px-4 py-3">
@@ -2401,7 +2401,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                         <div id="allocation-warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-4">
                             <p class="text-sm text-yellow-700">
                                 <i class="fas fa-exclamation-triangle mr-2"></i>
-                                按分比率の合計: <span id="allocation-total">0</span>% （推奨: 100%）
+                                稼働率の合計: <span id="allocation-total">0</span>% （推奨: 100%）
                             </p>
                         </div>
                     </div>
@@ -2457,7 +2457,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                         </select>
                     </div>
                     <div class="w-28">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">按分比率(%)</label>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">稼働率(%)</label>
                         <input type="number" name="allocation_ratio[]" required min="0" max="100" step="0.1" 
                                class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500"
                                placeholder="50" onchange="updateAllocationTotal()">
@@ -2496,7 +2496,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 updateAllocationTotal()
             }
 
-            // 按分比率合計を更新
+            // 稼働率合計を更新
             function updateAllocationTotal() {
                 const inputs = document.querySelectorAll('input[name="allocation_ratio[]"]')
                 let total = 0
@@ -2513,10 +2513,10 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                     
                     if (Math.abs(total - 100) < 0.1) {
                         warning.className = 'bg-green-50 border-l-4 border-green-400 p-3 mt-4'
-                        warning.innerHTML = '<p class="text-sm text-green-700"><i class="fas fa-check-circle mr-2"></i>按分比率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （適切です）</p>'
+                        warning.innerHTML = '<p class="text-sm text-green-700"><i class="fas fa-check-circle mr-2"></i>稼働率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （適切です）</p>'
                     } else {
                         warning.className = 'bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-4'
-                        warning.innerHTML = '<p class="text-sm text-yellow-700"><i class="fas fa-exclamation-triangle mr-2"></i>按分比率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （推奨: 100%）</p>'
+                        warning.innerHTML = '<p class="text-sm text-yellow-700"><i class="fas fa-exclamation-triangle mr-2"></i>稼働率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （推奨: 100%）</p>'
                     }
                 } else {
                     warning.classList.add('hidden')
@@ -2769,7 +2769,7 @@ app.get('/monthly/:id', async (c) => {
                     <div class="flex">
                         <i class="fas fa-exclamation-triangle text-yellow-600 mr-2 mt-1"></i>
                         <p class="text-sm text-yellow-700">
-                            按分比率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
+                            稼働率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
                         </p>
                     </div>
                 </div>
@@ -2781,7 +2781,7 @@ app.get('/monthly/:id', async (c) => {
                         <tr>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">稼働率</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">備考</th>
                             <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
@@ -2789,7 +2789,7 @@ app.get('/monthly/:id', async (c) => {
                     </thead>
                     <tbody class="divide-y divide-gray-200">
                         ${members.results.map(m => {
-                          const expectedRevenue = monthly.amount * m.allocation_ratio
+                          const expectedRevenue = m.unit_price * m.allocation_ratio
                           return `
                         <tr class="hover:bg-gray-50">
                             <td class="px-4 py-3">
@@ -3093,13 +3093,13 @@ app.get('/monthly/:id', async (c) => {
                         return
                     }
                     
-                    // 按分比率入力
-                    const ratioInput = prompt('按分比率を入力してください (0-100):', '50')
+                    // 稼働率入力
+                    const ratioInput = prompt('稼働率を入力してください (0-100):', '100')
                     if (!ratioInput) return
                     const ratio = parseFloat(ratioInput) / 100
                     
                     if (ratio < 0 || ratio > 1) {
-                        alert('按分比率は0〜100の範囲で入力してください')
+                        alert('稼働率は0〜100の範囲で入力してください')
                         return
                     }
                     
@@ -3131,12 +3131,12 @@ app.get('/monthly/:id', async (c) => {
                 try {
                     // 現在の値を取得するために再度APIを呼ぶか、データを埋め込む必要がある
                     // ここでは簡易的にプロンプトで入力させる
-                    const ratioInput = prompt('新しい按分比率を入力してください (0-100):')
+                    const ratioInput = prompt('新しい稼働率を入力してください (0-100):')
                     if (!ratioInput) return
                     const ratio = parseFloat(ratioInput) / 100
                     
                     if (ratio < 0 || ratio > 1) {
-                        alert('按分比率は0〜100の範囲で入力してください')
+                        alert('稼働率は0〜100の範囲で入力してください')
                         return
                     }
                     
