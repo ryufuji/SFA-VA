@@ -187,48 +187,51 @@ app.get('/api/contracts/:id', async (c) => {
   })
 })
 
-app.post('/api/contracts', async (c) => {
-  const { DB } = c.env
-  const body = await c.req.json()
-  const { project_id, contract_name, contract_start_date, contract_end_date, contract_amount } = body
-  
-  if (!project_id || !contract_start_date || !contract_end_date || !contract_amount) {
-    return c.json({ success: false, error: 'All fields are required' }, 400)
-  }
-  
-  // 契約を作成
-  const result = await DB.prepare(
-    'INSERT INTO contracts (project_id, contract_name, contract_start_date, contract_end_date, contract_amount, status) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(project_id, contract_name, contract_start_date, contract_end_date, contract_amount, 'active').run()
-  
-  const contractId = result.meta.last_row_id
-  
-  // 月次明細を自動生成
-  const startDate = new Date(contract_start_date)
-  const endDate = new Date(contract_end_date)
-  
-  const months: string[] = []
-  let currentDate = new Date(startDate)
-  
-  while (currentDate <= endDate) {
-    const yearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
-    if (!months.includes(yearMonth)) {
-      months.push(yearMonth)
-    }
-    currentDate.setMonth(currentDate.getMonth() + 1)
-  }
-  
-  // 均等割で月次明細を作成
-  const amountPerMonth = Math.floor(contract_amount / months.length)
-  
-  for (const month of months) {
-    await DB.prepare(
-      'INSERT INTO monthly_details (contract_id, target_month, amount, inspection_status, billing_status, payment_status, total_payment_amount) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(contractId, month, amountPerMonth, '未検収', '未請求', '未入金', 0).run()
-  }
-  
-  return c.json({ success: true, data: { id: contractId, monthsGenerated: months.length } })
-})
+// app.post('/api/contracts', async (c) => {
+//   const { DB } = c.env
+//   const body = await c.req.json()
+//   const { project_id, contract_name, contract_start_date, contract_end_date, contract_amount } = body
+//   
+//   if (!project_id || !contract_start_date || !contract_end_date || !contract_amount) {
+//     return c.json({ success: false, error: 'All fields are required' }, 400)
+//   }
+//   
+//   // 契約を作成
+//   const result = await DB.prepare(
+//     'INSERT INTO contracts (project_id, contract_name, contract_start_date, contract_end_date, contract_amount, status) VALUES (?, ?, ?, ?, ?, ?)'
+//   ).bind(project_id, contract_name, contract_start_date, contract_end_date, contract_amount, 'active').run()
+//   
+//   const contractId = result.meta.last_row_id
+//   
+//   // 月次明細を自動生成
+//   const startDate = new Date(contract_start_date)
+//   const endDate = new Date(contract_end_date)
+//   
+//   const months: string[] = []
+//   let currentDate = new Date(startDate)
+//   
+//   while (currentDate <= endDate) {
+//     const yearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
+//     if (!months.includes(yearMonth)) {
+//       months.push(yearMonth)
+//     }
+//     currentDate.setMonth(currentDate.getMonth() + 1)
+//   }
+//   
+//   // 均等割で月次明細を作成
+//   const amountPerMonth = Math.floor(contract_amount / months.length)
+//   
+//   for (const month of months) {
+//     await DB.prepare(
+//       'INSERT INTO monthly_details (contract_id, target_month, amount, inspection_status, billing_status, payment_status, total_payment_amount) VALUES (?, ?, ?, ?, ?, ?, ?)'
+//     ).bind(contractId, month, amountPerMonth, '未検収', '未請求', '未入金', 0).run()
+//   }
+//   
+//   return c.json({ success: true, data: { id: contractId, monthsGenerated: months.length } })
+// })
+
+// 上記の古い契約作成APIは390行目の新しいバージョンと重複しているため、
+// 新しいバージョン（メンバーアサイン対応版）が優先されるはず
 
 // --- 月次明細 API ---
 app.get('/api/monthly-details/:id', async (c) => {
@@ -388,7 +391,7 @@ app.get('/api/members', async (c) => {
 
 // API: 契約作成（月次明細自動生成）
 app.post('/api/contracts', async (c) => {
-  const { project_id, contract_name, start_date, end_date, contract_amount, notes } = await c.req.json()
+  const { project_id, contract_name, start_date, end_date, contract_amount, notes, member_assignments } = await c.req.json()
 
   // バリデーション
   if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
@@ -424,20 +427,21 @@ app.post('/api/contracts', async (c) => {
     const contractResult = await c.env.DB.prepare(`
       INSERT INTO contracts (
         project_id, contract_name, contract_start_date, contract_end_date, 
-        contract_amount, status, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        contract_amount, status
+      ) VALUES (?, ?, ?, ?, ?, ?)
     `).bind(
       project_id, contract_name, start_date, end_date, 
-      contract_amount, 'active', notes || ''
+      contract_amount, 'active'
     ).run()
 
     const contractId = contractResult.meta.last_row_id
 
-    // 月次明細を生成
+    // 月次明細を生成し、IDを保持
+    const monthlyDetailIds = []
     for (let i = 0; i < months.length; i++) {
       const monthAmount = i === 0 ? baseAmount + remainder : baseAmount
       
-      await c.env.DB.prepare(`
+      const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
           contract_id, target_month, amount,
           inspection_status, billing_status, payment_status
@@ -446,16 +450,38 @@ app.post('/api/contracts', async (c) => {
         contractId, months[i], monthAmount,
         '未検収', '未請求', '未入金'
       ).run()
+      
+      monthlyDetailIds.push(monthlyResult.meta.last_row_id)
+    }
+
+    // メンバーアサインがある場合、各月次明細に追加
+    if (member_assignments && member_assignments.length > 0) {
+      for (const monthlyDetailId of monthlyDetailIds) {
+        for (const assignment of member_assignments) {
+          await c.env.DB.prepare(`
+            INSERT INTO monthly_member_assignments (
+              monthly_detail_id, member_id, allocation_ratio, unit_price, notes
+            ) VALUES (?, ?, ?, ?, ?)
+          `).bind(
+            monthlyDetailId,
+            assignment.member_id,
+            assignment.allocation_ratio,
+            assignment.unit_price,
+            assignment.notes || ''
+          ).run()
+        }
+      }
     }
 
     return c.json({ 
       success: true, 
       contract_id: contractId,
-      monthly_details_count: months.length
+      monthly_details_count: months.length,
+      member_assignments_count: member_assignments ? member_assignments.length : 0
     })
   } catch (error) {
     console.error('Contract creation error:', error)
-    return c.json({ error: 'データベースエラーが発生しました' }, 500)
+    return c.json({ error: 'データベースエラーが発生しました: ' + error.message }, 500)
   }
 })
 
@@ -2219,6 +2245,14 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
   
   if (!project) return c.notFound()
 
+  // アクティブなメンバー一覧を取得
+  const { results: members } = await c.env.DB.prepare(`
+    SELECT id, name, email, default_unit_price
+    FROM members
+    WHERE status = 'active'
+    ORDER BY name ASC
+  `).all()
+
   return c.html(`
     <!DOCTYPE html>
     <html lang="ja">
@@ -2344,6 +2378,34 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                                   placeholder="契約に関する補足情報"></textarea>
                     </div>
 
+                    <!-- メンバーアサイン -->
+                    <div class="border-t pt-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800">
+                                <i class="fas fa-users mr-2 text-indigo-600"></i>初期メンバーアサイン（任意）
+                            </h3>
+                            <button type="button" onclick="addMemberRow()" class="px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
+                                <i class="fas fa-plus mr-1"></i>メンバーを追加
+                            </button>
+                        </div>
+                        
+                        <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4 text-sm text-blue-700">
+                            <i class="fas fa-info-circle mr-2"></i>
+                            契約全期間に適用されるデフォルトのメンバーアサインを設定できます。後から月次明細ごとに変更も可能です。
+                        </div>
+
+                        <div id="members-container" class="space-y-3">
+                            <!-- メンバー行が動的に追加される -->
+                        </div>
+
+                        <div id="allocation-warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-4">
+                            <p class="text-sm text-yellow-700">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>
+                                按分比率の合計: <span id="allocation-total">0</span>% （推奨: 100%）
+                            </p>
+                        </div>
+                    </div>
+
                     <!-- プレビュー -->
                     <div id="preview" class="bg-gray-50 rounded-lg p-4 hidden">
                         <h3 class="text-sm font-semibold text-gray-700 mb-2">
@@ -2373,6 +2435,94 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+            // メンバーデータ
+            const members = ${JSON.stringify(members)}
+            let memberRowIndex = 0
+
+            // メンバー行を追加
+            function addMemberRow() {
+                const container = document.getElementById('members-container')
+                const rowId = 'member-row-' + memberRowIndex++
+                
+                const row = document.createElement('div')
+                row.id = rowId
+                row.className = 'flex gap-3 items-start bg-white p-3 rounded-lg border border-gray-200'
+                
+                row.innerHTML = \`
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">メンバー</label>
+                        <select name="member_id[]" required class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500">
+                            <option value="">選択してください</option>
+                            \${members.map(m => \`<option value="\${m.id}">\${m.name} (¥\${(m.default_unit_price || 0).toLocaleString()}/月)</option>\`).join('')}
+                        </select>
+                    </div>
+                    <div class="w-28">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">按分比率(%)</label>
+                        <input type="number" name="allocation_ratio[]" required min="0" max="100" step="0.1" 
+                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500"
+                               placeholder="50" onchange="updateAllocationTotal()">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">単価(円/月)</label>
+                        <input type="number" name="unit_price[]" required min="0" step="1000"
+                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500"
+                               placeholder="500000">
+                    </div>
+                    <div class="pt-6">
+                        <button type="button" onclick="removeMemberRow('\${rowId}')" 
+                                class="text-red-600 hover:text-red-800 text-sm">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                \`
+                
+                // メンバー選択時に単価を自動入力
+                const select = row.querySelector('select[name="member_id[]"]')
+                const priceInput = row.querySelector('input[name="unit_price[]"]')
+                select.addEventListener('change', (e) => {
+                    const selectedMember = members.find(m => m.id == e.target.value)
+                    if (selectedMember) {
+                        priceInput.value = selectedMember.default_unit_price || 0
+                    }
+                })
+                
+                container.appendChild(row)
+                updateAllocationTotal()
+            }
+
+            // メンバー行を削除
+            function removeMemberRow(rowId) {
+                document.getElementById(rowId).remove()
+                updateAllocationTotal()
+            }
+
+            // 按分比率合計を更新
+            function updateAllocationTotal() {
+                const inputs = document.querySelectorAll('input[name="allocation_ratio[]"]')
+                let total = 0
+                inputs.forEach(input => {
+                    total += parseFloat(input.value) || 0
+                })
+                
+                const totalSpan = document.getElementById('allocation-total')
+                const warning = document.getElementById('allocation-warning')
+                
+                if (inputs.length > 0) {
+                    totalSpan.textContent = total.toFixed(1)
+                    warning.classList.remove('hidden')
+                    
+                    if (Math.abs(total - 100) < 0.1) {
+                        warning.className = 'bg-green-50 border-l-4 border-green-400 p-3 mt-4'
+                        warning.innerHTML = '<p class="text-sm text-green-700"><i class="fas fa-check-circle mr-2"></i>按分比率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （適切です）</p>'
+                    } else {
+                        warning.className = 'bg-yellow-50 border-l-4 border-yellow-400 p-3 mt-4'
+                        warning.innerHTML = '<p class="text-sm text-yellow-700"><i class="fas fa-exclamation-triangle mr-2"></i>按分比率の合計: <span id="allocation-total">' + total.toFixed(1) + '</span>% （推奨: 100%）</p>'
+                    }
+                } else {
+                    warning.classList.add('hidden')
+                }
+            }
+
             // プレビュー機能
             function previewContract() {
                 const startDate = document.querySelector('input[name="start_date"]').value
@@ -2430,13 +2580,31 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 if (!confirm('この内容で契約を作成しますか？')) return
                 
                 const formData = new FormData(e.target)
+                
+                // メンバーアサインデータを収集
+                const memberIds = formData.getAll('member_id[]')
+                const allocationRatios = formData.getAll('allocation_ratio[]')
+                const unitPrices = formData.getAll('unit_price[]')
+                
+                const memberAssignments = []
+                for (let i = 0; i < memberIds.length; i++) {
+                    if (memberIds[i]) {
+                        memberAssignments.push({
+                            member_id: parseInt(memberIds[i]),
+                            allocation_ratio: parseFloat(allocationRatios[i]) / 100,
+                            unit_price: parseInt(unitPrices[i])
+                        })
+                    }
+                }
+                
                 const data = {
                     project_id: parseInt(formData.get('project_id')),
                     contract_name: formData.get('contract_name'),
                     start_date: formData.get('start_date'),
                     end_date: formData.get('end_date'),
                     contract_amount: parseInt(formData.get('contract_amount')),
-                    notes: formData.get('notes') || ''
+                    notes: formData.get('notes') || '',
+                    member_assignments: memberAssignments
                 }
 
                 try {
