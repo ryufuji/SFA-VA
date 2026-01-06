@@ -1368,7 +1368,7 @@ app.get('/projects/:id', async (c) => {
             <h2 class="text-lg font-semibold text-gray-900">
               <i class="fas fa-file-contract mr-2"></i>契約一覧
             </h2>
-            <button onclick="openCreateContractModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <button onclick="location.href='/projects/${id}/contracts/new'" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
               <i class="fas fa-plus mr-2"></i>契約を作成
             </button>
           </div>
