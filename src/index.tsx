@@ -583,6 +583,81 @@ app.delete('/api/payment-histories/:id', async (c) => {
   return c.json({ success: true })
 })
 
+// API: 月次メンバーアサイン追加
+app.post('/api/monthly-member-assignments', async (c) => {
+  const { monthly_detail_id, member_id, allocation_ratio, unit_price, notes } = await c.req.json()
+
+  // バリデーション
+  if (!monthly_detail_id || !member_id || allocation_ratio === undefined || !unit_price) {
+    return c.json({ success: false, error: 'Required fields are missing' }, 400)
+  }
+
+  // 按分比率は0-1の範囲
+  if (allocation_ratio < 0 || allocation_ratio > 1) {
+    return c.json({ success: false, error: 'Allocation ratio must be between 0 and 1' }, 400)
+  }
+
+  // 既存のアサインを確認
+  const existing = await c.env.DB.prepare(`
+    SELECT * FROM monthly_member_assignments 
+    WHERE monthly_detail_id = ? AND member_id = ?
+  `).bind(monthly_detail_id, member_id).first()
+
+  if (existing) {
+    return c.json({ success: false, error: 'Member is already assigned to this monthly detail' }, 400)
+  }
+
+  // 追加
+  const result = await c.env.DB.prepare(`
+    INSERT INTO monthly_member_assignments 
+    (monthly_detail_id, member_id, allocation_ratio, unit_price, notes)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(monthly_detail_id, member_id, allocation_ratio, unit_price, notes || '').run()
+
+  return c.json({ success: true, id: result.meta.last_row_id })
+})
+
+// API: 月次メンバーアサイン更新
+app.put('/api/monthly-member-assignments/:id', async (c) => {
+  const id = c.req.param('id')
+  const { allocation_ratio, unit_price, notes } = await c.req.json()
+
+  // バリデーション
+  if (allocation_ratio !== undefined && (allocation_ratio < 0 || allocation_ratio > 1)) {
+    return c.json({ success: false, error: 'Allocation ratio must be between 0 and 1' }, 400)
+  }
+
+  // 更新
+  await c.env.DB.prepare(`
+    UPDATE monthly_member_assignments 
+    SET allocation_ratio = ?, unit_price = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(allocation_ratio, unit_price, notes || '', id).run()
+
+  return c.json({ success: true })
+})
+
+// API: 月次メンバーアサイン削除
+app.delete('/api/monthly-member-assignments/:id', async (c) => {
+  const id = c.req.param('id')
+
+  await c.env.DB.prepare('DELETE FROM monthly_member_assignments WHERE id = ?').bind(id).run()
+
+  return c.json({ success: true })
+})
+
+// API: メンバー一覧取得
+app.get('/api/members', async (c) => {
+  const members = await c.env.DB.prepare(`
+    SELECT id, name, email, default_unit_price, status
+    FROM members
+    WHERE status = 'active'
+    ORDER BY name ASC
+  `).all()
+
+  return c.json({ success: true, data: members.results })
+})
+
 // --- ダッシュボード API ---
 app.get('/api/dashboard/summary', async (c) => {
   const { DB } = c.env
@@ -2775,19 +2850,105 @@ app.get('/monthly/:id', async (c) => {
                     })
             }
 
-            function openAddMemberModal() {
-                alert('メンバー追加機能は実装中です')
-                // TODO: Phase 1.5で実装
+            async function openAddMemberModal() {
+                try {
+                    // メンバー一覧を取得
+                    const response = await axios.get('/api/members')
+                    const members = response.data.data
+                    
+                    if (members.length === 0) {
+                        alert('アサイン可能なメンバーがいません')
+                        return
+                    }
+                    
+                    // メンバー選択
+                    let memberOptions = members.map(m => m.id + ': ' + m.name + ' (¥' + (m.default_unit_price || 0).toLocaleString() + '/月)').join('\\n')
+                    const memberInput = prompt('メンバーIDを入力してください:\\n' + memberOptions)
+                    if (!memberInput) return
+                    
+                    const memberId = parseInt(memberInput)
+                    const selectedMember = members.find(m => m.id === memberId)
+                    if (!selectedMember) {
+                        alert('無効なメンバーIDです')
+                        return
+                    }
+                    
+                    // 按分比率入力
+                    const ratioInput = prompt('按分比率を入力してください (0-100):', '50')
+                    if (!ratioInput) return
+                    const ratio = parseFloat(ratioInput) / 100
+                    
+                    if (ratio < 0 || ratio > 1) {
+                        alert('按分比率は0〜100の範囲で入力してください')
+                        return
+                    }
+                    
+                    // 単価入力
+                    const priceInput = prompt('単価を入力してください:', selectedMember.default_unit_price || '0')
+                    if (!priceInput) return
+                    const price = parseInt(priceInput)
+                    
+                    // 備考入力
+                    const notes = prompt('備考（任意）:', '') || ''
+                    
+                    // APIリクエスト
+                    await axios.post('/api/monthly-member-assignments', {
+                        monthly_detail_id: ${id},
+                        member_id: memberId,
+                        allocation_ratio: ratio,
+                        unit_price: price,
+                        notes: notes
+                    })
+                    
+                    alert('メンバーを追加しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
+                }
             }
 
-            function editMember(memberId) {
-                alert('メンバー編集機能は実装中です')
-                // TODO: Phase 1.5で実装
+            async function editMember(assignmentId) {
+                try {
+                    // 現在の値を取得するために再度APIを呼ぶか、データを埋め込む必要がある
+                    // ここでは簡易的にプロンプトで入力させる
+                    const ratioInput = prompt('新しい按分比率を入力してください (0-100):')
+                    if (!ratioInput) return
+                    const ratio = parseFloat(ratioInput) / 100
+                    
+                    if (ratio < 0 || ratio > 1) {
+                        alert('按分比率は0〜100の範囲で入力してください')
+                        return
+                    }
+                    
+                    const priceInput = prompt('新しい単価を入力してください:')
+                    if (!priceInput) return
+                    const price = parseInt(priceInput)
+                    
+                    const notes = prompt('備考（任意）:', '') || ''
+                    
+                    await axios.put('/api/monthly-member-assignments/' + assignmentId, {
+                        allocation_ratio: ratio,
+                        unit_price: price,
+                        notes: notes
+                    })
+                    
+                    alert('メンバー情報を更新しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
+                }
             }
 
-            function deleteMember(memberId) {
-                alert('メンバー削除機能は実装中です')
-                // TODO: Phase 1.5で実装
+            async function deleteMember(assignmentId) {
+                if (!confirm('このメンバーのアサインを削除しますか？')) return
+                
+                try {
+                    await axios.delete('/api/monthly-member-assignments/' + assignmentId)
+                    alert('メンバーのアサインを削除しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + error.message)
+                }
             }
 
             function openEditAmountModal() {
