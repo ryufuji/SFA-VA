@@ -1508,21 +1508,53 @@ app.get('/', async (c) => {
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   
+  // 当月売上（確定）
   const { results: currentMonthSales } = await DB.prepare(
     'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(currentMonth, '検収済').all()
   
+  // 未検収金額（当月のみ）
   const { results: uninspected } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE inspection_status = ?'
-  ).bind('未検収').all()
+    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
+  ).bind(currentMonth, '未検収').all()
   
+  // 未請求金額
   const { results: unbilled } = await DB.prepare(
     'SELECT SUM(amount) as total FROM monthly_details WHERE billing_status = ?'
   ).bind('未請求').all()
   
+  // 未入金金額
   const { results: unpaid } = await DB.prepare(
     'SELECT SUM(amount - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?)'
   ).bind('未入金', '部分入金').all()
+  
+  // メンバー稼働率（当月）
+  const { results: memberWorkRatio } = await DB.prepare(`
+    SELECT 
+      m.name as member_name,
+      COALESCE(SUM(mma.allocation_ratio), 0) as total_ratio,
+      COUNT(DISTINCT mma.monthly_detail_id) as project_count
+    FROM members m
+    LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.target_month = ?
+    WHERE m.status = 'active'
+    GROUP BY m.id, m.name
+    ORDER BY total_ratio DESC
+  `).bind(currentMonth).all()
+  
+  // メンバー別 累計売上（検収済のみ）
+  const { results: memberTotalSales } = await DB.prepare(`
+    SELECT 
+      m.name as member_name,
+      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as total_sales,
+      COUNT(DISTINCT md.id) as monthly_count
+    FROM members m
+    LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.inspection_status = '検収済'
+    WHERE m.status = 'active'
+    GROUP BY m.id, m.name
+    ORDER BY total_sales DESC
+  `).all()
   
   const currentMonthSalesTotal = (currentMonthSales[0] as any)?.total || 0
   const uninspectedTotal = (uninspected[0] as any)?.total || 0
@@ -1600,7 +1632,7 @@ app.get('/', async (c) => {
           <div class="bg-white overflow-hidden shadow rounded-lg">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                <i class="fas fa-clock mr-1"></i>未検収金額
+                <i class="fas fa-clock mr-1"></i>未検収金額(当月)
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-yellow-600">
                 ¥${uninspectedTotal.toLocaleString()}
@@ -1634,11 +1666,88 @@ app.get('/', async (c) => {
         </div>
 
         <!-- 月次売上推移グラフ -->
-        <div class="bg-white shadow rounded-lg p-6">
+        <div class="bg-white shadow rounded-lg p-6 mb-8">
           <h2 class="text-lg font-semibold text-gray-900 mb-4">
             <i class="fas fa-chart-line mr-2"></i>月次売上推移(直近12ヶ月)
           </h2>
           <canvas id="salesChart" height="80"></canvas>
+        </div>
+
+        <!-- メンバー稼働率と累計売上 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <!-- メンバー稼働率（当月） -->
+          <div class="bg-white shadow rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">
+              <i class="fas fa-user-clock mr-2"></i>メンバー稼働率(当月)
+            </h2>
+            ${memberWorkRatio.length > 0 ? `
+            <div class="space-y-3">
+              ${memberWorkRatio.map((m: any) => {
+                const ratio = (m.total_ratio * 100).toFixed(1)
+                const color = m.total_ratio >= 1.0 ? 'bg-green-600' : m.total_ratio >= 0.7 ? 'bg-blue-600' : m.total_ratio >= 0.3 ? 'bg-yellow-600' : 'bg-gray-400'
+                return `
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm font-medium text-gray-700">${m.member_name}</span>
+                    <span class="text-sm font-semibold text-gray-900">${ratio}%</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="${color} h-2 rounded-full" style="width: ${Math.min(100, parseFloat(ratio))}%"></div>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1">${m.project_count}案件</p>
+                </div>
+                `}).join('')}
+            </div>
+            ` : `
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-user-slash text-4xl mb-2"></i>
+              <p>当月のアサインがありません</p>
+            </div>
+            `}
+          </div>
+
+          <!-- メンバー別 累計売上 -->
+          <div class="bg-white shadow rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">
+              <i class="fas fa-trophy mr-2"></i>メンバー別 累計売上
+            </h2>
+            ${memberTotalSales.length > 0 ? `
+            <div class="overflow-x-auto">
+              <table class="min-w-full">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">メンバー</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">累計売上</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">検収済月数</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  ${memberTotalSales.map((m: any, index: number) => `
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-3 py-2 text-sm">
+                      <div class="flex items-center">
+                        ${index < 3 ? '<i class="fas fa-medal text-yellow-500 mr-2"></i>' : ''}
+                        <span class="font-medium text-gray-900">${m.member_name}</span>
+                      </div>
+                    </td>
+                    <td class="px-3 py-2 text-sm text-right font-semibold text-green-600">
+                      ¥${Math.round(m.total_sales).toLocaleString()}
+                    </td>
+                    <td class="px-3 py-2 text-sm text-center text-gray-600">
+                      ${m.monthly_count}ヶ月
+                    </td>
+                  </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ` : `
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-inbox text-4xl mb-2"></i>
+              <p>検収済の売上がありません</p>
+            </div>
+            `}
+          </div>
         </div>
       </div>
 
