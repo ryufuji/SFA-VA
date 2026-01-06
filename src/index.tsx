@@ -490,7 +490,7 @@ app.put('/api/monthly-details/:id/inspection', async (c) => {
 // API: 月次明細の請求情報更新
 app.put('/api/monthly-details/:id/billing', async (c) => {
   const id = c.req.param('id')
-  const { billing_status, billing_date, invoice_number } = await c.req.json()
+  const { billing_status, billing_date, invoice_number, expected_payment_date } = await c.req.json()
 
   const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
   if (!current) return c.notFound()
@@ -505,9 +505,9 @@ app.put('/api/monthly-details/:id/billing', async (c) => {
 
   await c.env.DB.prepare(`
     UPDATE monthly_details 
-    SET billing_status = ?, billing_date = ?, invoice_number = ?, updated_at = CURRENT_TIMESTAMP
+    SET billing_status = ?, billing_date = ?, invoice_number = ?, expected_payment_date = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(billing_status, billing_date, invoice_number, id).run()
+  `).bind(billing_status, billing_date, invoice_number, expected_payment_date, id).run()
 
   return c.json({ success: true })
 })
@@ -2458,6 +2458,77 @@ app.get('/monthly/:id', async (c) => {
                 </div>
             </div>
 
+            <!-- アサインメンバー（この月のみ） -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        <i class="fas fa-users mr-2 text-indigo-600"></i>アサインメンバー（この月のみ）
+                    </h2>
+                    <button onclick="openAddMemberModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                        <i class="fas fa-user-plus mr-2"></i>メンバーを追加
+                    </button>
+                </div>
+
+                ${allocationTotal !== 1.0 ? `
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                    <div class="flex">
+                        <i class="fas fa-exclamation-triangle text-yellow-600 mr-2 mt-1"></i>
+                        <p class="text-sm text-yellow-700">
+                            按分比率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
+                        </p>
+                    </div>
+                </div>
+                ` : ''}
+
+                ${members.results.length > 0 ? `
+                <table class="w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">備考</th>
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        ${members.results.map(m => {
+                          const expectedRevenue = monthly.amount * m.allocation_ratio
+                          return `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3">
+                                <div class="font-medium">${m.member_name}</div>
+                                <div class="text-sm text-gray-500">${m.email || '-'}</div>
+                            </td>
+                            <td class="px-4 py-3">¥${(m.unit_price || 0).toLocaleString()}/月</td>
+                            <td class="px-4 py-3">
+                                <span class="font-medium">${(m.allocation_ratio * 100).toFixed(1)}%</span>
+                            </td>
+                            <td class="px-4 py-3 text-green-600 font-medium">
+                                ¥${Math.round(expectedRevenue).toLocaleString()}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600">${m.notes || '-'}</td>
+                            <td class="px-4 py-3">
+                                <button onclick="editMember(${m.id})" class="text-blue-600 hover:text-blue-800 mr-2">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteMember(${m.id})" class="text-red-600 hover:text-red-800">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+                ` : `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-user-slash text-4xl mb-2"></i>
+                    <p>まだメンバーがアサインされていません</p>
+                </div>
+                `}
+            </div>
+
             <!-- 検収情報 -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h2 class="text-lg font-semibold text-gray-800 mb-4">
@@ -2492,7 +2563,7 @@ app.get('/monthly/:id', async (c) => {
                     <i class="fas fa-file-invoice mr-2 text-orange-600"></i>請求情報
                 </h2>
                 <form id="billing-form" class="space-y-4">
-                    <div class="grid grid-cols-3 gap-4">
+                    <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">請求ステータス</label>
                             <select name="billing_status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
@@ -2502,14 +2573,21 @@ app.get('/monthly/:id', async (c) => {
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">請求日</label>
-                            <input type="date" name="billing_date" value="${monthly.billing_date || ''}" 
+                            <input type="date" id="billing_date" name="billing_date" value="${monthly.billing_date || ''}" 
                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">請求書番号</label>
                             <input type="text" name="invoice_number" value="${monthly.invoice_number || ''}" 
                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                    placeholder="INV-2026-001">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">入金予定日</label>
+                            <input type="date" id="expected_payment_date" name="expected_payment_date" value="${monthly.expected_payment_date || ''}" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
                     <div class="flex justify-end">
@@ -2586,77 +2664,6 @@ app.get('/monthly/:id', async (c) => {
                 `}
             </div>
 
-            <!-- 月次メンバーアサイン -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold text-gray-800">
-                        <i class="fas fa-users mr-2 text-indigo-600"></i>アサインメンバー（この月のみ）
-                    </h2>
-                    <button onclick="openAddMemberModal()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
-                        <i class="fas fa-user-plus mr-2"></i>メンバーを追加
-                    </button>
-                </div>
-
-                ${allocationTotal !== 1.0 ? `
-                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-                    <div class="flex">
-                        <i class="fas fa-exclamation-triangle text-yellow-600 mr-2 mt-1"></i>
-                        <p class="text-sm text-yellow-700">
-                            按分比率の合計が ${(allocationTotal * 100).toFixed(1)}% です。100%を推奨します。
-                        </p>
-                    </div>
-                </div>
-                ` : ''}
-
-                ${members.results.length > 0 ? `
-                <table class="w-full">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">按分比率</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">備考</th>
-                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        ${members.results.map(m => {
-                          const expectedRevenue = monthly.amount * m.allocation_ratio
-                          return `
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3">
-                                <div class="font-medium">${m.member_name}</div>
-                                <div class="text-sm text-gray-500">${m.email || '-'}</div>
-                            </td>
-                            <td class="px-4 py-3">¥${(m.unit_price || 0).toLocaleString()}/月</td>
-                            <td class="px-4 py-3">
-                                <span class="font-medium">${(m.allocation_ratio * 100).toFixed(1)}%</span>
-                            </td>
-                            <td class="px-4 py-3 text-green-600 font-medium">
-                                ¥${Math.round(expectedRevenue).toLocaleString()}
-                            </td>
-                            <td class="px-4 py-3 text-sm text-gray-600">${m.notes || '-'}</td>
-                            <td class="px-4 py-3">
-                                <button onclick="editMember(${m.id})" class="text-blue-600 hover:text-blue-800 mr-2">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button onclick="deleteMember(${m.id})" class="text-red-600 hover:text-red-800">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </td>
-                        </tr>
-                        `}).join('')}
-                    </tbody>
-                </table>
-                ` : `
-                <div class="text-center py-8 text-gray-500">
-                    <i class="fas fa-user-slash text-4xl mb-2"></i>
-                    <p>まだメンバーがアサインされていません</p>
-                </div>
-                `}
-            </div>
-
             <!-- 変更履歴 -->
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-lg font-semibold text-gray-800 mb-4">
@@ -2698,6 +2705,21 @@ app.get('/monthly/:id', async (c) => {
                 }
             })
 
+            // 請求日が入力されたときに翌月末日を自動計算
+            document.getElementById('billing_date').addEventListener('change', (e) => {
+                const billingDate = e.target.value
+                if (billingDate) {
+                    const date = new Date(billingDate)
+                    // 翌月の1日を計算
+                    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 2, 1)
+                    // 1日前（翌月末日）を計算
+                    const lastDay = new Date(nextMonth.getTime() - 24 * 60 * 60 * 1000)
+                    // YYYY-MM-DD形式に変換
+                    const expectedDate = lastDay.toISOString().split('T')[0]
+                    document.getElementById('expected_payment_date').value = expectedDate
+                }
+            })
+
             // 請求情報の更新
             document.getElementById('billing-form').addEventListener('submit', async (e) => {
                 e.preventDefault()
@@ -2705,7 +2727,8 @@ app.get('/monthly/:id', async (c) => {
                 const data = {
                     billing_status: formData.get('billing_status'),
                     billing_date: formData.get('billing_date') || null,
-                    invoice_number: formData.get('invoice_number') || null
+                    invoice_number: formData.get('invoice_number') || null,
+                    expected_payment_date: formData.get('expected_payment_date') || null
                 }
 
                 try {
