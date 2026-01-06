@@ -658,6 +658,58 @@ app.get('/api/members', async (c) => {
   return c.json({ success: true, data: members.results })
 })
 
+// API: メンバー作成
+app.post('/api/members/create', async (c) => {
+  const { name, email, default_unit_price } = await c.req.json()
+
+  if (!name || !default_unit_price) {
+    return c.json({ success: false, error: 'Name and default unit price are required' }, 400)
+  }
+
+  const result = await c.env.DB.prepare(`
+    INSERT INTO members (name, email, default_unit_price, status)
+    VALUES (?, ?, ?, ?)
+  `).bind(name, email || null, default_unit_price, 'active').run()
+
+  return c.json({ success: true, id: result.meta.last_row_id })
+})
+
+// API: メンバー更新
+app.put('/api/members/:id', async (c) => {
+  const id = c.req.param('id')
+  const { name, email, default_unit_price } = await c.req.json()
+
+  if (!name || !default_unit_price) {
+    return c.json({ success: false, error: 'Name and default unit price are required' }, 400)
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE members 
+    SET name = ?, email = ?, default_unit_price = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(name, email || null, default_unit_price, id).run()
+
+  return c.json({ success: true })
+})
+
+// API: メンバーステータス変更
+app.put('/api/members/:id/status', async (c) => {
+  const id = c.req.param('id')
+  const { status } = await c.req.json()
+
+  if (!status || !['active', 'inactive'].includes(status)) {
+    return c.json({ success: false, error: 'Invalid status' }, 400)
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE members 
+    SET status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(status, id).run()
+
+  return c.json({ success: true })
+})
+
 // --- ダッシュボード API ---
 app.get('/api/dashboard/summary', async (c) => {
   const { DB } = c.env
@@ -2965,6 +3017,308 @@ app.get('/monthly/:id', async (c) => {
                 })
             }
         </script>
+    </body>
+    </html>
+  `)
+})
+
+// メンバー管理画面
+app.get('/members', async (c) => {
+  const { DB } = c.env
+  
+  // 全メンバーを取得
+  const { results: members } = await DB.prepare(`
+    SELECT * FROM members ORDER BY name ASC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>メンバー管理 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span class="text-sm text-gray-500 mr-4">
+                <i class="fas fa-user-circle mr-1"></i>管理者
+              </span>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-user-friends mr-2"></i>メンバー管理
+          </h1>
+          <button onclick="openAddMemberModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <i class="fas fa-user-plus mr-2"></i>メンバーを追加
+          </button>
+        </div>
+
+        <!-- メンバー一覧 -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名前</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メール</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">デフォルト単価</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">登録日</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              ${members.map((member: any) => `
+                <tr class="hover:bg-gray-50">
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="font-medium text-gray-900">${member.name}</div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${member.email ? '<a href="mailto:' + member.email + '" class="text-blue-600 hover:text-blue-800">' + member.email + '</a>' : '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ¥${(member.default_unit_price || 0).toLocaleString()}/月
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    ${member.status === 'active' 
+                      ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
+                      : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-ban mr-1"></i>無効</span>'
+                    }
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${member.created_at.split(' ')[0]}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <button onclick="editMember(${member.id}, '${member.name}', '${member.email || ''}', ${member.default_unit_price}, '${member.status}')" 
+                            class="text-blue-600 hover:text-blue-800 mr-3">
+                      <i class="fas fa-edit mr-1"></i>編集
+                    </button>
+                    <button onclick="toggleMemberStatus(${member.id}, '${member.status}')" 
+                            class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800">
+                      <i class="fas fa-${member.status === 'active' ? 'ban' : 'check'} mr-1"></i>${member.status === 'active' ? '無効化' : '有効化'}
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- メンバー追加モーダル -->
+      <div id="add-member-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-user-plus mr-2"></i>新規メンバー追加
+            </h3>
+            <button onclick="closeAddMemberModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="add-member-form">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                名前 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メールアドレス
+              </label>
+              <input type="email" name="email"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                デフォルト単価 <span class="text-red-500">*</span>
+              </label>
+              <input type="number" name="default_unit_price" required min="0"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="500000">
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeAddMemberModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-plus mr-2"></i>追加
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- メンバー編集モーダル -->
+      <div id="edit-member-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-edit mr-2"></i>メンバー編集
+            </h3>
+            <button onclick="closeEditMemberModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="edit-member-form">
+            <input type="hidden" name="member_id" id="edit_member_id">
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                名前 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="name" id="edit_name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メールアドレス
+              </label>
+              <input type="email" name="email" id="edit_email"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                デフォルト単価 <span class="text-red-500">*</span>
+              </label>
+              <input type="number" name="default_unit_price" id="edit_default_unit_price" required min="0"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeEditMemberModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-save mr-2"></i>更新
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        function openAddMemberModal() {
+          document.getElementById('add-member-modal').classList.remove('hidden');
+        }
+
+        function closeAddMemberModal() {
+          document.getElementById('add-member-modal').classList.add('hidden');
+          document.getElementById('add-member-form').reset();
+        }
+
+        function openEditMemberModal() {
+          document.getElementById('edit-member-modal').classList.remove('hidden');
+        }
+
+        function closeEditMemberModal() {
+          document.getElementById('edit-member-modal').classList.add('hidden');
+          document.getElementById('edit-member-form').reset();
+        }
+
+        document.getElementById('add-member-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const data = {
+            name: formData.get('name'),
+            email: formData.get('email') || null,
+            default_unit_price: parseInt(formData.get('default_unit_price'))
+          };
+          
+          try {
+            await axios.post('/api/members/create', data);
+            alert('メンバーを追加しました');
+            location.reload();
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+          }
+        });
+
+        function editMember(id, name, email, price, status) {
+          document.getElementById('edit_member_id').value = id;
+          document.getElementById('edit_name').value = name;
+          document.getElementById('edit_email').value = email;
+          document.getElementById('edit_default_unit_price').value = price;
+          openEditMemberModal();
+        }
+
+        document.getElementById('edit-member-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const id = formData.get('member_id');
+          const data = {
+            name: formData.get('name'),
+            email: formData.get('email') || null,
+            default_unit_price: parseInt(formData.get('default_unit_price'))
+          };
+          
+          try {
+            await axios.put('/api/members/' + id, data);
+            alert('メンバー情報を更新しました');
+            location.reload();
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+          }
+        });
+
+        async function toggleMemberStatus(id, currentStatus) {
+          const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+          const action = newStatus === 'active' ? '有効化' : '無効化';
+          
+          if (!confirm('このメンバーを' + action + 'しますか？')) return;
+          
+          try {
+            await axios.put('/api/members/' + id + '/status', { status: newStatus });
+            alert('メンバーを' + action + 'しました');
+            location.reload();
+          } catch (error) {
+            alert('エラーが発生しました: ' + error.message);
+          }
+        }
+      </script>
     </body>
     </html>
   `)
