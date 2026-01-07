@@ -3560,6 +3560,7 @@ app.get('/monthly/:id', async (c) => {
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+            document.addEventListener('DOMContentLoaded', function() {
             // 検収情報の更新
             document.getElementById('inspection-form').addEventListener('submit', async (e) => {
                 e.preventDefault()
@@ -3918,6 +3919,7 @@ app.get('/monthly/:id', async (c) => {
                     alert('エラーが発生しました: ' + error.message)
                 })
             }
+            }) // DOMContentLoaded end
         </script>
 
         <!-- 入金追加モーダル -->
