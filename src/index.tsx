@@ -846,14 +846,16 @@ app.get('/api/dashboard/summary', async (c) => {
 app.get('/api/dashboard/sales-trend', async (c) => {
   const { DB } = c.env
   
-  // 直近12ヶ月のデータを取得
+  // 直近12ヶ月のデータを取得（検収日ベース、検収済のみ）
   const { results } = await DB.prepare(`
     SELECT 
-      target_month,
-      SUM(CASE WHEN inspection_status = '検収済' THEN amount ELSE 0 END) as confirmed_sales
+      strftime('%Y-%m', inspection_date) as target_month,
+      SUM(amount) as confirmed_sales
     FROM monthly_details
-    WHERE target_month >= date('now', '-12 months')
-    GROUP BY target_month
+    WHERE inspection_status = '検収済'
+      AND inspection_date IS NOT NULL
+      AND inspection_date >= date('now', '-12 months')
+    GROUP BY strftime('%Y-%m', inspection_date)
     ORDER BY target_month ASC
   `).all()
   
@@ -1864,7 +1866,7 @@ app.get('/', async (c) => {
         <!-- 月次売上推移グラフ -->
         <div class="bg-white shadow rounded-lg p-6 mb-8">
           <h2 class="text-lg font-semibold text-gray-900 mb-4">
-            <i class="fas fa-chart-line mr-2"></i>月次売上推移(直近12ヶ月)
+            <i class="fas fa-chart-line mr-2"></i>月次売上推移(検収日ベース・直近12ヶ月)
           </h2>
           <canvas id="salesChart" height="80"></canvas>
         </div>
