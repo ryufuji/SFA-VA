@@ -1647,7 +1647,7 @@ app.get('/', async (c) => {
         <!-- KPIカード -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <!-- 当月売上 -->
-          <div class="bg-white overflow-hidden shadow rounded-lg">
+          <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-yen-sign mr-1"></i>当月売上(確定)
@@ -1656,10 +1656,10 @@ app.get('/', async (c) => {
                 ¥${currentMonthSalesTotal.toLocaleString()}
               </dd>
             </div>
-          </div>
+          </a>
 
           <!-- 未検収 -->
-          <div class="bg-white overflow-hidden shadow rounded-lg">
+          <a href="/monthly-list?filter=uninspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-clock mr-1"></i>未検収金額(当月)
@@ -1668,10 +1668,10 @@ app.get('/', async (c) => {
                 ¥${uninspectedTotal.toLocaleString()}
               </dd>
             </div>
-          </div>
+          </a>
 
           <!-- 未請求 -->
-          <div class="bg-white overflow-hidden shadow rounded-lg">
+          <a href="/monthly-list?filter=unbilled" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-file-invoice mr-1"></i>未請求金額
@@ -1680,10 +1680,10 @@ app.get('/', async (c) => {
                 ¥${unbilledTotal.toLocaleString()}
               </dd>
             </div>
-          </div>
+          </a>
 
           <!-- 未入金 -->
-          <div class="bg-white overflow-hidden shadow rounded-lg">
+          <a href="/monthly-list?filter=unpaid" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-exclamation-circle mr-1"></i>未入金金額
@@ -1692,7 +1692,7 @@ app.get('/', async (c) => {
                 ¥${unpaidTotal.toLocaleString()}
               </dd>
             </div>
-          </div>
+          </a>
         </div>
 
         <!-- 月次売上推移グラフ -->
@@ -3242,6 +3242,187 @@ app.get('/monthly/:id', async (c) => {
                 })
             }
         </script>
+    </body>
+    </html>
+  `)
+})
+
+// 月次明細一覧画面
+app.get('/monthly-list', async (c) => {
+  const { DB } = c.env
+  const filter = c.req.query('filter') || 'all'
+  
+  // 現在の月を取得
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  
+  let whereClause = ''
+  let title = '月次明細一覧'
+  let icon = 'fa-calendar'
+  
+  switch(filter) {
+    case 'inspected':
+      whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '検収済'`
+      title = '当月売上(確定)'
+      icon = 'fa-yen-sign'
+      break
+    case 'uninspected':
+      whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '未検収'`
+      title = '未検収金額(当月)'
+      icon = 'fa-clock'
+      break
+    case 'unbilled':
+      whereClause = `WHERE md.billing_status = '未請求' AND md.inspection_status = '検収済'`
+      title = '未請求金額'
+      icon = 'fa-file-invoice'
+      break
+    case 'unpaid':
+      whereClause = `WHERE md.payment_status IN ('未入金', '部分入金') AND md.billing_status = '請求済'`
+      title = '未入金金額'
+      icon = 'fa-exclamation-circle'
+      break
+  }
+  
+  // 月次明細を取得
+  const { results: monthlyDetails } = await DB.prepare(`
+    SELECT 
+      md.*,
+      c.contract_name,
+      p.project_name,
+      l.company_name
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    ${whereClause}
+    ORDER BY md.target_month DESC, md.created_at DESC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${title} - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-sm text-gray-500 mr-4">
+                  <i class="fas fa-user-circle mr-1"></i>管理者
+                </span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto p-8">
+            <!-- パンくずリスト -->
+            <div class="mb-6 text-sm">
+                <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
+                <span class="text-gray-400 mx-2">/</span>
+                <span class="text-gray-700">${title}</span>
+            </div>
+
+            <!-- ページヘッダー -->
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">
+                    <i class="fas ${icon} mr-2"></i>${title}
+                </h1>
+            </div>
+
+            <!-- 月次明細一覧 -->
+            <div class="bg-white rounded-lg shadow-md">
+                ${monthlyDetails.length > 0 ? `
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">月次明細</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">顧客</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">案件</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">契約</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">入金</th>
+                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${monthlyDetails.map(md => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4">
+                                    <div class="font-medium text-gray-900">${md.name || md.target_month}</div>
+                                    <div class="text-sm text-gray-500">${md.target_month}</div>
+                                </td>
+                                <td class="px-6 py-4 text-sm text-gray-700">${md.company_name || '-'}</td>
+                                <td class="px-6 py-4 text-sm text-gray-700">${md.project_name || '-'}</td>
+                                <td class="px-6 py-4 text-sm text-gray-700">${md.contract_name || '-'}</td>
+                                <td class="px-6 py-4 font-medium">¥${(md.amount || 0).toLocaleString()}</td>
+                                <td class="px-6 py-4">
+                                    ${md.inspection_status === '検収済' 
+                                      ? '<span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>'
+                                      : '<span class="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800"><i class="fas fa-clock mr-1"></i>未完</span>'
+                                    }
+                                </td>
+                                <td class="px-6 py-4">
+                                    ${md.billing_status === '請求済' 
+                                      ? '<span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"><i class="fas fa-file-invoice mr-1"></i>済</span>'
+                                      : '<span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">未</span>'
+                                    }
+                                </td>
+                                <td class="px-6 py-4">
+                                    ${(md.total_payment_amount || 0) > 0
+                                      ? `<span class="text-green-600 font-medium">¥${(md.total_payment_amount || 0).toLocaleString()}</span>`
+                                      : '<span class="text-gray-400">-</span>'
+                                    }
+                                </td>
+                                <td class="px-6 py-4">
+                                    <a href="/monthly/${md.id}" class="text-blue-600 hover:text-blue-800">
+                                        <i class="fas fa-edit mr-1"></i>詳細
+                                    </a>
+                                </td>
+                            </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : `
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-inbox text-5xl mb-3"></i>
+                    <p class="text-lg">該当する月次明細がありません</p>
+                </div>
+                `}
+            </div>
+        </div>
     </body>
     </html>
   `)
