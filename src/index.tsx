@@ -98,15 +98,15 @@ app.get('/api/leads/:id', async (c) => {
 app.post('/api/leads', async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
-  const { company_name, contact_person, email, phone } = body
+  const { company_name, contact_person, department, email, phone } = body
   
   if (!company_name) {
     return c.json({ success: false, error: 'Company name is required' }, 400)
   }
   
   const result = await DB.prepare(
-    'INSERT INTO leads (company_name, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?)'
-  ).bind(company_name, contact_person || null, email || null, phone || null, 'active').run()
+    'INSERT INTO leads (company_name, contact_person, department, email, phone, status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(company_name, contact_person || null, department || null, email || null, phone || null, 'active').run()
   
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
@@ -391,7 +391,7 @@ app.get('/api/members', async (c) => {
 
 // API: 契約作成（月次明細自動生成）
 app.post('/api/contracts', async (c) => {
-  const { project_id, contract_name, start_date, end_date, contract_amount, notes, member_assignments } = await c.req.json()
+  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, member_assignments } = await c.req.json()
 
   // バリデーション
   if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
@@ -433,11 +433,11 @@ app.post('/api/contracts', async (c) => {
     // 契約を作成
     const contractResult = await c.env.DB.prepare(`
       INSERT INTO contracts (
-        project_id, contract_name, contract_start_date, contract_end_date, 
+        project_id, contract_name, contract_type, contract_date, contract_start_date, contract_end_date, 
         contract_amount, status
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      project_id, contract_name, start_date, end_date, 
+      project_id, contract_name, contract_type || '準委任', contract_date || null, start_date, end_date, 
       contract_amount, 'active'
     ).run()
 
@@ -1118,6 +1118,14 @@ app.get('/leads', async (c) => {
             
             <div class="mb-4">
               <label class="block text-sm font-medium text-gray-700 mb-2">
+                部署名
+              </label>
+              <input type="text" name="department"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
                 メールアドレス
               </label>
               <input type="email" name="email"
@@ -1275,6 +1283,10 @@ app.get('/leads/:id', async (c) => {
             <div>
               <dt class="text-sm font-medium text-gray-500">担当者名</dt>
               <dd class="mt-1 text-sm text-gray-900">${lead.contact_person || '-'}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">部署名</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.department || '-'}</dd>
             </div>
             <div>
               <dt class="text-sm font-medium text-gray-500">メールアドレス</dt>
@@ -1615,6 +1627,26 @@ app.get('/projects/:id', async (c) => {
             
             <div class="mb-4">
               <label class="block text-sm font-medium text-gray-700 mb-2">
+                契約種別
+              </label>
+              <select name="contract_type"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="準委任">準委任</option>
+                <option value="請負">請負</option>
+                <option value="その他">その他</option>
+              </select>
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                契約日
+              </label>
+              <input type="date" name="contract_date"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
                 開始日 <span class="text-red-500">*</span>
               </label>
               <input type="date" name="contract_start_date" required
@@ -1670,6 +1702,8 @@ app.get('/projects/:id', async (c) => {
           const formData = new FormData(form);
           const data = Object.fromEntries(formData.entries());
           data.project_id = '${id}';
+          data.start_date = data.contract_start_date;
+          data.end_date = data.contract_end_date;
           
           try {
             const response = await axios.post('/api/contracts', data);
@@ -2423,7 +2457,7 @@ app.get('/contracts/:id', async (c) => {
                         </h1>
                         <p class="text-gray-600">
                             <i class="fas fa-calendar-alt mr-2"></i>
-                            ${contract.start_date} 〜 ${contract.end_date}
+                            ${contract.contract_start_date} 〜 ${contract.contract_end_date}
                         </p>
                     </div>
                     <span class="px-3 py-1 rounded-full text-sm font-semibold ${
@@ -2436,6 +2470,22 @@ app.get('/contracts/:id', async (c) => {
                           contract.status === 'completed' ? '完了' :
                           contract.status === 'cancelled' ? 'キャンセル' : contract.status}
                     </span>
+                </div>
+
+                <!-- 契約詳細情報 -->
+                <div class="grid grid-cols-3 gap-4 mb-6 border-t border-b border-gray-200 py-4">
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">契約種別</p>
+                        <p class="text-base font-semibold text-gray-800">${contract.contract_type || '準委任'}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">契約日</p>
+                        <p class="text-base font-semibold text-gray-800">${contract.contract_date || '-'}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">契約期間</p>
+                        <p class="text-base font-semibold text-gray-800">${contract.contract_start_date} 〜 ${contract.contract_end_date}</p>
+                    </div>
                 </div>
 
                 <!-- サマリーカード -->
@@ -3134,7 +3184,7 @@ app.get('/monthly/:id', async (c) => {
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-600">${m.notes || '-'}</td>
                             <td class="px-4 py-3">
-                                <button onclick="editMember(${m.id})" class="text-blue-600 hover:text-blue-800 mr-2">
+                                <button onclick="openEditMemberModal(${m.id}, '${m.member_name}', ${m.allocation_ratio}, ${m.unit_price}, '${(m.notes || '').replace(/'/g, "\\'")}');" class="text-blue-600 hover:text-blue-800 mr-2">
                                     <i class="fas fa-edit"></i>
                                 </button>
                                 <button onclick="deleteMember(${m.id})" class="text-red-600 hover:text-red-800">
@@ -3601,6 +3651,49 @@ app.get('/monthly/:id', async (c) => {
                 }
             }
 
+            function openEditMemberModal(assignmentId, memberName, allocationRatio, unitPrice, notes) {
+                document.getElementById('edit_assignment_id').value = assignmentId
+                document.getElementById('edit_member_name').value = memberName
+                document.getElementById('edit_allocation_ratio').value = allocationRatio
+                document.getElementById('edit_unit_price').value = unitPrice
+                document.getElementById('edit_notes').value = notes
+                document.getElementById('editMemberModal').classList.remove('hidden')
+            }
+
+            function closeEditMemberModal() {
+                document.getElementById('editMemberModal').classList.add('hidden')
+                document.getElementById('editMemberForm').reset()
+            }
+
+            async function submitEditMember() {
+                const assignmentId = document.getElementById('edit_assignment_id').value
+                const allocationRatio = parseFloat(document.getElementById('edit_allocation_ratio').value)
+                const unitPrice = parseInt(document.getElementById('edit_unit_price').value)
+                const notes = document.getElementById('edit_notes').value
+
+                if (isNaN(allocationRatio) || allocationRatio < 0 || allocationRatio > 1) {
+                    alert('稼働率は0.0〜1.0の範囲で入力してください')
+                    return
+                }
+
+                if (isNaN(unitPrice) || unitPrice < 0) {
+                    alert('単価は0以上の数値で入力してください')
+                    return
+                }
+
+                try {
+                    await axios.put('/api/monthly-member-assignments/' + assignmentId, {
+                        allocation_ratio: allocationRatio,
+                        unit_price: unitPrice,
+                        notes: notes
+                    })
+                    alert('メンバー情報を更新しました')
+                    location.reload()
+                } catch (error) {
+                    alert('エラーが発生しました: ' + error.message)
+                }
+            }
+
             async function deleteMember(assignmentId) {
                 if (!confirm('このメンバーのアサインを削除しますか？')) return
                 
@@ -3718,6 +3811,72 @@ app.get('/monthly/:id', async (c) => {
                     <button onclick="submitMembers()" 
                             class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
                         <i class="fas fa-check mr-2"></i>選択したメンバーを追加
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- メンバー編集モーダル -->
+        <div id="editMemberModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-user-edit mr-2 text-blue-600"></i>メンバー情報を更新
+                    </h3>
+                    <button onclick="closeEditMemberModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                
+                <form id="editMemberForm" class="space-y-4">
+                    <input type="hidden" id="edit_assignment_id" name="assignment_id">
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">メンバー名</label>
+                        <input type="text" id="edit_member_name" readonly
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            稼働率 <span class="text-red-500">*</span>
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <input type="number" id="edit_allocation_ratio" name="allocation_ratio" 
+                                   min="0" max="1" step="0.01" required
+                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <span class="text-gray-600">(0.0 〜 1.0)</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">例: 50% = 0.5, 100% = 1.0</p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            単価 <span class="text-red-500">*</span>
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-gray-600">¥</span>
+                            <input type="number" id="edit_unit_price" name="unit_price" 
+                                   min="0" step="1000" required
+                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">備考</label>
+                        <textarea id="edit_notes" name="notes" rows="3"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                </form>
+
+                <div class="flex justify-end space-x-3 pt-4 border-t mt-4">
+                    <button onclick="closeEditMemberModal()" 
+                            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        <i class="fas fa-times mr-2"></i>キャンセル
+                    </button>
+                    <button onclick="submitEditMember()" 
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-save mr-2"></i>更新
                     </button>
                 </div>
             </div>
