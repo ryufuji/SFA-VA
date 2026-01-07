@@ -3318,6 +3318,9 @@ app.get('/monthly/:id', async (c) => {
                             <i class="fas fa-calendar-alt mr-2 text-blue-600"></i>${monthly.name || `月次明細 ${monthly.target_month}`}
                         </h1>
                         <p class="text-gray-600">${monthly.contract_name}</p>
+                        <p class="text-sm text-gray-500 mt-1">
+                            <i class="fas fa-calendar mr-1"></i>対象年月: <span class="font-semibold">${monthly.target_month}</span>
+                        </p>
                     </div>
                     <div class="text-right">
                         <p class="text-3xl font-bold text-blue-600">¥${(monthly.amount || 0).toLocaleString()}</p>
