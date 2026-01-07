@@ -650,6 +650,66 @@ app.post('/api/monthly-member-assignments', async (c) => {
   return c.json({ success: true, id: result.meta.last_row_id })
 })
 
+// API: 月次メンバーアサイン バッチ登録
+app.post('/api/monthly-member-assignments/batch', async (c) => {
+  const { monthly_detail_id, assignments } = await c.req.json()
+
+  // バリデーション
+  if (!monthly_detail_id || !assignments || !Array.isArray(assignments) || assignments.length === 0) {
+    return c.json({ success: false, error: 'Invalid request format' }, 400)
+  }
+
+  const results = []
+  const errors = []
+
+  for (const assignment of assignments) {
+    const { member_id, allocation_ratio, unit_price, notes } = assignment
+
+    // バリデーション
+    if (!member_id || allocation_ratio === undefined || !unit_price) {
+      errors.push({ member_id, error: 'Required fields are missing' })
+      continue
+    }
+
+    // 稼働率は0-1の範囲
+    if (allocation_ratio < 0 || allocation_ratio > 1) {
+      errors.push({ member_id, error: 'Work ratio must be between 0 and 1' })
+      continue
+    }
+
+    // 既存のアサインを確認
+    const existing = await c.env.DB.prepare(`
+      SELECT * FROM monthly_member_assignments 
+      WHERE monthly_detail_id = ? AND member_id = ?
+    `).bind(monthly_detail_id, member_id).first()
+
+    if (existing) {
+      errors.push({ member_id, error: 'Member is already assigned to this monthly detail' })
+      continue
+    }
+
+    try {
+      // 追加
+      const result = await c.env.DB.prepare(`
+        INSERT INTO monthly_member_assignments 
+        (monthly_detail_id, member_id, allocation_ratio, unit_price, notes)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(monthly_detail_id, member_id, allocation_ratio, unit_price, notes || '').run()
+
+      results.push({ member_id, id: result.meta.last_row_id })
+    } catch (error) {
+      errors.push({ member_id, error: error.message })
+    }
+  }
+
+  return c.json({ 
+    success: errors.length === 0, 
+    results, 
+    errors,
+    message: `${results.length}件のメンバーを追加しました${errors.length > 0 ? `（${errors.length}件のエラー）` : ''}`
+  })
+})
+
 // API: 月次メンバーアサイン更新
 app.put('/api/monthly-member-assignments/:id', async (c) => {
   const id = c.req.param('id')
@@ -3115,47 +3175,129 @@ app.get('/monthly/:id', async (c) => {
                         return
                     }
                     
-                    // メンバー選択
-                    let memberOptions = members.map(m => m.id + ': ' + m.name + ' (¥' + (m.default_unit_price || 0).toLocaleString() + '/月)').join('\\n')
-                    const memberInput = prompt('メンバーIDを入力してください:\\n' + memberOptions)
-                    if (!memberInput) return
+                    // 既にアサイン済みのメンバーIDを取得
+                    const assignedMemberIds = ${JSON.stringify(members.results.map(m => m.member_id))}
                     
-                    const memberId = parseInt(memberInput)
-                    const selectedMember = members.find(m => m.id === memberId)
-                    if (!selectedMember) {
-                        alert('無効なメンバーIDです')
+                    // モーダルを表示
+                    const modal = document.getElementById('addMemberModal')
+                    const memberList = document.getElementById('memberList')
+                    
+                    // メンバーリストを生成
+                    memberList.innerHTML = members.filter(m => !assignedMemberIds.includes(m.id)).map(member => \`
+                        <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 member-item">
+                            <div class="flex items-center mb-3">
+                                <input type="checkbox" 
+                                       id="member-\${member.id}" 
+                                       value="\${member.id}" 
+                                       class="w-5 h-5 text-indigo-600 rounded mr-3"
+                                       onchange="toggleMemberInputs(\${member.id})">
+                                <label for="member-\${member.id}" class="flex-1 cursor-pointer">
+                                    <div class="font-medium text-gray-900">\${member.name}</div>
+                                    <div class="text-sm text-gray-500">\${member.email || '-'}</div>
+                                </label>
+                            </div>
+                            <div id="inputs-\${member.id}" class="ml-8 space-y-2 hidden">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-700 mb-1">稼働率</label>
+                                        <select id="ratio-\${member.id}" class="w-full px-2 py-1 text-sm border border-gray-300 rounded">
+                                            <option value="1.0">100%</option>
+                                            <option value="0.9">90%</option>
+                                            <option value="0.8">80%</option>
+                                            <option value="0.7">70%</option>
+                                            <option value="0.6">60%</option>
+                                            <option value="0.5">50%</option>
+                                            <option value="0.4">40%</option>
+                                            <option value="0.3">30%</option>
+                                            <option value="0.2">20%</option>
+                                            <option value="0.1">10%</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-700 mb-1">単価（円/月）</label>
+                                        <input type="number" 
+                                               id="price-\${member.id}" 
+                                               value="\${member.default_unit_price || 0}"
+                                               class="w-full px-2 py-1 text-sm border border-gray-300 rounded">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">備考</label>
+                                    <input type="text" 
+                                           id="notes-\${member.id}" 
+                                           placeholder="役割など"
+                                           class="w-full px-2 py-1 text-sm border border-gray-300 rounded">
+                                </div>
+                            </div>
+                        </div>
+                    \`).join('')
+                    
+                    if (members.filter(m => !assignedMemberIds.includes(m.id)).length === 0) {
+                        memberList.innerHTML = '<p class="text-center text-gray-500 py-8">アサイン可能なメンバーがいません</p>'
+                    }
+                    
+                    modal.classList.remove('hidden')
+                } catch (error) {
+                    alert('エラーが発生しました: ' + error.message)
+                }
+            }
+
+            function toggleMemberInputs(memberId) {
+                const checkbox = document.getElementById('member-' + memberId)
+                const inputs = document.getElementById('inputs-' + memberId)
+                
+                if (checkbox.checked) {
+                    inputs.classList.remove('hidden')
+                } else {
+                    inputs.classList.add('hidden')
+                }
+            }
+
+            function closeAddMemberModal() {
+                document.getElementById('addMemberModal').classList.add('hidden')
+            }
+
+            async function submitMembers() {
+                try {
+                    const checkboxes = document.querySelectorAll('#memberList input[type="checkbox"]:checked')
+                    
+                    if (checkboxes.length === 0) {
+                        alert('少なくとも1人のメンバーを選択してください')
                         return
                     }
                     
-                    // 稼働率入力
-                    const ratioInput = prompt('稼働率を入力してください (0-100):', '100')
-                    if (!ratioInput) return
-                    const ratio = parseFloat(ratioInput) / 100
+                    const assignments = []
                     
-                    if (ratio < 0 || ratio > 1) {
-                        alert('稼働率は0〜100の範囲で入力してください')
-                        return
-                    }
-                    
-                    // 単価入力
-                    const priceInput = prompt('単価を入力してください:', selectedMember.default_unit_price || '0')
-                    if (!priceInput) return
-                    const price = parseInt(priceInput)
-                    
-                    // 備考入力
-                    const notes = prompt('備考（任意）:', '') || ''
-                    
-                    // APIリクエスト
-                    await axios.post('/api/monthly-member-assignments', {
-                        monthly_detail_id: ${id},
-                        member_id: memberId,
-                        allocation_ratio: ratio,
-                        unit_price: price,
-                        notes: notes
+                    checkboxes.forEach(checkbox => {
+                        const memberId = parseInt(checkbox.value)
+                        const ratio = parseFloat(document.getElementById('ratio-' + memberId).value)
+                        const price = parseInt(document.getElementById('price-' + memberId).value)
+                        const notes = document.getElementById('notes-' + memberId).value
+                        
+                        assignments.push({
+                            member_id: memberId,
+                            allocation_ratio: ratio,
+                            unit_price: price,
+                            notes: notes
+                        })
                     })
                     
-                    alert('メンバーを追加しました')
-                    location.reload()
+                    // バッチ登録APIを呼び出し
+                    const response = await axios.post('/api/monthly-member-assignments/batch', {
+                        monthly_detail_id: ${id},
+                        assignments: assignments
+                    })
+                    
+                    if (response.data.success) {
+                        alert(response.data.message)
+                        location.reload()
+                    } else {
+                        alert('一部のメンバーの追加に失敗しました:\\n' + 
+                              response.data.errors.map(e => '- メンバーID ' + e.member_id + ': ' + e.error).join('\\n'))
+                        if (response.data.results.length > 0) {
+                            location.reload()
+                        }
+                    }
                 } catch (error) {
                     alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
                 }
@@ -3219,6 +3361,40 @@ app.get('/monthly/:id', async (c) => {
                 })
             }
         </script>
+
+        <!-- メンバー追加モーダル -->
+        <div id="addMemberModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-2/3 shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-user-plus mr-2 text-indigo-600"></i>メンバーを追加
+                    </h3>
+                    <button onclick="closeAddMemberModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                
+                <div class="mb-4 p-3 bg-blue-50 border-l-4 border-blue-400 text-sm text-blue-700">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    チェックボックスでメンバーを選択し、稼働率と単価を設定してください。複数人を同時に追加できます。
+                </div>
+
+                <div id="memberList" class="space-y-3 max-h-96 overflow-y-auto mb-4">
+                    <!-- メンバーリストがここに動的に追加されます -->
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <button onclick="closeAddMemberModal()" 
+                            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        <i class="fas fa-times mr-2"></i>キャンセル
+                    </button>
+                    <button onclick="submitMembers()" 
+                            class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                        <i class="fas fa-check mr-2"></i>選択したメンバーを追加
+                    </button>
+                </div>
+            </div>
+        </div>
     </body>
     </html>
   `)
