@@ -2051,7 +2051,23 @@ app.get('/contracts/:id', async (c) => {
     ORDER BY md.target_month ASC
   `).bind(id).all()
 
-  // アサインされたメンバーを取得
+  // 各月次明細のアサインメンバーを取得
+  for (const md of monthlyDetails.results) {
+    const monthlyMembers = await c.env.DB.prepare(`
+      SELECT 
+        mma.*,
+        m.name as member_name,
+        m.email
+      FROM monthly_member_assignments mma
+      JOIN members m ON mma.member_id = m.id
+      WHERE mma.monthly_detail_id = ?
+      ORDER BY mma.allocation_ratio DESC
+    `).bind(md.id).all()
+    
+    md.assigned_members = monthlyMembers.results
+  }
+
+  // アサインされたメンバーを取得（契約全体）
   const members = await c.env.DB.prepare(`
     SELECT 
       cma.*,
@@ -2211,6 +2227,7 @@ app.get('/contracts/:id', async (c) => {
                             <tr>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">月次明細</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">アサインメンバー</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">入金</th>
@@ -2222,6 +2239,17 @@ app.get('/contracts/:id', async (c) => {
                             <tr class="hover:bg-gray-50">
                                 <td class="px-4 py-3 font-medium">${md.name || md.target_month}</td>
                                 <td class="px-4 py-3">¥${(md.amount || 0).toLocaleString()}</td>
+                                <td class="px-4 py-3">
+                                    ${md.assigned_members && md.assigned_members.length > 0 
+                                      ? md.assigned_members.map(m => 
+                                          `<div class="flex items-center gap-2 mb-1">
+                                            <span class="text-sm text-gray-700">${m.member_name}</span>
+                                            <span class="px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800">${(m.allocation_ratio * 100).toFixed(0)}%</span>
+                                          </div>`
+                                        ).join('')
+                                      : '<span class="text-xs text-gray-400">未割当</span>'
+                                    }
+                                </td>
                                 <td class="px-4 py-3">
                                     ${md.inspection_status === '検収済' 
                                       ? '<span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>'
