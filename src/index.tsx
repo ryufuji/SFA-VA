@@ -1729,11 +1729,11 @@ app.get('/', async (c) => {
   const { results: memberTotalSales } = await DB.prepare(`
     SELECT 
       m.name as member_name,
-      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as total_sales,
-      COUNT(DISTINCT md.id) as monthly_count
+      COALESCE(SUM(CASE WHEN md.inspection_status = '検収済' THEN mma.unit_price * mma.allocation_ratio ELSE 0 END), 0) as total_sales,
+      COUNT(DISTINCT CASE WHEN md.inspection_status = '検収済' THEN md.id END) as monthly_count
     FROM members m
     LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
-    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.inspection_status = '検収済'
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id
     WHERE m.status = 'active'
     GROUP BY m.id, m.name
     ORDER BY total_sales DESC
