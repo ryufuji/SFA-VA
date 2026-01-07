@@ -398,6 +398,13 @@ app.post('/api/contracts', async (c) => {
     return c.json({ error: '必須項目が入力されていません' }, 400)
   }
 
+  // プロジェクト名を取得
+  const project = await c.env.DB.prepare('SELECT project_name FROM projects WHERE id = ?').bind(project_id).first()
+  if (!project) {
+    return c.json({ error: 'プロジェクトが見つかりません' }, 404)
+  }
+  const projectName = project.project_name
+
   // 月数を計算
   const startDate = new Date(start_date)
   const endDate = new Date(end_date)
@@ -441,13 +448,17 @@ app.post('/api/contracts', async (c) => {
     for (let i = 0; i < months.length; i++) {
       const monthAmount = i === 0 ? baseAmount + remainder : baseAmount
       
+      // 月次明細の名称を生成: 案件名_YYYYMM
+      const yearMonth = months[i].replace('-', '') // 2026-01 → 202601
+      const monthlyName = `${projectName}_${yearMonth}`
+      
       const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
-          contract_id, target_month, amount,
+          contract_id, target_month, amount, name,
           inspection_status, billing_status, payment_status
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        contractId, months[i], monthAmount,
+        contractId, months[i], monthAmount, monthlyName,
         '未検収', '未請求', '未入金'
       ).run()
       
@@ -2179,7 +2190,7 @@ app.get('/contracts/:id', async (c) => {
                     <table class="w-full">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">対象月</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">月次明細</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
@@ -2190,7 +2201,7 @@ app.get('/contracts/:id', async (c) => {
                         <tbody class="divide-y divide-gray-200">
                             ${monthlyDetails.results.map(md => `
                             <tr class="hover:bg-gray-50">
-                                <td class="px-4 py-3 font-medium">${md.target_month}</td>
+                                <td class="px-4 py-3 font-medium">${md.name || md.target_month}</td>
                                 <td class="px-4 py-3">¥${(md.amount || 0).toLocaleString()}</td>
                                 <td class="px-4 py-3">
                                     ${md.inspection_status === '検収済' 
@@ -2582,6 +2593,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
 
             // プレビュー機能
             function previewContract() {
+                const projectName = '${project.project_name}'
                 const startDate = document.querySelector('input[name="start_date"]').value
                 const endDate = document.querySelector('input[name="end_date"]').value
                 const amount = parseInt(document.querySelector('input[name="contract_amount"]').value)
@@ -2614,12 +2626,14 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 let html = '<div class="space-y-2">'
                 html += '<p class="font-medium">期間: ' + months.length + 'ヶ月</p>'
                 html += '<table class="w-full text-sm mt-2">'
-                html += '<thead class="bg-gray-100"><tr><th class="px-2 py-1 text-left">対象月</th><th class="px-2 py-1 text-right">金額</th></tr></thead>'
+                html += '<thead class="bg-gray-100"><tr><th class="px-2 py-1 text-left">月次明細名</th><th class="px-2 py-1 text-right">金額</th></tr></thead>'
                 html += '<tbody>'
                 
                 months.forEach((month, index) => {
                     const monthAmount = index === 0 ? baseAmount + remainder : baseAmount
-                    html += '<tr><td class="px-2 py-1">' + month + '</td><td class="px-2 py-1 text-right">¥' + monthAmount.toLocaleString() + '</td></tr>'
+                    const yearMonth = month.replace('-', '')  // 2026-01 → 202601
+                    const monthlyName = projectName + '_' + yearMonth
+                    html += '<tr><td class="px-2 py-1">' + monthlyName + '</td><td class="px-2 py-1 text-right">¥' + monthAmount.toLocaleString() + '</td></tr>'
                 })
                 
                 html += '</tbody></table>'
@@ -2793,7 +2807,7 @@ app.get('/monthly/:id', async (c) => {
                 <span class="text-gray-400 mx-2">/</span>
                 <a href="/contracts/${monthly.contract_id}" class="text-blue-600 hover:text-blue-800">${monthly.contract_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
-                <span class="text-gray-700">月次明細 ${monthly.target_month}</span>
+                <span class="text-gray-700">${monthly.name || `月次明細 ${monthly.target_month}`}</span>
             </div>
 
             <!-- 基本情報 -->
@@ -2801,7 +2815,7 @@ app.get('/monthly/:id', async (c) => {
                 <div class="flex justify-between items-start mb-4">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800 mb-2">
-                            <i class="fas fa-calendar-alt mr-2 text-blue-600"></i>月次明細 ${monthly.target_month}
+                            <i class="fas fa-calendar-alt mr-2 text-blue-600"></i>${monthly.name || `月次明細 ${monthly.target_month}`}
                         </h1>
                         <p class="text-gray-600">${monthly.contract_name}</p>
                     </div>
