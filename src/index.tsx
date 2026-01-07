@@ -3614,14 +3614,14 @@ app.get('/monthly/:id', async (c) => {
                 }
             })
 
-            function openAddPaymentModal() {
+            window.openAddPaymentModal = function() {
                 document.getElementById('add-payment-modal').classList.remove('hidden')
                 // デフォルトで今日の日付を設定
                 const today = new Date().toISOString().split('T')[0]
                 document.getElementById('payment_date').value = today
             }
 
-            function closeAddPaymentModal() {
+            window.closeAddPaymentModal = function() {
                 document.getElementById('add-payment-modal').classList.add('hidden')
                 document.getElementById('add-payment-form').reset()
             }
@@ -3667,7 +3667,7 @@ app.get('/monthly/:id', async (c) => {
                 }
             })
 
-            function deletePayment(paymentId) {
+            window.deletePayment = function(paymentId) {
                 if (!confirm('この入金履歴を削除しますか？')) return
                 
                 axios.delete('/api/payment-histories/' + paymentId)
@@ -3680,7 +3680,7 @@ app.get('/monthly/:id', async (c) => {
                     })
             }
 
-            async function openAddMemberModal() {
+            window.openAddMemberModal = async function() {
                 try {
                     // メンバー一覧を取得
                     const response = await axios.get('/api/members')
@@ -3769,11 +3769,11 @@ app.get('/monthly/:id', async (c) => {
                 }
             }
 
-            function closeAddMemberModal() {
+            window.closeAddMemberModal = function() {
                 document.getElementById('addMemberModal').classList.add('hidden')
             }
 
-            async function submitMembers() {
+            window.submitMembers = async function() {
                 try {
                     const checkboxes = document.querySelectorAll('#memberList input[type="checkbox"]:checked')
                     
@@ -3851,7 +3851,7 @@ app.get('/monthly/:id', async (c) => {
                 }
             }
 
-            function openEditMemberModal(assignmentId, memberName, allocationRatio, unitPrice, notes) {
+            window.openEditMemberModal = function(assignmentId, memberName, allocationRatio, unitPrice, notes) {
                 document.getElementById('edit_assignment_id').value = assignmentId
                 document.getElementById('edit_member_name').value = memberName
                 document.getElementById('edit_allocation_ratio').value = allocationRatio
@@ -3860,12 +3860,12 @@ app.get('/monthly/:id', async (c) => {
                 document.getElementById('editMemberModal').classList.remove('hidden')
             }
 
-            function closeEditMemberModal() {
+            window.closeEditMemberModal = function() {
                 document.getElementById('editMemberModal').classList.add('hidden')
                 document.getElementById('editMemberForm').reset()
             }
 
-            async function submitEditMember() {
+            window.submitEditMember = async function() {
                 const assignmentId = document.getElementById('edit_assignment_id').value
                 const allocationRatio = parseFloat(document.getElementById('edit_allocation_ratio').value)
                 const unitPrice = parseInt(document.getElementById('edit_unit_price').value)
@@ -3894,7 +3894,7 @@ app.get('/monthly/:id', async (c) => {
                 }
             }
 
-            async function deleteMember(assignmentId) {
+            window.deleteMember = async function(assignmentId) {
                 if (!confirm('このメンバーのアサインを削除しますか？')) return
                 
                 try {
@@ -3906,7 +3906,7 @@ app.get('/monthly/:id', async (c) => {
                 }
             }
 
-            function openEditAmountModal() {
+            window.openEditAmountModal = function() {
                 const newAmount = prompt('新しい金額:', ${monthly.amount})
                 if (!newAmount) return
                 
