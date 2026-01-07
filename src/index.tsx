@@ -591,29 +591,6 @@ app.put('/api/monthly-details/:id/amount', async (c) => {
   return c.json({ success: true })
 })
 
-// API: 入金履歴追加
-app.post('/api/payment-histories', async (c) => {
-  const { monthly_detail_id, payment_date, amount, notes } = await c.req.json()
-
-  await c.env.DB.prepare(`
-    INSERT INTO payment_histories (monthly_detail_id, payment_date, amount, notes)
-    VALUES (?, ?, ?, ?)
-  `).bind(monthly_detail_id, payment_date, amount, notes || '').run()
-
-  // 月次明細の合計入金額を更新
-  const payments = await c.env.DB.prepare(`
-    SELECT SUM(amount) as total FROM payment_histories WHERE monthly_detail_id = ?
-  `).bind(monthly_detail_id).first()
-
-  await c.env.DB.prepare(`
-    UPDATE monthly_details 
-    SET total_payment_amount = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).bind(payments.total || 0, monthly_detail_id).run()
-
-  return c.json({ success: true })
-})
-
 // API: 入金履歴削除
 app.delete('/api/payment-histories/:id', async (c) => {
   const id = c.req.param('id')
@@ -2722,7 +2699,7 @@ app.get('/monthly/:id', async (c) => {
   `).bind(id).all()
 
   // 統計計算
-  const totalPayment = payments.results.reduce((sum, p) => sum + (p.amount || 0), 0)
+  const totalPayment = payments.results.reduce((sum, p) => sum + (p.payment_amount || 0), 0)
   const remainingAmount = (monthly.amount || 0) - totalPayment
   const allocationTotal = members.results.reduce((sum, m) => sum + (m.allocation_ratio || 0), 0)
   
@@ -2997,8 +2974,8 @@ app.get('/monthly/:id', async (c) => {
                         ${payments.results.map(p => `
                         <tr class="hover:bg-gray-50">
                             <td class="px-4 py-3">${p.payment_date}</td>
-                            <td class="px-4 py-3 font-medium text-green-600">¥${(p.amount || 0).toLocaleString()}</td>
-                            <td class="px-4 py-3 text-gray-600">${p.notes || '-'}</td>
+                            <td class="px-4 py-3 font-medium text-green-600">¥${(p.payment_amount || 0).toLocaleString()}</td>
+                            <td class="px-4 py-3 text-gray-600">${p.note || '-'}</td>
                             <td class="px-4 py-3">
                                 <button onclick="deletePayment(${p.id})" class="text-red-600 hover:text-red-800">
                                     <i class="fas fa-trash mr-1"></i>削除
@@ -3099,13 +3076,13 @@ app.get('/monthly/:id', async (c) => {
                 const amount = prompt('入金金額:')
                 if (!amount) return
                 
-                const notes = prompt('備考（任意）:')
+                const note = prompt('備考（任意）:')
                 
                 axios.post('/api/payment-histories', {
                     monthly_detail_id: ${id},
                     payment_date: date,
-                    amount: parseInt(amount),
-                    notes: notes || ''
+                    payment_amount: parseInt(amount),
+                    note: note || null
                 }).then(() => {
                     alert('入金を追加しました')
                     location.reload()
