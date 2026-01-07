@@ -3141,8 +3141,22 @@ app.get('/monthly/:id', async (c) => {
                 document.getElementById('add-payment-form').reset()
             }
 
+            let isSubmitting = false
             document.getElementById('add-payment-form').addEventListener('submit', async (e) => {
                 e.preventDefault()
+                
+                if (isSubmitting) {
+                    console.log('Already submitting, ignoring duplicate submission')
+                    return
+                }
+                
+                isSubmitting = true
+                const submitButton = e.target.querySelector('button[type="submit"]')
+                if (submitButton) {
+                    submitButton.disabled = true
+                    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>処理中...'
+                }
+                
                 const formData = new FormData(e.target)
                 const data = {
                     monthly_detail_id: ${id},
@@ -3152,10 +3166,18 @@ app.get('/monthly/:id', async (c) => {
                 }
 
                 try {
-                    await axios.post('/api/payment-histories', data)
+                    const response = await axios.post('/api/payment-histories', data)
+                    console.log('Payment added successfully:', response.data)
+                    closeAddPaymentModal()
                     alert('入金を追加しました')
                     location.reload()
                 } catch (error) {
+                    console.error('Payment error:', error)
+                    isSubmitting = false
+                    if (submitButton) {
+                        submitButton.disabled = false
+                        submitButton.innerHTML = '<i class="fas fa-check mr-2"></i>追加'
+                    }
                     alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
                 }
             })
