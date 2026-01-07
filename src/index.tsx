@@ -1651,10 +1651,10 @@ app.get('/projects/:id', async (c) => {
     SELECT 
       c.*,
       (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id) as monthly_count,
-      (SELECT SUM(target_amount) FROM monthly_details WHERE contract_id = c.id) as total_amount
+      (SELECT SUM(amount) FROM monthly_details WHERE contract_id = c.id) as total_amount
     FROM contracts c
     WHERE c.project_id = ?
-    ORDER BY c.start_date DESC
+    ORDER BY c.contract_start_date DESC
   `).bind(id).all()
 
   return c.html(`
