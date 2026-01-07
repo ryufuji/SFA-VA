@@ -860,6 +860,122 @@ app.get('/api/dashboard/sales-trend', async (c) => {
   return c.json({ success: true, data: results })
 })
 
+// 未処理タスク取得API
+app.get('/api/dashboard/pending-tasks', async (c) => {
+  const { DB } = c.env
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const today = now.toISOString().split('T')[0]
+  
+  // 検収期限超過（月末+7日経過した未検収）
+  const { results: overdueInspections } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      c.contract_name,
+      p.project_name,
+      md.amount,
+      md.inspection_status,
+      julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) as days_overdue
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    WHERE md.inspection_status = '未検収'
+      AND julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) > 7
+    ORDER BY days_overdue DESC
+    LIMIT 10
+  `).all()
+  
+  // 請求期限間近・超過（検収済だが未請求で検収日から3日以上経過）
+  const { results: overdueBillings } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      c.contract_name,
+      p.project_name,
+      md.amount,
+      md.billing_status,
+      md.inspection_date,
+      julianday('now') - julianday(md.inspection_date) as days_since_inspection
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    WHERE md.inspection_status = '検収済'
+      AND md.billing_status = '未請求'
+      AND md.inspection_date IS NOT NULL
+      AND julianday('now') - julianday(md.inspection_date) >= 3
+    ORDER BY days_since_inspection DESC
+    LIMIT 10
+  `).all()
+  
+  // 入金予定日超過（請求済だが未入金/部分入金で入金予定日が過去）
+  const { results: overduePayments } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      c.contract_name,
+      p.project_name,
+      md.amount,
+      md.total_payment_amount,
+      md.payment_status,
+      md.expected_payment_date,
+      julianday('now') - julianday(md.expected_payment_date) as days_overdue
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    WHERE md.billing_status = '請求済'
+      AND md.payment_status IN ('未入金', '部分入金')
+      AND md.expected_payment_date IS NOT NULL
+      AND md.expected_payment_date < ?
+    ORDER BY days_overdue DESC
+    LIMIT 10
+  `).bind(today).all()
+  
+  return c.json({ 
+    success: true, 
+    data: {
+      overdueInspections,
+      overdueBillings,
+      overduePayments
+    }
+  })
+})
+
+// メンバー稼働状況API
+app.get('/api/members/workload', async (c) => {
+  const { DB } = c.env
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  
+  // メンバーごとの今月のアサイン状況を取得
+  const { results: memberWorkload } = await DB.prepare(`
+    SELECT 
+      m.id as member_id,
+      m.name as member_name,
+      m.email,
+      m.default_unit_price,
+      m.status,
+      COALESCE(SUM(mma.allocation_ratio), 0) as total_allocation,
+      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as total_revenue,
+      COUNT(DISTINCT mma.monthly_detail_id) as project_count,
+      GROUP_CONCAT(
+        p.project_name || ' (' || CAST(ROUND(mma.allocation_ratio * 100) AS INTEGER) || '%): ¥' || 
+        CAST(mma.unit_price AS TEXT) || ' | ' || COALESCE(mma.notes, '')
+      , '|||') as assignments
+    FROM members m
+    LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.target_month = ?
+    LEFT JOIN contracts c ON md.contract_id = c.id
+    LEFT JOIN projects p ON c.project_id = p.id
+    WHERE m.status = 'active'
+    GROUP BY m.id, m.name, m.email, m.default_unit_price, m.status
+    ORDER BY total_allocation DESC, m.name ASC
+  `).bind(currentMonth).all()
+  
+  return c.json({ success: true, data: memberWorkload })
+})
+
 // ========================================
 // HTML Pages
 // ========================================
@@ -1732,6 +1848,19 @@ app.get('/', async (c) => {
           </a>
         </div>
 
+        <!-- 未処理タスクダッシュボード -->
+        <div class="bg-white shadow rounded-lg p-6 mb-8" id="pending-tasks-section">
+          <h2 class="text-lg font-semibold text-gray-900 mb-4">
+            <i class="fas fa-exclamation-triangle mr-2 text-orange-500"></i>⚠️ 要対応タスク
+          </h2>
+          <div id="pending-tasks-content" class="space-y-6">
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-spinner fa-spin text-3xl mb-2"></i>
+              <p>読み込み中...</p>
+            </div>
+          </div>
+        </div>
+
         <!-- 月次売上推移グラフ -->
         <div class="bg-white shadow rounded-lg p-6 mb-8">
           <h2 class="text-lg font-semibold text-gray-900 mb-4">
@@ -1822,6 +1951,108 @@ app.get('/', async (c) => {
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
+        // 未処理タスクの読み込み
+        axios.get('/api/dashboard/pending-tasks').then(response => {
+          const tasks = response.data.data;
+          const { overdueInspections, overdueBillings, overduePayments } = tasks;
+          
+          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length;
+          
+          if (totalTasks === 0) {
+            document.getElementById('pending-tasks-content').innerHTML = \`
+              <div class="text-center py-8 text-green-600">
+                <i class="fas fa-check-circle text-5xl mb-3"></i>
+                <p class="text-lg font-semibold">すべてのタスクが完了しています！</p>
+                <p class="text-sm text-gray-500 mt-2">現在、対応が必要なタスクはありません。</p>
+              </div>
+            \`;
+            return;
+          }
+          
+          let html = '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">';
+          
+          // 検収期限超過
+          if (overdueInspections.length > 0) {
+            html += \`
+              <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
+                <h3 class="text-red-800 font-semibold mb-3 flex items-center">
+                  <i class="fas fa-times-circle mr-2"></i>🔴 検収期限超過 (\${overdueInspections.length}件)
+                </h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                  \${overdueInspections.map(task => \`
+                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
+                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
+                      <div class="text-xs text-gray-600">\${task.target_month} - ¥\${task.amount.toLocaleString()}</div>
+                      <div class="text-xs text-red-600 mt-1">
+                        <i class="fas fa-clock mr-1"></i>\${Math.floor(task.days_overdue)}日超過
+                      </div>
+                    </a>
+                  \`).join('')}
+                </div>
+              </div>
+            \`;
+          }
+          
+          // 請求期限間近・超過
+          if (overdueBillings.length > 0) {
+            html += \`
+              <div class="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
+                <h3 class="text-yellow-800 font-semibold mb-3 flex items-center">
+                  <i class="fas fa-exclamation-triangle mr-2"></i>🟡 請求期限間近 (\${overdueBillings.length}件)
+                </h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                  \${overdueBillings.map(task => \`
+                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
+                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
+                      <div class="text-xs text-gray-600">\${task.target_month} - ¥\${task.amount.toLocaleString()}</div>
+                      <div class="text-xs text-yellow-600 mt-1">
+                        <i class="fas fa-clock mr-1"></i>検収から\${Math.floor(task.days_since_inspection)}日経過
+                      </div>
+                    </a>
+                  \`).join('')}
+                </div>
+              </div>
+            \`;
+          }
+          
+          // 入金予定日超過
+          if (overduePayments.length > 0) {
+            html += \`
+              <div class="border-l-4 border-orange-500 bg-orange-50 p-4 rounded">
+                <h3 class="text-orange-800 font-semibold mb-3 flex items-center">
+                  <i class="fas fa-money-bill-wave mr-2"></i>🟠 入金予定日超過 (\${overduePayments.length}件)
+                </h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                  \${overduePayments.map(task => \`
+                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
+                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
+                      <div class="text-xs text-gray-600">\${task.target_month}</div>
+                      <div class="text-xs text-orange-600 mt-1">
+                        ¥\${task.amount.toLocaleString()} 
+                        <span class="text-gray-500">(入金済: ¥\${(task.total_payment_amount || 0).toLocaleString()})</span>
+                      </div>
+                      <div class="text-xs text-orange-600">
+                        <i class="fas fa-clock mr-1"></i>\${Math.floor(task.days_overdue)}日超過
+                      </div>
+                    </a>
+                  \`).join('')}
+                </div>
+              </div>
+            \`;
+          }
+          
+          html += '</div>';
+          document.getElementById('pending-tasks-content').innerHTML = html;
+        }).catch(error => {
+          console.error('Failed to load pending tasks:', error);
+          document.getElementById('pending-tasks-content').innerHTML = \`
+            <div class="text-center py-8 text-red-500">
+              <i class="fas fa-exclamation-circle text-3xl mb-2"></i>
+              <p>タスクの読み込みに失敗しました</p>
+            </div>
+          \`;
+        });
+
         // 月次売上推移グラフ
         axios.get('/api/dashboard/sales-trend').then(response => {
           const data = response.data.data
@@ -3879,6 +4110,19 @@ app.get('/members', async (c) => {
           </button>
         </div>
 
+        <!-- メンバー稼働状況ダッシュボード -->
+        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 shadow rounded-lg p-6 mb-8" id="member-workload-section">
+          <h2 class="text-xl font-semibold text-gray-900 mb-4">
+            <i class="fas fa-chart-bar mr-2 text-blue-600"></i>📊 メンバー稼働状況（今月）
+          </h2>
+          <div id="member-workload-content">
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-spinner fa-spin text-3xl mb-2"></i>
+              <p>読み込み中...</p>
+            </div>
+          </div>
+        </div>
+
         <!-- メンバー一覧 -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <table class="min-w-full divide-y divide-gray-200">
@@ -4033,6 +4277,130 @@ app.get('/members', async (c) => {
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
+        // メンバー稼働状況の読み込み
+        axios.get('/api/members/workload').then(response => {
+          const members = response.data.data;
+          
+          if (members.length === 0) {
+            document.getElementById('member-workload-content').innerHTML = \`
+              <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-user-slash text-4xl mb-2"></i>
+                <p>アクティブなメンバーがいません</p>
+              </div>
+            \`;
+            return;
+          }
+          
+          let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
+          
+          members.forEach(member => {
+            const totalAllocation = member.total_allocation || 0;
+            const allocationPercent = (totalAllocation * 100).toFixed(1);
+            const availablePercent = (100 - totalAllocation * 100).toFixed(1);
+            const assignments = member.assignments ? member.assignments.split('|||').filter(a => a) : [];
+            
+            // 稼働率に応じた色分け
+            let statusColor = 'gray';
+            let statusIcon = 'fa-battery-empty';
+            let statusText = '空き多';
+            
+            if (totalAllocation >= 1.0) {
+              statusColor = 'red';
+              statusIcon = 'fa-exclamation-triangle';
+              statusText = '過負荷';
+            } else if (totalAllocation >= 0.8) {
+              statusColor = 'green';
+              statusIcon = 'fa-check-circle';
+              statusText = '適正';
+            } else if (totalAllocation >= 0.5) {
+              statusColor = 'blue';
+              statusIcon = 'fa-info-circle';
+              statusText = '余裕あり';
+            } else if (totalAllocation > 0) {
+              statusColor = 'yellow';
+              statusIcon = 'fa-battery-quarter';
+              statusText = '空き多';
+            }
+            
+            html += \`
+              <div class="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow border-l-4 border-\${statusColor}-500">
+                <div class="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 class="font-semibold text-gray-900 text-lg">\${member.member_name}</h3>
+                    <p class="text-xs text-gray-500">\${member.email || '-'}</p>
+                  </div>
+                  <span class="px-2 py-1 text-xs font-semibold rounded-full bg-\${statusColor}-100 text-\${statusColor}-800">
+                    <i class="fas \${statusIcon} mr-1"></i>\${statusText}
+                  </span>
+                </div>
+                
+                <div class="mb-3">
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm font-medium text-gray-700">稼働率</span>
+                    <span class="text-lg font-bold text-\${statusColor}-600">\${allocationPercent}%</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-3">
+                    <div class="bg-\${statusColor}-500 h-3 rounded-full transition-all" style="width: \${Math.min(100, allocationPercent)}%"></div>
+                  </div>
+                </div>
+                
+                <div class="border-t pt-3 space-y-2">
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">今月売上見込</span>
+                    <span class="font-semibold text-green-600">¥\${Math.round(member.total_revenue).toLocaleString()}</span>
+                  </div>
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">アサイン案件数</span>
+                    <span class="font-semibold text-blue-600">\${member.project_count}案件</span>
+                  </div>
+                  \${availablePercent > 0 ? \`
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-600">空き稼働</span>
+                      <span class="font-semibold text-indigo-600">\${availablePercent}% (約¥\${Math.round(member.default_unit_price * parseFloat(availablePercent) / 100).toLocaleString()})</span>
+                    </div>
+                  \` : ''}
+                </div>
+                
+                \${assignments.length > 0 ? \`
+                  <div class="mt-3 pt-3 border-t">
+                    <p class="text-xs font-medium text-gray-700 mb-2">
+                      <i class="fas fa-briefcase mr-1"></i>今月のアサイン
+                    </p>
+                    <div class="space-y-1 max-h-32 overflow-y-auto">
+                      \${assignments.map(assignment => {
+                        const parts = assignment.split(' | ');
+                        const projectInfo = parts[0];
+                        const notes = parts[1] || '';
+                        return \`
+                          <div class="text-xs bg-gray-50 p-2 rounded">
+                            <div class="font-medium text-gray-800">\${projectInfo}</div>
+                            \${notes ? \`<div class="text-gray-600 mt-1">💡 \${notes}</div>\` : ''}
+                          </div>
+                        \`;
+                      }).join('')}
+                    </div>
+                  </div>
+                \` : \`
+                  <div class="mt-3 pt-3 border-t text-center text-xs text-gray-500">
+                    <i class="fas fa-info-circle mr-1"></i>今月のアサインなし
+                  </div>
+                \`}
+              </div>
+            \`;
+          });
+          
+          html += '</div>';
+          document.getElementById('member-workload-content').innerHTML = html;
+        }).catch(error => {
+          console.error('Failed to load member workload:', error);
+          document.getElementById('member-workload-content').innerHTML = \`
+            <div class="text-center py-8 text-red-500">
+              <i class="fas fa-exclamation-circle text-3xl mb-2"></i>
+              <p>稼働状況の読み込みに失敗しました</p>
+            </div>
+          \`;
+        });
+
         function openAddMemberModal() {
           document.getElementById('add-member-modal').classList.remove('hidden');
         }
