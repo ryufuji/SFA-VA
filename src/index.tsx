@@ -2194,32 +2194,17 @@ app.get('/contracts/:id', async (c) => {
                 ` : ''}
             </div>
 
-            <!-- タブナビゲーション -->
+            <!-- 月次明細 -->
             <div class="bg-white rounded-lg shadow-md mb-6">
-                <div class="border-b border-gray-200">
-                    <nav class="flex -mb-px">
-                        <button onclick="location.href='/contracts/${id}?tab=monthly'" 
-                                class="px-6 py-4 border-b-2 font-medium text-sm ${
-                                  tab === 'monthly' 
-                                    ? 'border-blue-600 text-blue-600' 
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                }">
-                            <i class="fas fa-calendar-check mr-2"></i>月次明細 (${monthlyDetails.results.length})
-                        </button>
-                        <button onclick="location.href='/contracts/${id}?tab=members'" 
-                                class="px-6 py-4 border-b-2 font-medium text-sm ${
-                                  tab === 'members' 
-                                    ? 'border-blue-600 text-blue-600' 
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                }">
-                            <i class="fas fa-users mr-2"></i>アサインメンバー (${members.results.length})
-                        </button>
-                    </nav>
+                <div class="border-b border-gray-200 px-6 py-4">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        <i class="fas fa-calendar-check mr-2"></i>月次明細 (${monthlyDetails.results.length})
+                    </h2>
                 </div>
 
-                <!-- タブコンテンツ -->
+                <!-- コンテンツ -->
                 <div class="p-6">
-                    ${tab === 'monthly' ? `
+                    
                     <!-- 月次明細タブ -->
                     ${monthlyDetails.results.length > 0 ? `
                     <table class="w-full">
@@ -2284,59 +2269,6 @@ app.get('/contracts/:id', async (c) => {
                         <i class="fas fa-calendar-times text-5xl mb-3"></i>
                         <p class="text-lg">月次明細がありません</p>
                     </div>
-                    `}
-                    ` : `
-                    <!-- メンバータブ -->
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold">アサインメンバー</h3>
-                        <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                            <i class="fas fa-user-plus mr-2"></i>メンバーを追加
-                        </button>
-                    </div>
-                    ${members.results.length > 0 ? `
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">メンバー名</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">単価</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">稼働率</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">想定売上</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200">
-                            ${members.results.map(m => {
-                              const allocationPercentage = (m.allocation_ratio * 100).toFixed(1)
-                              const expectedRevenue = m.unit_price * m.allocation_ratio
-                              return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-4 py-3">
-                                    <div class="font-medium">${m.member_name}</div>
-                                    <div class="text-sm text-gray-500">${m.email || '-'}</div>
-                                </td>
-                                <td class="px-4 py-3">¥${(m.unit_price || 0).toLocaleString()}/月</td>
-                                <td class="px-4 py-3">
-                                    <span class="font-medium">${allocationPercentage}%</span>
-                                </td>
-                                <td class="px-4 py-3 text-green-600 font-medium">
-                                    ¥${Math.round(expectedRevenue).toLocaleString()}
-                                </td>
-                                <td class="px-4 py-3">
-                                    <button class="text-blue-600 hover:text-blue-800">
-                                        <i class="fas fa-edit mr-1"></i>編集
-                                    </button>
-                                </td>
-                            </tr>
-                            `}).join('')}
-                        </tbody>
-                    </table>
-                    ` : `
-                    <div class="text-center py-12 text-gray-500">
-                        <i class="fas fa-user-slash text-5xl mb-3"></i>
-                        <p class="text-lg">アサインされたメンバーがいません</p>
-                        <p class="text-sm mt-2">「メンバーを追加」ボタンから追加してください</p>
-                    </div>
-                    `}
                     `}
                 </div>
             </div>
