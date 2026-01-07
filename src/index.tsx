@@ -958,22 +958,24 @@ app.get('/api/members/workload', async (c) => {
       m.email,
       m.default_unit_price,
       m.status,
-      COALESCE(SUM(mma.allocation_ratio), 0) as total_allocation,
-      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as total_revenue,
-      COUNT(DISTINCT mma.monthly_detail_id) as project_count,
+      COALESCE(SUM(CASE WHEN md.target_month = ? THEN mma.allocation_ratio ELSE 0 END), 0) as total_allocation,
+      COALESCE(SUM(CASE WHEN md.target_month = ? THEN mma.unit_price * mma.allocation_ratio ELSE 0 END), 0) as total_revenue,
+      COUNT(DISTINCT CASE WHEN md.target_month = ? THEN mma.monthly_detail_id END) as project_count,
       GROUP_CONCAT(
-        p.project_name || ' (' || CAST(ROUND(mma.allocation_ratio * 100) AS INTEGER) || '%): ¥' || 
-        CAST(mma.unit_price AS TEXT) || ' | ' || COALESCE(mma.notes, '')
+        CASE WHEN md.target_month = ? THEN
+          p.project_name || ' (' || CAST(ROUND(mma.allocation_ratio * 100) AS INTEGER) || '%): ¥' || 
+          CAST(mma.unit_price AS TEXT) || ' | ' || COALESCE(mma.notes, '')
+        END
       , '|||') as assignments
     FROM members m
     LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
-    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.target_month = ?
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id
     LEFT JOIN contracts c ON md.contract_id = c.id
     LEFT JOIN projects p ON c.project_id = p.id
     WHERE m.status = 'active'
     GROUP BY m.id, m.name, m.email, m.default_unit_price, m.status
     ORDER BY total_allocation DESC, m.name ASC
-  `).bind(currentMonth).all()
+  `).bind(currentMonth, currentMonth, currentMonth, currentMonth).all()
   
   return c.json({ success: true, data: memberWorkload })
 })
@@ -1717,15 +1719,15 @@ app.get('/', async (c) => {
   const { results: memberWorkRatio } = await DB.prepare(`
     SELECT 
       m.name as member_name,
-      COALESCE(SUM(mma.allocation_ratio), 0) as total_ratio,
-      COUNT(DISTINCT mma.monthly_detail_id) as project_count
+      COALESCE(SUM(CASE WHEN md.target_month = ? THEN mma.allocation_ratio ELSE 0 END), 0) as total_ratio,
+      COUNT(DISTINCT CASE WHEN md.target_month = ? THEN mma.monthly_detail_id END) as project_count
     FROM members m
     LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
-    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id AND md.target_month = ?
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id
     WHERE m.status = 'active'
     GROUP BY m.id, m.name
     ORDER BY total_ratio DESC
-  `).bind(currentMonth).all()
+  `).bind(currentMonth, currentMonth).all()
   
   // メンバー別 累計売上（検収済のみ）
   const { results: memberTotalSales } = await DB.prepare(`
