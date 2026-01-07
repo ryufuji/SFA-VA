@@ -1518,15 +1518,15 @@ app.get('/', async (c) => {
     'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(currentMonth, '未検収').all()
   
-  // 未請求金額
+  // 未請求金額（検収済のみ）
   const { results: unbilled } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE billing_status = ?'
-  ).bind('未請求').all()
+    'SELECT SUM(amount) as total FROM monthly_details WHERE billing_status = ? AND inspection_status = ?'
+  ).bind('未請求', '検収済').all()
   
-  // 未入金金額
+  // 未入金金額（請求済のみ）
   const { results: unpaid } = await DB.prepare(
-    'SELECT SUM(amount - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?)'
-  ).bind('未入金', '部分入金').all()
+    'SELECT SUM(amount - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?) AND billing_status = ?'
+  ).bind('未入金', '部分入金', '請求済').all()
   
   // メンバー稼働率（当月）
   const { results: memberWorkRatio } = await DB.prepare(`
