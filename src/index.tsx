@@ -452,14 +452,33 @@ app.post('/api/contracts', async (c) => {
       const yearMonth = months[i].replace('-', '') // 2026-01 → 202601
       const monthlyName = `${projectName}_${yearMonth}`
       
+      // 対象月の年月を解析
+      const [year, month] = months[i].split('-').map(Number)
+      
+      // 検収日: 対象月の月末
+      const inspectionDate = new Date(year, month, 0) // 月末を取得
+      const inspectionDateStr = `${year}-${String(month).padStart(2, '0')}-${String(inspectionDate.getDate()).padStart(2, '0')}`
+      
+      // 請求日: 翌月1日
+      const billingDate = new Date(year, month, 1)
+      const billingDateStr = `${billingDate.getFullYear()}-${String(billingDate.getMonth() + 1).padStart(2, '0')}-01`
+      
+      // 入金予定日: 翌月末日
+      const expectedPaymentDate = new Date(year, month + 1, 0)
+      const expectedPaymentDateStr = `${expectedPaymentDate.getFullYear()}-${String(expectedPaymentDate.getMonth() + 1).padStart(2, '0')}-${String(expectedPaymentDate.getDate()).padStart(2, '0')}`
+      
       const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
           contract_id, target_month, amount, name,
-          inspection_status, billing_status, payment_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          inspection_status, inspection_date, 
+          billing_status, billing_date,
+          payment_status, expected_payment_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         contractId, months[i], monthAmount, monthlyName,
-        '未検収', '未請求', '未入金'
+        '未検収', inspectionDateStr,
+        '未請求', billingDateStr,
+        '未入金', expectedPaymentDateStr
       ).run()
       
       monthlyDetailIds.push(monthlyResult.meta.last_row_id)
