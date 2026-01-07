@@ -111,6 +111,26 @@ app.post('/api/leads', async (c) => {
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
 
+// リード更新
+app.put('/api/leads/:id', async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  const { company_name, contact_person, department, email, phone } = body
+  
+  if (!company_name) {
+    return c.json({ success: false, error: 'Company name is required' }, 400)
+  }
+  
+  await DB.prepare(`
+    UPDATE leads 
+    SET company_name = ?, contact_person = ?, department = ?, email = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(company_name, contact_person || null, department || null, email || null, phone || null, id).run()
+  
+  return c.json({ success: true })
+})
+
 // --- 案件 API ---
 app.get('/api/projects/:id', async (c) => {
   const { DB } = c.env
@@ -343,9 +363,15 @@ app.post('/api/payment-histories', async (c) => {
   }
   
   // 入金履歴を追加
-  await DB.prepare(
+  const result = await DB.prepare(
     'INSERT INTO payment_histories (monthly_detail_id, payment_date, payment_amount, note, created_by) VALUES (?, ?, ?, ?, ?)'
   ).bind(monthly_detail_id, payment_date, payment_amount, note || null, '管理者').run()
+  
+  // 変更履歴を記録
+  await DB.prepare(`
+    INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind('payment_histories', result.meta.last_row_id, 'payment_added', 'null', `¥${payment_amount} (${payment_date})`, '管理者').run()
   
   // 累計入金額を再計算
   const { results: histories } = await DB.prepare(
@@ -531,7 +557,14 @@ app.put('/api/monthly-details/:id/inspection', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).bind('monthly_detail', id, 'inspection_status', current.inspection_status, inspection_status, '管理者').run()
+    `).bind('monthly_details', id, 'inspection_status', current.inspection_status, inspection_status, '管理者').run()
+  }
+  
+  if (current.inspection_date !== inspection_date) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_details', id, 'inspection_date', current.inspection_date || 'null', inspection_date || 'null', '管理者').run()
   }
 
   await c.env.DB.prepare(`
@@ -556,7 +589,21 @@ app.put('/api/monthly-details/:id/billing', async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).bind('monthly_detail', id, 'billing_status', current.billing_status, billing_status, '管理者').run()
+    `).bind('monthly_details', id, 'billing_status', current.billing_status, billing_status, '管理者').run()
+  }
+  
+  if (current.billing_date !== billing_date) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_details', id, 'billing_date', current.billing_date || 'null', billing_date || 'null', '管理者').run()
+  }
+  
+  if (current.invoice_number !== invoice_number) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_details', id, 'invoice_number', current.invoice_number || 'null', invoice_number || 'null', '管理者').run()
   }
 
   await c.env.DB.prepare(`
@@ -580,7 +627,7 @@ app.put('/api/monthly-details/:id/amount', async (c) => {
   await c.env.DB.prepare(`
     INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).bind('monthly_detail', id, 'amount', current.amount.toString(), amount.toString(), '管理者').run()
+  `).bind('monthly_details', id, 'amount', current.amount.toString(), amount.toString(), '管理者').run()
 
   await c.env.DB.prepare(`
     UPDATE monthly_details 
@@ -598,6 +645,12 @@ app.delete('/api/payment-histories/:id', async (c) => {
   // 入金履歴を取得
   const payment = await c.env.DB.prepare('SELECT * FROM payment_histories WHERE id = ?').bind(id).first()
   if (!payment) return c.notFound()
+
+  // 変更履歴を記録
+  await c.env.DB.prepare(`
+    INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind('payment_histories', id, 'payment_deleted', `¥${payment.payment_amount} (${payment.payment_date})`, 'null', '管理者').run()
 
   // 削除
   await c.env.DB.prepare('DELETE FROM payment_histories WHERE id = ?').bind(id).run()
@@ -646,6 +699,15 @@ app.post('/api/monthly-member-assignments', async (c) => {
     (monthly_detail_id, member_id, allocation_ratio, unit_price, notes)
     VALUES (?, ?, ?, ?, ?)
   `).bind(monthly_detail_id, member_id, allocation_ratio, unit_price, notes || '').run()
+
+  // メンバー名を取得
+  const member = await c.env.DB.prepare('SELECT name FROM members WHERE id = ?').bind(member_id).first()
+  
+  // 変更履歴を記録
+  await c.env.DB.prepare(`
+    INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind('monthly_member_assignments', result.meta.last_row_id, 'member_assigned', 'null', `${member.name} (稼働率:${allocation_ratio * 100}%, 単価:¥${unit_price})`, '管理者').run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
 })
@@ -720,6 +782,32 @@ app.put('/api/monthly-member-assignments/:id', async (c) => {
     return c.json({ success: false, error: 'Work ratio must be between 0 and 1' }, 400)
   }
 
+  // 現在の値を取得
+  const current = await c.env.DB.prepare('SELECT * FROM monthly_member_assignments WHERE id = ?').bind(id).first()
+  if (!current) return c.json({ success: false, error: 'Assignment not found' }, 404)
+
+  // 変更履歴を記録
+  if (current.allocation_ratio !== allocation_ratio) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_member_assignments', id, 'allocation_ratio', current.allocation_ratio.toString(), allocation_ratio.toString(), '管理者').run()
+  }
+  
+  if (current.unit_price !== unit_price) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_member_assignments', id, 'unit_price', current.unit_price.toString(), unit_price.toString(), '管理者').run()
+  }
+  
+  if (current.notes !== notes) {
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_member_assignments', id, 'notes', current.notes || 'null', notes || 'null', '管理者').run()
+  }
+
   // 更新
   await c.env.DB.prepare(`
     UPDATE monthly_member_assignments 
@@ -733,6 +821,22 @@ app.put('/api/monthly-member-assignments/:id', async (c) => {
 // API: 月次メンバーアサイン削除
 app.delete('/api/monthly-member-assignments/:id', async (c) => {
   const id = c.req.param('id')
+
+  // 削除前に情報を取得
+  const assignment = await c.env.DB.prepare(`
+    SELECT mma.*, m.name as member_name
+    FROM monthly_member_assignments mma
+    JOIN members m ON mma.member_id = m.id
+    WHERE mma.id = ?
+  `).bind(id).first()
+  
+  if (assignment) {
+    // 変更履歴を記録
+    await c.env.DB.prepare(`
+      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind('monthly_member_assignments', id, 'member_unassigned', `${assignment.member_name} (稼働率:${assignment.allocation_ratio * 100}%, 単価:¥${assignment.unit_price})`, 'null', '管理者').run()
+  }
 
   await c.env.DB.prepare('DELETE FROM monthly_member_assignments WHERE id = ?').bind(id).run()
 
@@ -1268,6 +1372,9 @@ app.get('/leads/:id', async (c) => {
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-user mr-2"></i>リード詳細
           </h1>
+          <button onclick="openEditLeadModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <i class="fas fa-edit mr-2"></i>編集
+          </button>
         </div>
 
         <!-- 基本情報 -->
@@ -1420,6 +1527,98 @@ app.get('/leads/:id', async (c) => {
             const response = await axios.post('/api/projects', data);
             if (response.data.success) {
               alert('案件を作成しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + error.message);
+          }
+        }
+      </script>
+
+      <!-- リード編集モーダル -->
+      <div id="edit-lead-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-user-edit mr-2"></i>リード情報を編集
+            </h3>
+            <button onclick="closeEditLeadModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <form id="edit-lead-form" onsubmit="updateLead(event)">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                会社名 <span class="text-red-500">*</span>
+              </label>
+              <input type="text" name="company_name" value="${lead.company_name}" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                担当者名
+              </label>
+              <input type="text" name="contact_person" value="${lead.contact_person || ''}"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                部署名
+              </label>
+              <input type="text" name="department" value="${lead.department || ''}"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メールアドレス
+              </label>
+              <input type="email" name="email" value="${lead.email || ''}"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                電話番号
+              </label>
+              <input type="tel" name="phone" value="${lead.phone || ''}"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="flex justify-end space-x-3">
+              <button type="button" onclick="closeEditLeadModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                キャンセル
+              </button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-save mr-2"></i>更新
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script>
+        function openEditLeadModal() {
+          document.getElementById('edit-lead-modal').classList.remove('hidden');
+        }
+
+        function closeEditLeadModal() {
+          document.getElementById('edit-lead-modal').classList.add('hidden');
+        }
+
+        async function updateLead(event) {
+          event.preventDefault();
+          const form = event.target;
+          const formData = new FormData(form);
+          const data = Object.fromEntries(formData.entries());
+          
+          try {
+            const response = await axios.put('/api/leads/${id}', data);
+            if (response.data.success) {
+              alert('リード情報を更新しました');
               location.reload();
             }
           } catch (error) {
