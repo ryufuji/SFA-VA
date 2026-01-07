@@ -3094,14 +3094,14 @@ app.get('/monthly/:id', async (c) => {
                 }
             })
 
-            // 請求日が入力されたときに翌月末日を自動計算
+            // 請求日が入力されたときに同月末日を自動計算
             document.getElementById('billing_date').addEventListener('change', (e) => {
                 const billingDate = e.target.value
                 if (billingDate) {
                     const date = new Date(billingDate)
-                    // 翌月の1日を計算
-                    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 2, 1)
-                    // 1日前（翌月末日）を計算
+                    // 同月の翌月1日を計算
+                    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+                    // 1日前（同月末日）を計算
                     const lastDay = new Date(nextMonth.getTime() - 24 * 60 * 60 * 1000)
                     // YYYY-MM-DD形式に変換
                     const expectedDate = lastDay.toISOString().split('T')[0]
@@ -3130,26 +3130,35 @@ app.get('/monthly/:id', async (c) => {
             })
 
             function openAddPaymentModal() {
-                const date = prompt('入金日 (YYYY-MM-DD):')
-                if (!date) return
-                
-                const amount = prompt('入金金額:')
-                if (!amount) return
-                
-                const note = prompt('備考（任意）:')
-                
-                axios.post('/api/payment-histories', {
+                document.getElementById('add-payment-modal').classList.remove('hidden')
+                // デフォルトで今日の日付を設定
+                const today = new Date().toISOString().split('T')[0]
+                document.getElementById('payment_date').value = today
+            }
+
+            function closeAddPaymentModal() {
+                document.getElementById('add-payment-modal').classList.add('hidden')
+                document.getElementById('add-payment-form').reset()
+            }
+
+            document.getElementById('add-payment-form').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                const formData = new FormData(e.target)
+                const data = {
                     monthly_detail_id: ${id},
-                    payment_date: date,
-                    payment_amount: parseInt(amount),
-                    note: note || null
-                }).then(() => {
+                    payment_date: formData.get('payment_date'),
+                    payment_amount: parseInt(formData.get('payment_amount')),
+                    note: formData.get('note') || null
+                }
+
+                try {
+                    await axios.post('/api/payment-histories', data)
                     alert('入金を追加しました')
                     location.reload()
-                }).catch(error => {
-                    alert('エラーが発生しました: ' + error.message)
-                })
-            }
+                } catch (error) {
+                    alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
+                }
+            })
 
             function deletePayment(paymentId) {
                 if (!confirm('この入金履歴を削除しますか？')) return
@@ -3361,6 +3370,67 @@ app.get('/monthly/:id', async (c) => {
                 })
             }
         </script>
+
+        <!-- 入金追加モーダル -->
+        <div id="add-payment-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-money-bill-wave mr-2 text-purple-600"></i>入金を追加
+                    </h3>
+                    <button onclick="closeAddPaymentModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                
+                <form id="add-payment-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            入金日 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="date" 
+                               id="payment_date" 
+                               name="payment_date" 
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            入金金額 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="number" 
+                               name="payment_amount" 
+                               required 
+                               min="1"
+                               placeholder="1000000"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            備考
+                        </label>
+                        <textarea name="note" 
+                                  rows="3"
+                                  placeholder="入金に関するメモ（任意）"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" 
+                                onclick="closeAddPaymentModal()" 
+                                class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                            <i class="fas fa-times mr-2"></i>キャンセル
+                        </button>
+                        <button type="submit" 
+                                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                            <i class="fas fa-check mr-2"></i>追加
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <!-- メンバー追加モーダル -->
         <div id="addMemberModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
