@@ -1158,6 +1158,7 @@ app.get('/leads', async (c) => {
               <tr>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">会社名</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">担当者</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">部署名</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">メール</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">電話</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
@@ -1171,6 +1172,9 @@ app.get('/leads', async (c) => {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     ${lead.contact_person || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${lead.department || '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     ${lead.email || '-'}
@@ -2198,7 +2202,7 @@ app.get('/projects/:id', async (c) => {
                             <div>
                                 <h3 class="font-bold text-gray-800">${contract.contract_name}</h3>
                                 <p class="text-sm text-gray-600">
-                                    ${contract.start_date} 〜 ${contract.end_date}
+                                    <i class="fas fa-calendar-alt mr-1"></i>${contract.contract_start_date} 〜 ${contract.contract_end_date}
                                 </p>
                             </div>
                             <span class="px-2 py-1 rounded text-xs font-semibold ${
