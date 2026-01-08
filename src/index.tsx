@@ -1157,8 +1157,8 @@ app.get('/leads', async (c) => {
             <thead class="bg-gray-50">
               <tr>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">会社名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">担当者</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">部署名</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">担当者</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">メール</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">電話</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
@@ -1171,10 +1171,10 @@ app.get('/leads', async (c) => {
                     ${lead.company_name}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${lead.contact_person || '-'}
+                    ${lead.department || '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${lead.department || '-'}
+                    ${lead.contact_person || '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     ${lead.email || '-'}
@@ -1392,12 +1392,12 @@ app.get('/leads/:id', async (c) => {
               <dd class="mt-1 text-sm text-gray-900">${lead.company_name}</dd>
             </div>
             <div>
-              <dt class="text-sm font-medium text-gray-500">担当者名</dt>
-              <dd class="mt-1 text-sm text-gray-900">${lead.contact_person || '-'}</dd>
-            </div>
-            <div>
               <dt class="text-sm font-medium text-gray-500">部署名</dt>
               <dd class="mt-1 text-sm text-gray-900">${lead.department || '-'}</dd>
+            </div>
+            <div>
+              <dt class="text-sm font-medium text-gray-500">担当者名</dt>
+              <dd class="mt-1 text-sm text-gray-900">${lead.contact_person || '-'}</dd>
             </div>
             <div>
               <dt class="text-sm font-medium text-gray-500">メールアドレス</dt>
