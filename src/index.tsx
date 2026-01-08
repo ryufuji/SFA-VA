@@ -417,7 +417,7 @@ app.get('/api/members', async (c) => {
 
 // API: 契約作成（月次明細自動生成）
 app.post('/api/contracts', async (c) => {
-  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, member_assignments } = await c.req.json()
+  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, monthly_breakdown, member_assignments } = await c.req.json()
 
   // バリデーション
   if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
@@ -451,7 +451,25 @@ app.post('/api/contracts', async (c) => {
     return c.json({ error: '契約期間が無効です' }, 400)
   }
 
-  // 均等割の計算
+  // 月次明細データの検証
+  if (monthly_breakdown && monthly_breakdown.length > 0) {
+    // 月次明細の合計が契約金額と一致するか確認
+    const totalMonthlyAmount = monthly_breakdown.reduce((sum, item) => sum + parseInt(item.amount), 0)
+    if (totalMonthlyAmount !== parseInt(contract_amount)) {
+      return c.json({ 
+        error: `月次明細の金額合計（¥${totalMonthlyAmount}）が契約金額（¥${contract_amount}）と一致しません` 
+      }, 400)
+    }
+    
+    // 月次明細の月数が契約期間の月数と一致するか確認
+    if (monthly_breakdown.length !== months.length) {
+      return c.json({ 
+        error: `月次明細の件数（${monthly_breakdown.length}件）が契約期間の月数（${months.length}ヶ月）と一致しません` 
+      }, 400)
+    }
+  }
+
+  // 均等割の計算（monthly_breakdownが無い場合のフォールバック）
   const baseAmount = Math.floor(contract_amount / months.length)
   const remainder = contract_amount - (baseAmount * months.length)
 
@@ -472,7 +490,14 @@ app.post('/api/contracts', async (c) => {
     // 月次明細を生成し、IDを保持
     const monthlyDetailIds = []
     for (let i = 0; i < months.length; i++) {
-      const monthAmount = i === 0 ? baseAmount + remainder : baseAmount
+      // 月次明細データから金額と備考を取得（無ければ均等割）
+      let monthAmount = i === 0 ? baseAmount + remainder : baseAmount
+      let monthNote = ''
+      
+      if (monthly_breakdown && monthly_breakdown[i]) {
+        monthAmount = parseInt(monthly_breakdown[i].amount)
+        monthNote = monthly_breakdown[i].note || ''
+      }
       
       // 月次明細の名称を生成: 案件名_YYYYMM
       const yearMonth = months[i].replace('-', '') // 2026-01 → 202601
@@ -495,13 +520,13 @@ app.post('/api/contracts', async (c) => {
       
       const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
-          contract_id, target_month, amount, name,
+          contract_id, target_month, amount, name, notes,
           inspection_status, inspection_date, 
           billing_status, billing_date,
           payment_status, expected_payment_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        contractId, months[i], monthAmount, monthlyName,
+        contractId, months[i], monthAmount, monthlyName, monthNote,
         '未検収', inspectionDateStr,
         '未請求', billingDateStr,
         '未入金', expectedPaymentDateStr
@@ -2600,7 +2625,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
                     <p class="text-sm text-blue-700">
                         <i class="fas fa-info-circle mr-2"></i>
-                        契約期間から月次明細が自動生成されます。契約金額は期間で均等割されます。
+                        契約期間と金額を入力すると、月次明細の金額配分テーブルが表示されます。各月の金額を編集できます。
                     </p>
                 </div>
 
@@ -2669,9 +2694,43 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                         <label class="block text-sm font-medium text-gray-700 mb-2">
                             契約金額（円） <span class="text-red-500">*</span>
                         </label>
-                        <input type="number" name="contract_amount" required min="0" step="1"
+                        <input type="number" id="contract_amount" name="contract_amount" required min="0" step="1"
                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                placeholder="3000000">
+                    </div>
+
+                    <!-- 月次明細の金額配分 -->
+                    <div id="monthly-breakdown-section" class="hidden border-t pt-6">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">
+                            <i class="fas fa-calendar-alt mr-2 text-green-600"></i>月次明細の金額配分
+                        </h3>
+                        
+                        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-4 text-sm text-yellow-700">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            各月の金額を編集できます。合計が契約金額と一致する必要があります。
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-100">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left">対象月</th>
+                                        <th class="px-4 py-2 text-right">金額（円）</th>
+                                        <th class="px-4 py-2 text-left">備考（任意）</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="monthly-breakdown-body" class="bg-white">
+                                    <!-- JavaScriptで動的生成 -->
+                                </tbody>
+                                <tfoot class="bg-gray-50 font-semibold">
+                                    <tr>
+                                        <td class="px-4 py-2">合計</td>
+                                        <td class="px-4 py-2 text-right" id="monthly-total-amount">¥0</td>
+                                        <td class="px-4 py-2" id="monthly-validation-status"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- 備考 -->
@@ -2744,6 +2803,122 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
             // メンバーデータ
             const members = ${JSON.stringify(members)}
             let memberRowIndex = 0
+            
+            // 月次明細データを保持
+            let monthlyBreakdownData = []
+            
+            // 契約期間・金額変更時に月次明細テーブルを生成
+            document.querySelector('input[name="start_date"]').addEventListener('change', generateMonthlyBreakdown)
+            document.querySelector('input[name="end_date"]').addEventListener('change', generateMonthlyBreakdown)
+            document.getElementById('contract_amount').addEventListener('change', generateMonthlyBreakdown)
+            
+            function generateMonthlyBreakdown() {
+                const startDate = document.querySelector('input[name="start_date"]').value
+                const endDate = document.querySelector('input[name="end_date"]').value
+                const contractAmount = parseInt(document.getElementById('contract_amount').value) || 0
+                
+                if (!startDate || !endDate || contractAmount === 0) {
+                    document.getElementById('monthly-breakdown-section').classList.add('hidden')
+                    return
+                }
+                
+                // 月リストを生成
+                const months = []
+                const start = new Date(startDate)
+                const end = new Date(endDate)
+                
+                if (start > end) {
+                    alert('開始日は終了日より前である必要があります')
+                    return
+                }
+                
+                let current = new Date(start)
+                while (current <= end) {
+                    const yearMonth = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0')
+                    months.push(yearMonth)
+                    current.setMonth(current.getMonth() + 1)
+                }
+                
+                if (months.length === 0) {
+                    document.getElementById('monthly-breakdown-section').classList.add('hidden')
+                    return
+                }
+                
+                // 均等割の計算（初期値）
+                const baseAmount = Math.floor(contractAmount / months.length)
+                const remainder = contractAmount - (baseAmount * months.length)
+                
+                // 月次明細データを初期化
+                monthlyBreakdownData = months.map((month, index) => ({
+                    month: month,
+                    amount: index === 0 ? baseAmount + remainder : baseAmount,
+                    note: ''
+                }))
+                
+                // テーブルを描画
+                renderMonthlyBreakdownTable()
+                
+                // セクションを表示
+                document.getElementById('monthly-breakdown-section').classList.remove('hidden')
+            }
+            
+            function renderMonthlyBreakdownTable() {
+                const tbody = document.getElementById('monthly-breakdown-body')
+                tbody.innerHTML = ''
+                
+                monthlyBreakdownData.forEach((data, index) => {
+                    const row = document.createElement('tr')
+                    row.className = 'border-b'
+                    row.innerHTML = \`
+                        <td class="px-4 py-2">\${data.month}</td>
+                        <td class="px-4 py-2">
+                            <input type="number" 
+                                   data-index="\${index}"
+                                   value="\${data.amount}"
+                                   min="0"
+                                   step="1"
+                                   class="monthly-amount-input w-full px-2 py-1 border border-gray-300 rounded text-right focus:ring-2 focus:ring-green-500"
+                                   onchange="updateMonthlyAmount(\${index}, this.value)">
+                        </td>
+                        <td class="px-4 py-2">
+                            <input type="text" 
+                                   data-index="\${index}"
+                                   value="\${data.note}"
+                                   placeholder="例: 初月全額請求"
+                                   class="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
+                                   onchange="updateMonthlyNote(\${index}, this.value)">
+                        </td>
+                    \`
+                    tbody.appendChild(row)
+                })
+                
+                // 合計を更新
+                updateMonthlyTotal()
+            }
+            
+            function updateMonthlyAmount(index, value) {
+                monthlyBreakdownData[index].amount = parseInt(value) || 0
+                updateMonthlyTotal()
+            }
+            
+            function updateMonthlyNote(index, value) {
+                monthlyBreakdownData[index].note = value
+            }
+            
+            function updateMonthlyTotal() {
+                const contractAmount = parseInt(document.getElementById('contract_amount').value) || 0
+                const total = monthlyBreakdownData.reduce((sum, data) => sum + data.amount, 0)
+                
+                document.getElementById('monthly-total-amount').textContent = '¥' + total.toLocaleString()
+                
+                const statusEl = document.getElementById('monthly-validation-status')
+                if (total === contractAmount) {
+                    statusEl.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle mr-1"></i>一致</span>'
+                } else {
+                    const diff = contractAmount - total
+                    statusEl.innerHTML = \`<span class="text-red-600"><i class="fas fa-times-circle mr-1"></i>差額: ¥\${diff.toLocaleString()}</span>\`
+                }
+            }
 
             // メンバー行を追加
             function addMemberRow() {
@@ -2886,6 +3061,15 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
             document.getElementById('contract-form').addEventListener('submit', async (e) => {
                 e.preventDefault()
                 
+                // 月次明細の金額合計チェック
+                const contractAmount = parseInt(document.getElementById('contract_amount').value) || 0
+                const monthlyTotal = monthlyBreakdownData.reduce((sum, data) => sum + data.amount, 0)
+                
+                if (monthlyTotal !== contractAmount) {
+                    alert(\`月次明細の金額合計（¥\${monthlyTotal.toLocaleString()}）が契約金額（¥\${contractAmount.toLocaleString()}）と一致しません。\`)
+                    return
+                }
+                
                 if (!confirm('この内容で契約を作成しますか？')) return
                 
                 const formData = new FormData(e.target)
@@ -2909,10 +3093,13 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 const data = {
                     project_id: parseInt(formData.get('project_id')),
                     contract_name: formData.get('contract_name'),
+                    contract_type: formData.get('contract_type'),
+                    contract_date: formData.get('contract_date'),
                     start_date: formData.get('start_date'),
                     end_date: formData.get('end_date'),
                     contract_amount: parseInt(formData.get('contract_amount')),
                     notes: formData.get('notes') || '',
+                    monthly_breakdown: monthlyBreakdownData,
                     member_assignments: memberAssignments
                 }
 
