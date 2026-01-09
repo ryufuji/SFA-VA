@@ -2065,14 +2065,14 @@ app.get('/api/members', async (c) => {
 app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
   const { name, email, default_unit_price, position, memo } = await c.req.json()
 
-  if (!name || !default_unit_price) {
-    return c.json({ success: false, error: 'Name and default unit price are required' }, 400)
+  if (!name || !email || !default_unit_price) {
+    return c.json({ success: false, error: 'Name, email, and default unit price are required' }, 400)
   }
 
   const result = await c.env.DB.prepare(`
     INSERT INTO members (name, email, default_unit_price, position, memo, status)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(name, email || null, default_unit_price, position || null, memo || null, 'active').run()
+  `).bind(name, email, default_unit_price, position || null, memo || null, 'active').run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
 })
@@ -6836,9 +6836,9 @@ app.get('/members', async (c) => {
             
             <div class="mb-4">
               <label class="block text-sm font-medium text-gray-700 mb-2">
-                メールアドレス
+                メールアドレス <span class="text-red-500">*</span>
               </label>
-              <input type="email" name="email"
+              <input type="email" name="email" required
                 class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             
