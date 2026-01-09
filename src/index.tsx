@@ -1118,8 +1118,27 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   const body = await c.req.json()
   const { monthly_detail_id, payment_date, payment_amount, note } = body
   
-  if (!monthly_detail_id || !payment_date || !payment_amount) {
+  // 基本的な必須フィールドチェック
+  if (!monthly_detail_id || !payment_date || payment_amount === undefined || payment_amount === null) {
     return c.json({ success: false, error: 'Required fields are missing' }, 400)
+  }
+  
+  // 月次明細の金額を取得
+  const detail = await DB.prepare('SELECT amount FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
+  if (!detail) {
+    return c.json({ success: false, error: 'Monthly detail not found' }, 404)
+  }
+  
+  const monthlyAmount = detail.amount || 0
+  
+  // 入金額が0円の場合、月次明細の金額も0円でないとエラー
+  if (payment_amount === 0 && monthlyAmount !== 0) {
+    return c.json({ success: false, error: '0円の入金は、月次明細の金額が0円の場合のみ登録できます' }, 400)
+  }
+  
+  // 入金額が負の値の場合はエラー
+  if (payment_amount < 0) {
+    return c.json({ success: false, error: '入金額は0以上である必要があります' }, 400)
   }
   
   // 入金履歴を追加
@@ -1140,12 +1159,9 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   
   const totalPayment = (histories[0] as any)?.total || 0
   
-  // 月次明細の入金情報を更新
-  const detail = await DB.prepare('SELECT amount FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
-  const amount = detail?.amount || 0
-  
+  // 入金ステータスの判定
   let paymentStatus = '未入金'
-  if (totalPayment >= amount) {
+  if (totalPayment >= monthlyAmount) {
     paymentStatus = '入金完了'
   } else if (totalPayment > 0) {
     paymentStatus = '部分入金'
@@ -5301,6 +5317,25 @@ app.get('/monthly/:id', async (c) => {
                 // デフォルトで今日の日付を設定
                 const today = new Date().toISOString().split('T')[0]
                 document.getElementById('payment_date').value = today
+                
+                // 月次明細の金額が0円の場合、0円入金を許可
+                const monthlyAmount = ${monthly.amount || 0}
+                const paymentAmountInput = document.querySelector('input[name="payment_amount"]')
+                const paymentAmountLabel = document.getElementById('payment-amount-label')
+                
+                if (monthlyAmount === 0) {
+                    paymentAmountInput.setAttribute('min', '0')
+                    paymentAmountInput.setAttribute('placeholder', '0')
+                    if (paymentAmountLabel) {
+                        paymentAmountLabel.innerHTML = '入金金額 <span class="text-red-500">*</span><span class="text-xs text-gray-500 ml-2">※0円での入金が可能です</span>'
+                    }
+                } else {
+                    paymentAmountInput.setAttribute('min', '1')
+                    paymentAmountInput.setAttribute('placeholder', '1000000')
+                    if (paymentAmountLabel) {
+                        paymentAmountLabel.innerHTML = '入金金額 <span class="text-red-500">*</span>'
+                    }
+                }
             }
 
             window.closeAddPaymentModal = function() {
@@ -5629,7 +5664,7 @@ app.get('/monthly/:id', async (c) => {
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <label id="payment-amount-label" class="block text-sm font-medium text-gray-700 mb-2">
                             入金金額 <span class="text-red-500">*</span>
                         </label>
                         <input type="number" 
