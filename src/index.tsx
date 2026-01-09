@@ -191,6 +191,549 @@ app.get('/login', (c) => {
   `)
 })
 
+// プロフィール画面
+app.get('/profile', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>プロフィール - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+      <!-- ナビゲーション -->
+      <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex items-center">
+              <i class="fas fa-chart-line text-2xl text-blue-600 mr-3"></i>
+              <span class="text-xl font-semibold text-gray-800">SFA システム</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span id="user-name" class="text-gray-700"></span>
+              <a href="/" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-home mr-1"></i>ダッシュボード
+              </a>
+              <button id="logout-button" class="text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-4xl mx-auto py-8 px-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">
+          <i class="fas fa-user-circle mr-2"></i>プロフィール
+        </h1>
+
+        <!-- ユーザー情報 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">ユーザー情報</h2>
+          <div class="space-y-3">
+            <div class="flex">
+              <span class="w-32 text-gray-600">メールアドレス:</span>
+              <span id="user-email" class="font-medium"></span>
+            </div>
+            <div class="flex">
+              <span class="w-32 text-gray-600">名前:</span>
+              <span id="user-display-name" class="font-medium"></span>
+            </div>
+            <div class="flex">
+              <span class="w-32 text-gray-600">役割:</span>
+              <span id="user-role" class="font-medium"></span>
+            </div>
+            <div class="flex">
+              <span class="w-32 text-gray-600">最終ログイン:</span>
+              <span id="user-last-login" class="font-medium"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 権限情報 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">権限</h2>
+          <div id="permissions-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- JavaScript で動的に生成 -->
+          </div>
+        </div>
+
+        <!-- パスワード変更 -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">パスワード変更</h2>
+          
+          <!-- 成功・エラーメッセージ -->
+          <div id="success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+            <p class="text-sm text-green-700">
+              <i class="fas fa-check-circle mr-2"></i>
+              <span id="success-text"></span>
+            </p>
+          </div>
+          <div id="error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+            <p class="text-sm text-red-700">
+              <i class="fas fa-exclamation-circle mr-2"></i>
+              <span id="error-text"></span>
+            </p>
+          </div>
+
+          <form id="password-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                現在のパスワード
+              </label>
+              <input 
+                type="password" 
+                id="current-password" 
+                name="current_password" 
+                required 
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                新しいパスワード
+              </label>
+              <input 
+                type="password" 
+                id="new-password" 
+                name="new_password" 
+                required 
+                minlength="6"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              <p class="text-xs text-gray-500 mt-1">6文字以上で入力してください</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                新しいパスワード（確認）
+              </label>
+              <input 
+                type="password" 
+                id="confirm-password" 
+                name="confirm_password" 
+                required 
+                minlength="6"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button 
+              type="submit" 
+              class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+              <i class="fas fa-key mr-2"></i>パスワードを変更
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        const API_BASE = '';
+        const token = localStorage.getItem('jwt_token');
+        
+        if (!token) {
+          window.location.href = '/login';
+        }
+        
+        // APIリクエスト設定
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+        
+        const PERMISSION_LABELS = {
+          'lead_manage': 'リード・案件の登録/更新',
+          'contract_manage': '契約の登録/更新',
+          'inspection_manage': '検収・請求の更新',
+          'payment_manage': '入金の登録'
+        };
+        
+        // ユーザー情報取得
+        async function loadUserInfo() {
+          try {
+            const response = await axios.get(API_BASE + '/api/auth/me');
+            const user = response.data.user;
+            
+            document.getElementById('user-name').textContent = user.name;
+            document.getElementById('user-email').textContent = user.email;
+            document.getElementById('user-display-name').textContent = user.name;
+            document.getElementById('user-role').textContent = user.role === 'admin' ? '管理者' : '一般ユーザー';
+            document.getElementById('user-last-login').textContent = user.lastLoginAt 
+              ? new Date(user.lastLoginAt).toLocaleString('ja-JP')
+              : '不明';
+            
+            // 権限表示
+            const permissionsDiv = document.getElementById('permissions-list');
+            if (user.role === 'admin') {
+              permissionsDiv.innerHTML = '<div class="col-span-2 text-green-600 font-medium"><i class="fas fa-crown mr-2"></i>すべての権限（管理者）</div>';
+            } else if (user.permissions && user.permissions.length > 0) {
+              permissionsDiv.innerHTML = user.permissions.map(p => 
+                \`<div class="flex items-center text-gray-700">
+                  <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                  \${PERMISSION_LABELS[p] || p}
+                </div>\`
+              ).join('');
+            } else {
+              permissionsDiv.innerHTML = '<div class="col-span-2 text-gray-500">権限が設定されていません（閲覧のみ可能）</div>';
+            }
+          } catch (error) {
+            console.error('ユーザー情報の取得に失敗:', error);
+            if (error.response?.status === 401) {
+              localStorage.removeItem('jwt_token');
+              window.location.href = '/login';
+            }
+          }
+        }
+        
+        // パスワード変更
+        document.getElementById('password-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          
+          const currentPassword = document.getElementById('current-password').value;
+          const newPassword = document.getElementById('new-password').value;
+          const confirmPassword = document.getElementById('confirm-password').value;
+          
+          const errorDiv = document.getElementById('error-message');
+          const successDiv = document.getElementById('success-message');
+          errorDiv.classList.add('hidden');
+          successDiv.classList.add('hidden');
+          
+          if (newPassword !== confirmPassword) {
+            document.getElementById('error-text').textContent = '新しいパスワードが一致しません';
+            errorDiv.classList.remove('hidden');
+            return;
+          }
+          
+          try {
+            await axios.post(API_BASE + '/api/auth/change-password', {
+              current_password: currentPassword,
+              new_password: newPassword,
+              confirm_password: confirmPassword
+            });
+            
+            document.getElementById('success-text').textContent = 'パスワードを変更しました';
+            successDiv.classList.remove('hidden');
+            document.getElementById('password-form').reset();
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || 'パスワード変更に失敗しました';
+            errorDiv.classList.remove('hidden');
+          }
+        });
+        
+        // ログアウト
+        document.getElementById('logout-button').addEventListener('click', async () => {
+          try {
+            await axios.post(API_BASE + '/api/auth/logout');
+          } catch (error) {
+            console.error('ログアウトエラー:', error);
+          }
+          localStorage.removeItem('jwt_token');
+          window.location.href = '/login';
+        });
+        
+        loadUserInfo();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// 管理者用ユーザー管理画面
+app.get('/admin/users', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>ユーザー管理 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+      <!-- ナビゲーション -->
+      <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex items-center">
+              <i class="fas fa-chart-line text-2xl text-blue-600 mr-3"></i>
+              <span class="text-xl font-semibold text-gray-800">SFA システム</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span id="user-name" class="text-gray-700"></span>
+              <a href="/" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-home mr-1"></i>ダッシュボード
+              </a>
+              <a href="/profile" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-user mr-1"></i>プロフィール
+              </a>
+              <button id="logout-button" class="text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-8 px-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">
+          <i class="fas fa-users-cog mr-2"></i>ユーザー管理
+        </h1>
+
+        <!-- 成功・エラーメッセージ -->
+        <div id="success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+          <p class="text-sm text-green-700">
+            <i class="fas fa-check-circle mr-2"></i>
+            <span id="success-text"></span>
+          </p>
+        </div>
+        <div id="error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+          <p class="text-sm text-red-700">
+            <i class="fas fa-exclamation-circle mr-2"></i>
+            <span id="error-text"></span>
+          </p>
+        </div>
+
+        <!-- ユーザー一覧 -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ユーザー</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">役割</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">権限</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">最終ログイン</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状態</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body" class="bg-white divide-y divide-gray-200">
+              <!-- JavaScript で動的に生成 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 権限編集モーダル -->
+      <div id="permission-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <h3 class="text-xl font-semibold text-gray-800 mb-4">
+            <i class="fas fa-key mr-2"></i>権限設定
+          </h3>
+          <p class="text-gray-600 mb-4">
+            ユーザー: <strong id="modal-user-name"></strong>
+          </p>
+          
+          <div class="space-y-3 mb-6">
+            <label class="flex items-center">
+              <input type="checkbox" value="lead_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">リード・案件の登録/更新</span>
+            </label>
+            <label class="flex items-center">
+              <input type="checkbox" value="contract_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">契約の登録/更新</span>
+            </label>
+            <label class="flex items-center">
+              <input type="checkbox" value="inspection_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">検収・請求の更新</span>
+            </label>
+            <label class="flex items-center">
+              <input type="checkbox" value="payment_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">入金の登録</span>
+            </label>
+          </div>
+
+          <div class="flex space-x-3">
+            <button 
+              id="save-permissions-button"
+              class="flex-1 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+              <i class="fas fa-save mr-2"></i>保存
+            </button>
+            <button 
+              id="cancel-permissions-button"
+              class="flex-1 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400">
+              キャンセル
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        const API_BASE = '';
+        const token = localStorage.getItem('jwt_token');
+        
+        if (!token) {
+          window.location.href = '/login';
+        }
+        
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+        
+        const PERMISSION_LABELS = {
+          'lead_manage': 'リード・案件',
+          'contract_manage': '契約',
+          'inspection_manage': '検収・請求',
+          'payment_manage': '入金'
+        };
+        
+        let currentEditUserId = null;
+        
+        // ユーザー一覧取得
+        async function loadUsers() {
+          try {
+            const response = await axios.get(API_BASE + '/api/auth/me');
+            const currentUser = response.data.user;
+            document.getElementById('user-name').textContent = currentUser.name;
+            
+            // 管理者チェック
+            if (currentUser.role !== 'admin') {
+              document.getElementById('error-text').textContent = 'この画面を閲覧する権限がありません';
+              document.getElementById('error-message').classList.remove('hidden');
+              setTimeout(() => window.location.href = '/', 2000);
+              return;
+            }
+            
+            const usersResponse = await axios.get(API_BASE + '/api/admin/users');
+            const users = usersResponse.data.data;
+            
+            const tbody = document.getElementById('users-table-body');
+            tbody.innerHTML = users.map(user => {
+              const permissionsBadges = user.role === 'admin' 
+                ? '<span class="inline-block px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">全権限</span>'
+                : user.permissions.length > 0
+                  ? user.permissions.map(p => 
+                      \`<span class="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded mr-1">\${PERMISSION_LABELS[p] || p}</span>\`
+                    ).join('')
+                  : '<span class="text-gray-400 text-sm">なし</span>';
+              
+              const statusBadge = user.isActive
+                ? '<span class="inline-block px-2 py-1 text-xs bg-green-100 text-green-800 rounded">有効</span>'
+                : '<span class="inline-block px-2 py-1 text-xs bg-red-100 text-red-800 rounded">無効</span>';
+              
+              const lastLogin = user.lastLoginAt 
+                ? new Date(user.lastLoginAt).toLocaleDateString('ja-JP')
+                : '未ログイン';
+              
+              const editButton = user.role === 'admin'
+                ? '<span class="text-gray-400 text-sm">編集不可</span>'
+                : \`<button onclick="openPermissionModal(\${user.id}, '\${user.name}', \${JSON.stringify(user.permissions).replace(/"/g, '&quot;')})" 
+                       class="text-blue-600 hover:text-blue-700 mr-3">
+                      <i class="fas fa-edit mr-1"></i>権限編集
+                    </button>
+                    <button onclick="toggleUserActive(\${user.id}, \${!user.isActive})" 
+                       class="text-\${user.isActive ? 'red' : 'green'}-600 hover:text-\${user.isActive ? 'red' : 'green'}-700">
+                      <i class="fas fa-\${user.isActive ? 'ban' : 'check'} mr-1"></i>\${user.isActive ? '無効化' : '有効化'}
+                    </button>\`;
+              
+              return \`
+                <tr>
+                  <td class="px-6 py-4">
+                    <div class="text-sm font-medium text-gray-900">\${user.name}</div>
+                    <div class="text-sm text-gray-500">\${user.email}</div>
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-700">
+                    \${user.role === 'admin' ? '<i class="fas fa-crown text-yellow-500 mr-1"></i>管理者' : '一般ユーザー'}
+                  </td>
+                  <td class="px-6 py-4 text-sm">
+                    \${permissionsBadges}
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-500">\${lastLogin}</td>
+                  <td class="px-6 py-4">\${statusBadge}</td>
+                  <td class="px-6 py-4 text-sm">\${editButton}</td>
+                </tr>
+              \`;
+            }).join('');
+          } catch (error) {
+            console.error('ユーザー一覧の取得に失敗:', error);
+            document.getElementById('error-text').textContent = error.response?.data?.error || 'データの取得に失敗しました';
+            document.getElementById('error-message').classList.remove('hidden');
+          }
+        }
+        
+        // 権限編集モーダルを開く
+        window.openPermissionModal = function(userId, userName, permissions) {
+          currentEditUserId = userId;
+          document.getElementById('modal-user-name').textContent = userName;
+          
+          // チェックボックスをリセット
+          document.querySelectorAll('.permission-checkbox').forEach(cb => {
+            cb.checked = permissions.includes(cb.value);
+          });
+          
+          document.getElementById('permission-modal').classList.remove('hidden');
+        };
+        
+        // 権限編集モーダルを閉じる
+        document.getElementById('cancel-permissions-button').addEventListener('click', () => {
+          document.getElementById('permission-modal').classList.add('hidden');
+          currentEditUserId = null;
+        });
+        
+        // 権限を保存
+        document.getElementById('save-permissions-button').addEventListener('click', async () => {
+          const permissions = Array.from(document.querySelectorAll('.permission-checkbox:checked'))
+            .map(cb => cb.value);
+          
+          try {
+            await axios.put(API_BASE + \`/api/admin/users/\${currentEditUserId}/permissions\`, {
+              permissions: permissions
+            });
+            
+            document.getElementById('success-text').textContent = '権限を更新しました';
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('permission-modal').classList.add('hidden');
+            
+            setTimeout(() => {
+              document.getElementById('success-message').classList.add('hidden');
+            }, 3000);
+            
+            loadUsers();
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || '権限の更新に失敗しました';
+            document.getElementById('error-message').classList.remove('hidden');
+          }
+        });
+        
+        // ユーザーの有効/無効を切り替え
+        window.toggleUserActive = async function(userId, isActive) {
+          const action = isActive ? '有効化' : '無効化';
+          if (!confirm(\`このユーザーを\${action}しますか？\`)) {
+            return;
+          }
+          
+          try {
+            await axios.put(API_BASE + \`/api/admin/users/\${userId}/active\`, {
+              is_active: isActive
+            });
+            
+            document.getElementById('success-text').textContent = \`ユーザーを\${action}しました\`;
+            document.getElementById('success-message').classList.remove('hidden');
+            
+            setTimeout(() => {
+              document.getElementById('success-message').classList.add('hidden');
+            }, 3000);
+            
+            loadUsers();
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || \`\${action}に失敗しました\`;
+            document.getElementById('error-message').classList.remove('hidden');
+          }
+        };
+        
+        // ログアウト
+        document.getElementById('logout-button').addEventListener('click', async () => {
+          try {
+            await axios.post(API_BASE + '/api/auth/logout');
+          } catch (error) {
+            console.error('ログアウトエラー:', error);
+          }
+          localStorage.removeItem('jwt_token');
+          window.location.href = '/login';
+        });
+        
+        loadUsers();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
 // ========================================
 // API Routes
 // ========================================
@@ -703,6 +1246,167 @@ app.post('/api/auth/logout', authMiddleware, async (c) => {
   await logAction(c.env.DB, user.userId, 'logout', null, null, {}, c.req.header('CF-Connecting-IP'))
   
   return c.json({ success: true, message: 'ログアウトしました' })
+})
+
+// --- ユーザー管理 API（管理者のみ）---
+
+// ユーザー一覧取得API
+app.get('/api/admin/users', authMiddleware, requireAdmin, async (c) => {
+  const users = await c.env.DB.prepare(`
+    SELECT 
+      u.id,
+      u.email,
+      u.role,
+      u.is_active,
+      u.created_at,
+      u.last_login_at,
+      m.name as member_name,
+      GROUP_CONCAT(up.permission_name) as permissions
+    FROM users u
+    LEFT JOIN members m ON u.member_id = m.id
+    LEFT JOIN user_permissions up ON u.id = up.user_id
+    GROUP BY u.id, u.email, u.role, u.is_active, u.created_at, u.last_login_at, m.name
+    ORDER BY u.created_at DESC
+  `).all()
+  
+  const formattedUsers = users.results.map((user: any) => ({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.member_name || '管理者',
+    isActive: user.is_active === 1,
+    permissions: user.permissions ? user.permissions.split(',') : [],
+    createdAt: user.created_at,
+    lastLoginAt: user.last_login_at
+  }))
+  
+  return c.json({ success: true, data: formattedUsers })
+})
+
+// ユーザー権限更新API
+app.put('/api/admin/users/:id/permissions', authMiddleware, requireAdmin, async (c) => {
+  const userId = c.req.param('id')
+  const adminUser = c.get('user')
+  const { permissions } = await c.req.json()
+  
+  // バリデーション
+  if (!Array.isArray(permissions)) {
+    return c.json({ error: '権限は配列形式で指定してください' }, 400)
+  }
+  
+  const validPermissions = ['lead_manage', 'contract_manage', 'inspection_manage', 'payment_manage']
+  const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p))
+  if (invalidPermissions.length > 0) {
+    return c.json({ error: `無効な権限が含まれています: ${invalidPermissions.join(', ')}` }, 400)
+  }
+  
+  // 対象ユーザーの確認
+  const targetUser = await c.env.DB.prepare(`
+    SELECT id, email, role FROM users WHERE id = ?
+  `).bind(userId).first()
+  
+  if (!targetUser) {
+    return c.json({ error: 'ユーザーが見つかりません' }, 404)
+  }
+  
+  // 管理者の権限は変更不可
+  if (targetUser.role === 'admin') {
+    return c.json({ error: '管理者の権限は変更できません' }, 403)
+  }
+  
+  // 既存の権限を取得（監査ログ用）
+  const oldPermissions = await c.env.DB.prepare(`
+    SELECT permission_name FROM user_permissions WHERE user_id = ?
+  `).bind(userId).all()
+  
+  const oldPermissionList = oldPermissions.results.map((p: any) => p.permission_name)
+  
+  // トランザクション開始（既存権限を削除して新しい権限を追加）
+  await c.env.DB.prepare(`DELETE FROM user_permissions WHERE user_id = ?`).bind(userId).run()
+  
+  for (const permission of permissions) {
+    await c.env.DB.prepare(`
+      INSERT INTO user_permissions (user_id, permission_name) VALUES (?, ?)
+    `).bind(userId, permission).run()
+  }
+  
+  // 監査ログ記録
+  await logAction(
+    c.env.DB, 
+    adminUser.userId, 
+    'update_user_permissions', 
+    'users', 
+    userId, 
+    {
+      old_permissions: oldPermissionList,
+      new_permissions: permissions
+    },
+    c.req.header('CF-Connecting-IP')
+  )
+  
+  return c.json({ 
+    success: true, 
+    message: '権限を更新しました',
+    data: {
+      userId: userId,
+      permissions: permissions
+    }
+  })
+})
+
+// ユーザーアクティブ状態変更API
+app.put('/api/admin/users/:id/active', authMiddleware, requireAdmin, async (c) => {
+  const userId = c.req.param('id')
+  const adminUser = c.get('user')
+  const { is_active } = await c.req.json()
+  
+  // バリデーション
+  if (typeof is_active !== 'boolean') {
+    return c.json({ error: 'is_activeはboolean型で指定してください' }, 400)
+  }
+  
+  // 対象ユーザーの確認
+  const targetUser = await c.env.DB.prepare(`
+    SELECT id, email, role, is_active FROM users WHERE id = ?
+  `).bind(userId).first()
+  
+  if (!targetUser) {
+    return c.json({ error: 'ユーザーが見つかりません' }, 404)
+  }
+  
+  // 管理者のアクティブ状態は変更不可
+  if (targetUser.role === 'admin') {
+    return c.json({ error: '管理者のアクティブ状態は変更できません' }, 403)
+  }
+  
+  // 自分自身の状態は変更不可
+  if (parseInt(userId) === adminUser.userId) {
+    return c.json({ error: '自分自身のアクティブ状態は変更できません' }, 403)
+  }
+  
+  // アクティブ状態を更新
+  await c.env.DB.prepare(`
+    UPDATE users SET is_active = ? WHERE id = ?
+  `).bind(is_active ? 1 : 0, userId).run()
+  
+  // 監査ログ記録
+  await logAction(
+    c.env.DB, 
+    adminUser.userId, 
+    'update_user_status', 
+    'users', 
+    userId, 
+    {
+      old_status: targetUser.is_active === 1,
+      new_status: is_active
+    },
+    c.req.header('CF-Connecting-IP')
+  )
+  
+  return c.json({ 
+    success: true, 
+    message: `ユーザーを${is_active ? '有効' : '無効'}にしました` 
+  })
 })
 
 // --- メンバー API ---
