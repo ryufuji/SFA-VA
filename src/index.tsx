@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serveStatic } from 'hono/cloudflare-workers'
 
 type Bindings = {
   DB: D1Database;
@@ -10,9 +9,6 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // CORS設定 (API用)
 app.use('/api/*', cors())
-
-// 静的ファイルの配信
-app.use('/static/*', serveStatic({ root: './public' }))
 
 // ========================================
 // Test Routes (データベース不要)
@@ -3427,6 +3423,72 @@ app.get('/contracts/:id', async (c) => {
         <title>契約詳細 - ${contract.contract_name}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+          // 認証チェック用のユーティリティ関数
+          const AUTH_UTILS = {
+            getToken: function() { return localStorage.getItem('jwt_token'); },
+            checkAuth: function() {
+              const token = this.getToken();
+              if (!token) { window.location.href = '/login'; return false; }
+              return true;
+            },
+            getCurrentUser: async function() {
+              const token = this.getToken();
+              if (!token) return null;
+              try {
+                const response = await axios.get('/api/auth/me', {
+                  headers: { 'Authorization': 'Bearer ' + token }
+                });
+                return response.data.user;
+              } catch (error) {
+                if (error.response?.status === 401) {
+                  localStorage.removeItem('jwt_token');
+                  window.location.href = '/login';
+                }
+                return null;
+              }
+            },
+            hasPermission: function(user, permission) {
+              if (!user) return false;
+              if (user.role === 'admin') return true;
+              return user.permissions && user.permissions.includes(permission);
+            },
+            logout: async function() {
+              const token = this.getToken();
+              if (token) {
+                try {
+                  await axios.post('/api/auth/logout', {}, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                  });
+                } catch (error) {
+                  console.error('ログアウトエラー:', error);
+                }
+              }
+              localStorage.removeItem('jwt_token');
+              window.location.href = '/login';
+            },
+            setupAxios: function() {
+              const token = this.getToken();
+              if (token) {
+                axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+              }
+            },
+            PERMISSION_LABELS: {
+              'lead_manage': 'リード・案件の登録/更新',
+              'contract_manage': '契約の登録/更新',
+              'inspection_manage': '検収・請求の更新',
+              'payment_manage': '入金の登録'
+            }
+          };
+          
+          const NAVBAR = {
+            showPermissionError: function(requiredPermission) {
+              const label = AUTH_UTILS.PERMISSION_LABELS[requiredPermission] || requiredPermission;
+              alert('この操作を行う権限がありません。\\n必要な権限: ' + label + '\\n\\n管理者に権限の付与を依頼してください。');
+            }
+          };
+        </script>
     </head>
     <body class="bg-gray-100">
         <!-- グローバルナビゲーション -->
