@@ -3454,10 +3454,16 @@ app.get('/contracts/:id', async (c) => {
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-500 mr-4">
-                  <i class="fas fa-user-circle mr-1"></i>管理者
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i><span id="user-display-name">読み込み中...</span>
                 </span>
+                <a href="/profile" class="text-gray-600 hover:text-blue-600 text-sm">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-red-600 hover:text-red-700 text-sm">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
               </div>
             </div>
           </div>
@@ -3714,6 +3720,12 @@ app.get('/contracts/:id', async (c) => {
                 currentUser = await AUTH_UTILS.getCurrentUser();
                 if (!currentUser) return;
 
+                // ナビゲーションのユーザー名を更新
+                const userDisplayName = document.getElementById('user-display-name');
+                if (userDisplayName) {
+                    userDisplayName.textContent = currentUser.name;
+                }
+
                 // 権限に応じて編集ボタンの表示/非表示を制御
                 const editButton = document.getElementById('edit-contract-button');
                 if (editButton && !AUTH_UTILS.hasPermission(currentUser, 'contract_manage')) {
@@ -3721,8 +3733,12 @@ app.get('/contracts/:id', async (c) => {
                 }
             }
 
-            // 編集モーダルを開く
-            function openEditModal() {
+            // 編集モーダルを開く（グローバルスコープに公開）
+            window.openEditModal = function() {
+                if (!currentUser) {
+                    alert('ユーザー情報の読み込み中です。少々お待ちください。');
+                    return;
+                }
                 if (!AUTH_UTILS.hasPermission(currentUser, 'contract_manage')) {
                     NAVBAR.showPermissionError('contract_manage');
                     return;
@@ -3730,8 +3746,8 @@ app.get('/contracts/:id', async (c) => {
                 document.getElementById('edit-modal').classList.remove('hidden');
             }
 
-            // 編集モーダルを閉じる
-            function closeEditModal() {
+            // 編集モーダルを閉じる（グローバルスコープに公開）
+            window.closeEditModal = function() {
                 document.getElementById('edit-modal').classList.add('hidden');
                 document.getElementById('modal-success-message').classList.add('hidden');
                 document.getElementById('modal-error-message').classList.add('hidden');
