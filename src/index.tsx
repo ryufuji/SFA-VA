@@ -2739,6 +2739,50 @@ app.get('/leads/:id', async (c) => {
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
+        // AUTH_UTILS - 認証ユーティリティ
+        const AUTH_UTILS = {
+          getToken: () => localStorage.getItem('token'),
+          getCurrentUser: async () => {
+            try {
+              const response = await axios.get('/api/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+              });
+              return response.data.user;
+            } catch (error) {
+              console.error('Failed to get current user:', error);
+              return null;
+            }
+          },
+          logout: () => {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+          },
+          setupAxios: () => {
+            const token = AUTH_UTILS.getToken();
+            if (token) {
+              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+            }
+          }
+        };
+
+        // ページロード時にAxiosセットアップ
+        AUTH_UTILS.setupAxios();
+
+        // ユーザー情報を取得してナビゲーションを更新
+        AUTH_UTILS.getCurrentUser().then(user => {
+          if (user) {
+            document.getElementById('nav-user-name').textContent = user.name;
+            if (user.role === 'admin') {
+              document.getElementById('admin-menu').style.display = 'inline-block';
+            }
+          } else {
+            document.getElementById('nav-user-name').textContent = 'ゲスト';
+          }
+        }).catch(error => {
+          console.error('Failed to load user info:', error);
+          document.getElementById('nav-user-name').textContent = 'ゲスト';
+        });
+
         function openCreateProjectModal() {
           document.getElementById('create-project-modal').classList.remove('hidden');
         }
