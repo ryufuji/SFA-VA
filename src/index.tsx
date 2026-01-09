@@ -3604,18 +3604,22 @@ app.get('/projects/:id', async (c) => {
             }
           };
 
-          // ページロード時に認証チェックとAxiosセットアップ
-          AUTH_UTILS.checkAuth();
+          // ページロード時にAxiosセットアップ
           AUTH_UTILS.setupAxios();
 
-          // ユーザー情報を取得してナビゲーションを更新
+          // ユーザー情報を取得してナビゲーションを更新（失敗してもページは表示）
           AUTH_UTILS.getCurrentUser().then(user => {
             if (user) {
               document.getElementById('nav-user-name').textContent = user.name;
               if (user.role === 'admin') {
                 document.getElementById('admin-users-link').classList.remove('hidden');
               }
+            } else {
+              document.getElementById('nav-user-name').textContent = 'ゲスト';
             }
+          }).catch(error => {
+            console.error('Failed to load user info:', error);
+            document.getElementById('nav-user-name').textContent = 'ゲスト';
           });
         </script>
     </body>
@@ -4474,18 +4478,22 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
               }
             };
 
-            // ページロード時に認証チェックとAxiosセットアップ
-            AUTH_UTILS.checkAuth();
+            // ページロード時にAxiosセットアップ
             AUTH_UTILS.setupAxios();
 
-            // ユーザー情報を取得してナビゲーションを更新
+            // ユーザー情報を取得してナビゲーションを更新（失敗してもページは表示）
             AUTH_UTILS.getCurrentUser().then(user => {
               if (user) {
                 document.getElementById('nav-user-name').textContent = user.name;
                 if (user.role === 'admin') {
                   document.getElementById('admin-users-link').classList.remove('hidden');
                 }
+              } else {
+                document.getElementById('nav-user-name').textContent = 'ゲスト';
               }
+            }).catch(error => {
+              console.error('Failed to load user info:', error);
+              document.getElementById('nav-user-name').textContent = 'ゲスト';
             });
 
             // メンバーデータ
