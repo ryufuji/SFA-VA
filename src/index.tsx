@@ -897,6 +897,75 @@ app.get('/api/contracts/:id', authMiddleware, async (c) => {
   })
 })
 
+// 契約を更新（認証必須、contract_manage権限必要）
+app.put('/api/contracts/:id', authMiddleware, requirePermission('contract_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { contract_name, contract_type, contract_date, notes, status } = await c.req.json()
+  
+  // 契約の存在確認
+  const contract = await DB.prepare('SELECT * FROM contracts WHERE id = ?').bind(id).first()
+  if (!contract) {
+    return c.json({ success: false, error: '契約が見つかりません' }, 404)
+  }
+  
+  // バリデーション
+  if (!contract_name) {
+    return c.json({ error: '契約名は必須です' }, 400)
+  }
+  
+  // 許可されたステータスのみ
+  const validStatuses = ['active', 'completed', 'cancelled', 'suspended']
+  if (status && !validStatuses.includes(status)) {
+    return c.json({ error: '無効なステータスです' }, 400)
+  }
+  
+  try {
+    // 契約を更新
+    await DB.prepare(`
+      UPDATE contracts 
+      SET contract_name = ?,
+          contract_type = ?,
+          contract_date = ?,
+          notes = ?,
+          status = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      contract_name,
+      contract_type || '準委任',
+      contract_date || null,
+      notes || null,
+      status || 'active',
+      id
+    ).run()
+    
+    // 監査ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'update_contract',
+      'contracts',
+      parseInt(id),
+      {
+        old_name: contract.contract_name,
+        new_name: contract_name,
+        old_status: contract.status,
+        new_status: status || 'active'
+      },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ 
+      success: true,
+      message: '契約を更新しました'
+    })
+  } catch (error: any) {
+    return c.json({ error: '契約の更新に失敗しました: ' + error.message }, 500)
+  }
+})
+
 // app.post('/api/contracts', async (c) => {
 //   const { DB } = c.env
 //   const body = await c.req.json()
@@ -3411,23 +3480,28 @@ app.get('/contracts/:id', async (c) => {
                 <div class="flex justify-between items-start mb-6">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800 mb-2">
-                            <i class="fas fa-file-contract mr-2 text-blue-600"></i>${contract.contract_name}
+                            <i class="fas fa-file-contract mr-2 text-blue-600"></i><span id="contract-name-display">${contract.contract_name}</span>
                         </h1>
                         <p class="text-gray-600">
                             <i class="fas fa-calendar-alt mr-2"></i>
                             ${contract.contract_start_date} 〜 ${contract.contract_end_date}
                         </p>
                     </div>
-                    <span class="px-3 py-1 rounded-full text-sm font-semibold ${
-                      contract.status === 'active' ? 'bg-green-100 text-green-800' :
-                      contract.status === 'completed' ? 'bg-gray-100 text-gray-800' :
-                      contract.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }">
-                        ${contract.status === 'active' ? '進行中' :
-                          contract.status === 'completed' ? '完了' :
-                          contract.status === 'cancelled' ? 'キャンセル' : contract.status}
-                    </span>
+                    <div class="flex items-center space-x-3">
+                        <span id="contract-status-display" class="px-3 py-1 rounded-full text-sm font-semibold ${
+                          contract.status === 'active' ? 'bg-green-100 text-green-800' :
+                          contract.status === 'completed' ? 'bg-gray-100 text-gray-800' :
+                          contract.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }">
+                            ${contract.status === 'active' ? '進行中' :
+                              contract.status === 'completed' ? '完了' :
+                              contract.status === 'cancelled' ? 'キャンセル' : contract.status}
+                        </span>
+                        <button id="edit-contract-button" onclick="openEditModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-edit mr-2"></i>編集
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 契約詳細情報 -->
@@ -3553,6 +3627,175 @@ app.get('/contracts/:id', async (c) => {
                 </div>
             </div>
         </div>
+
+        <!-- 契約編集モーダル -->
+        <div id="edit-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">
+                    <i class="fas fa-edit mr-2"></i>契約編集
+                </h3>
+                
+                <!-- 成功・エラーメッセージ -->
+                <div id="modal-success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+                    <p class="text-sm text-green-700">
+                        <i class="fas fa-check-circle mr-2"></i>
+                        <span id="modal-success-text"></span>
+                    </p>
+                </div>
+                <div id="modal-error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+                    <p class="text-sm text-red-700">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span id="modal-error-text"></span>
+                    </p>
+                </div>
+
+                <form id="edit-contract-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">契約名</label>
+                        <input type="text" id="edit-contract-name" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            value="${contract.contract_name}">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">契約種別</label>
+                            <select id="edit-contract-type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="準委任" ${contract.contract_type === '準委任' ? 'selected' : ''}>準委任</option>
+                                <option value="請負" ${contract.contract_type === '請負' ? 'selected' : ''}>請負</option>
+                                <option value="派遣" ${contract.contract_type === '派遣' ? 'selected' : ''}>派遣</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">契約日</label>
+                            <input type="date" id="edit-contract-date"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                value="${contract.contract_date || ''}">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
+                        <select id="edit-status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="active" ${contract.status === 'active' ? 'selected' : ''}>進行中</option>
+                            <option value="completed" ${contract.status === 'completed' ? 'selected' : ''}>完了</option>
+                            <option value="suspended" ${contract.status === 'suspended' ? 'selected' : ''}>一時停止</option>
+                            <option value="cancelled" ${contract.status === 'cancelled' ? 'selected' : ''}>キャンセル</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">備考</label>
+                        <textarea id="edit-notes" rows="4"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">${contract.notes || ''}</textarea>
+                    </div>
+
+                    <div class="flex space-x-3 pt-4">
+                        <button type="submit" class="flex-1 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-save mr-2"></i>保存
+                        </button>
+                        <button type="button" onclick="closeEditModal()" class="flex-1 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400">
+                            キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script src="/static/auth.js"></script>
+        <script src="/static/navbar.js"></script>
+        <script>
+            const CONTRACT_ID = ${id};
+            let currentUser = null;
+
+            // ユーザー情報を取得
+            async function loadUserInfo() {
+                currentUser = await AUTH_UTILS.getCurrentUser();
+                if (!currentUser) return;
+
+                // 権限に応じて編集ボタンの表示/非表示を制御
+                const editButton = document.getElementById('edit-contract-button');
+                if (editButton && !AUTH_UTILS.hasPermission(currentUser, 'contract_manage')) {
+                    editButton.style.display = 'none';
+                }
+            }
+
+            // 編集モーダルを開く
+            function openEditModal() {
+                if (!AUTH_UTILS.hasPermission(currentUser, 'contract_manage')) {
+                    NAVBAR.showPermissionError('contract_manage');
+                    return;
+                }
+                document.getElementById('edit-modal').classList.remove('hidden');
+            }
+
+            // 編集モーダルを閉じる
+            function closeEditModal() {
+                document.getElementById('edit-modal').classList.add('hidden');
+                document.getElementById('modal-success-message').classList.add('hidden');
+                document.getElementById('modal-error-message').classList.add('hidden');
+            }
+
+            // 契約を更新
+            document.getElementById('edit-contract-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const contractName = document.getElementById('edit-contract-name').value;
+                const contractType = document.getElementById('edit-contract-type').value;
+                const contractDate = document.getElementById('edit-contract-date').value;
+                const status = document.getElementById('edit-status').value;
+                const notes = document.getElementById('edit-notes').value;
+
+                const errorDiv = document.getElementById('modal-error-message');
+                const successDiv = document.getElementById('modal-success-message');
+                errorDiv.classList.add('hidden');
+                successDiv.classList.add('hidden');
+
+                try {
+                    const response = await axios.put(\`/api/contracts/\${CONTRACT_ID}\`, {
+                        contract_name: contractName,
+                        contract_type: contractType,
+                        contract_date: contractDate || null,
+                        status: status,
+                        notes: notes
+                    });
+
+                    document.getElementById('modal-success-text').textContent = response.data.message;
+                    successDiv.classList.remove('hidden');
+
+                    // 画面の表示を更新
+                    document.getElementById('contract-name-display').textContent = contractName;
+                    
+                    // ステータス表示を更新
+                    const statusDisplay = document.getElementById('contract-status-display');
+                    const statusLabels = {
+                        'active': '進行中',
+                        'completed': '完了',
+                        'suspended': '一時停止',
+                        'cancelled': 'キャンセル'
+                    };
+                    const statusColors = {
+                        'active': 'bg-green-100 text-green-800',
+                        'completed': 'bg-gray-100 text-gray-800',
+                        'suspended': 'bg-yellow-100 text-yellow-800',
+                        'cancelled': 'bg-red-100 text-red-800'
+                    };
+                    statusDisplay.className = 'px-3 py-1 rounded-full text-sm font-semibold ' + statusColors[status];
+                    statusDisplay.textContent = statusLabels[status];
+
+                    setTimeout(() => {
+                        closeEditModal();
+                        window.location.reload();
+                    }, 1500);
+                } catch (error) {
+                    document.getElementById('modal-error-text').textContent = error.response?.data?.error || '契約の更新に失敗しました';
+                    errorDiv.classList.remove('hidden');
+                }
+            });
+
+            loadUserInfo();
+        </script>
     </body>
     </html>
   `)
