@@ -840,15 +840,15 @@ app.get('/api/projects/:id', authMiddleware, async (c) => {
 app.post('/api/projects', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
-  const { lead_id, project_name } = body
+  const { lead_id, project_name, sales_rep_id } = body
   
   if (!lead_id || !project_name) {
     return c.json({ success: false, error: 'Lead ID and project name are required' }, 400)
   }
   
   const result = await DB.prepare(
-    'INSERT INTO projects (lead_id, project_name, status) VALUES (?, ?, ?)'
-  ).bind(lead_id, project_name, 'active').run()
+    'INSERT INTO projects (lead_id, project_name, sales_rep_id, status) VALUES (?, ?, ?, ?)'
+  ).bind(lead_id, project_name, sales_rep_id || null, 'active').run()
   
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
@@ -2537,10 +2537,19 @@ app.get('/leads/:id', async (c) => {
     return c.html('<h1>リードが見つかりません</h1>', 404)
   }
   
-  // 関連する案件を取得
-  const { results: projects } = await DB.prepare(
-    'SELECT * FROM projects WHERE lead_id = ? ORDER BY created_at DESC'
-  ).bind(id).all()
+  // 関連する案件を取得（営業担当の名前も含める）
+  const { results: projects } = await DB.prepare(`
+    SELECT p.*, m.name as sales_rep_name
+    FROM projects p
+    LEFT JOIN members m ON p.sales_rep_id = m.id
+    WHERE p.lead_id = ?
+    ORDER BY p.created_at DESC
+  `).bind(id).all()
+  
+  // アクティブなメンバー一覧を取得（案件作成モーダル用）
+  const { results: members } = await DB.prepare(
+    'SELECT id, name, email FROM members WHERE status = ? ORDER BY name ASC'
+  ).bind('active').all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -2686,6 +2695,7 @@ app.get('/leads/:id', async (c) => {
                 <thead class="bg-gray-50">
                   <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件名</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">営業担当</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">作成日</th>
                   </tr>
@@ -2695,6 +2705,9 @@ app.get('/leads/:id', async (c) => {
                     <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/projects/${project.id}'">
                       <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         ${project.project_name}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        ${project.sales_rep_name ? `<i class="fas fa-user mr-1 text-blue-500"></i>${project.sales_rep_name}` : '<span class="text-gray-400">-</span>'}
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         ${project.status === 'active' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-play-circle mr-1"></i>進行中</span>' :
@@ -2738,7 +2751,22 @@ app.get('/leads/:id', async (c) => {
                 案件名 <span class="text-red-500">*</span>
               </label>
               <input type="text" name="project_name" required
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="例: 新規システム開発案件">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-user mr-1"></i>営業担当
+              </label>
+              <select name="sales_rep_id"
                 class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">未設定</option>
+                ${members.map((member: any) => `
+                  <option value="${member.id}">${member.name}${member.email ? ` (${member.email})` : ''}</option>
+                `).join('')}
+              </select>
+              <p class="mt-1 text-xs text-gray-500">案件を担当する営業メンバーを選択してください（任意）</p>
             </div>
             
             <div class="flex justify-end space-x-3">
@@ -2814,6 +2842,13 @@ app.get('/leads/:id', async (c) => {
           const formData = new FormData(form);
           const data = Object.fromEntries(formData.entries());
           data.lead_id = '${id}';
+          
+          // sales_rep_idが空文字列の場合はnullに変換
+          if (data.sales_rep_id === '') {
+            data.sales_rep_id = null;
+          } else if (data.sales_rep_id) {
+            data.sales_rep_id = parseInt(data.sales_rep_id);
+          }
           
           try {
             const response = await axios.post('/api/projects', data);
