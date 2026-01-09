@@ -2063,16 +2063,16 @@ app.get('/api/members', async (c) => {
 // API: メンバー作成
 // メンバー作成（管理者のみ）
 app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
-  const { name, email, default_unit_price } = await c.req.json()
+  const { name, email, default_unit_price, position, memo } = await c.req.json()
 
   if (!name || !default_unit_price) {
     return c.json({ success: false, error: 'Name and default unit price are required' }, 400)
   }
 
   const result = await c.env.DB.prepare(`
-    INSERT INTO members (name, email, default_unit_price, status)
-    VALUES (?, ?, ?, ?)
-  `).bind(name, email || null, default_unit_price, 'active').run()
+    INSERT INTO members (name, email, default_unit_price, position, memo, status)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(name, email || null, default_unit_price, position || null, memo || null, 'active').run()
 
   return c.json({ success: true, id: result.meta.last_row_id })
 })
@@ -2081,7 +2081,7 @@ app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
 // メンバー更新（管理者のみ）
 app.put('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
   const id = c.req.param('id')
-  const { name, email, default_unit_price } = await c.req.json()
+  const { name, email, default_unit_price, position, memo } = await c.req.json()
 
   if (!name || !default_unit_price) {
     return c.json({ success: false, error: 'Name and default unit price are required' }, 400)
@@ -2089,9 +2089,9 @@ app.put('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
 
   await c.env.DB.prepare(`
     UPDATE members 
-    SET name = ?, email = ?, default_unit_price = ?, updated_at = CURRENT_TIMESTAMP
+    SET name = ?, email = ?, default_unit_price = ?, position = ?, memo = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(name, email || null, default_unit_price, id).run()
+  `).bind(name, email || null, default_unit_price, position || null, memo || null, id).run()
 
   return c.json({ success: true })
 })
@@ -6764,10 +6764,11 @@ app.get('/members', async (c) => {
             <thead class="bg-gray-50">
               <tr>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名前</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">役職</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メール</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">デフォルト単価</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メモ</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">登録日</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
@@ -6777,11 +6778,17 @@ app.get('/members', async (c) => {
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div class="font-medium text-gray-900">${member.name}</div>
                   </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    ${member.position ? '<span class="px-2 py-1 text-xs font-medium rounded bg-blue-50 text-blue-700">' + member.position + '</span>' : '<span class="text-gray-400">-</span>'}
+                  </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     ${member.email ? '<a href="mailto:' + member.email + '" class="text-blue-600 hover:text-blue-800">' + member.email + '</a>' : '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     ¥${(member.default_unit_price || 0).toLocaleString()}/月
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title="${member.memo || ''}">
+                    ${member.memo || '<span class="text-gray-400">-</span>'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                     ${member.status === 'active' 
@@ -6789,11 +6796,8 @@ app.get('/members', async (c) => {
                       : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-ban mr-1"></i>無効</span>'
                     }
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${member.created_at.split(' ')[0]}
-                  </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button onclick="editMember(${member.id}, '${member.name}', '${member.email || ''}', ${member.default_unit_price}, '${member.status}')" 
+                    <button onclick="editMember(${member.id}, '${member.name}', '${member.email || ''}', ${member.default_unit_price}, '${member.status}', '${member.position || ''}', '${(member.memo || '').replace(/'/g, "\\'")}');" 
                             class="text-blue-600 hover:text-blue-800 mr-3">
                       <i class="fas fa-edit mr-1"></i>編集
                     </button>
@@ -6847,6 +6851,30 @@ app.get('/members', async (c) => {
                 placeholder="500000">
             </div>
             
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                役職
+              </label>
+              <select name="position"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">未設定</option>
+                <option value="パートナー">パートナー</option>
+                <option value="マネージャー">マネージャー</option>
+                <option value="シニアコンサルタント">シニアコンサルタント</option>
+                <option value="コンサルタント">コンサルタント</option>
+                <option value="アナリスト">アナリスト</option>
+              </select>
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メモ
+              </label>
+              <textarea name="memo" rows="3"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="備考や特記事項"></textarea>
+            </div>
+            
             <div class="flex justify-end space-x-3">
               <button type="button" onclick="closeAddMemberModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
                 キャンセル
@@ -6896,6 +6924,30 @@ app.get('/members', async (c) => {
               </label>
               <input type="number" name="default_unit_price" id="edit_default_unit_price" required min="0"
                 class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                役職
+              </label>
+              <select name="position" id="edit_position"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">未設定</option>
+                <option value="パートナー">パートナー</option>
+                <option value="マネージャー">マネージャー</option>
+                <option value="シニアコンサルタント">シニアコンサルタント</option>
+                <option value="コンサルタント">コンサルタント</option>
+                <option value="アナリスト">アナリスト</option>
+              </select>
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                メモ
+              </label>
+              <textarea name="memo" id="edit_memo" rows="3"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="備考や特記事項"></textarea>
             </div>
             
             <div class="flex justify-end space-x-3">
@@ -7060,7 +7112,9 @@ app.get('/members', async (c) => {
           const data = {
             name: formData.get('name'),
             email: formData.get('email') || null,
-            default_unit_price: parseInt(formData.get('default_unit_price'))
+            default_unit_price: parseInt(formData.get('default_unit_price')),
+            position: formData.get('position') || null,
+            memo: formData.get('memo') || null
           };
           
           try {
@@ -7072,11 +7126,13 @@ app.get('/members', async (c) => {
           }
         });
 
-        function editMember(id, name, email, price, status) {
+        function editMember(id, name, email, price, status, position, memo) {
           document.getElementById('edit_member_id').value = id;
           document.getElementById('edit_name').value = name;
           document.getElementById('edit_email').value = email;
           document.getElementById('edit_default_unit_price').value = price;
+          document.getElementById('edit_position').value = position || '';
+          document.getElementById('edit_memo').value = memo || '';
           openEditMemberModal();
         }
 
@@ -7087,7 +7143,9 @@ app.get('/members', async (c) => {
           const data = {
             name: formData.get('name'),
             email: formData.get('email') || null,
-            default_unit_price: parseInt(formData.get('default_unit_price'))
+            default_unit_price: parseInt(formData.get('default_unit_price')),
+            position: formData.get('position') || null,
+            memo: formData.get('memo') || null
           };
           
           try {
