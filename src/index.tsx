@@ -853,6 +853,73 @@ app.post('/api/projects', authMiddleware, requirePermission('lead_manage'), asyn
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
 
+// 案件更新（lead_manage権限が必要）
+app.put('/api/projects/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const { project_name, sales_rep_id, status } = await c.req.json()
+  
+  // 案件の存在確認
+  const project = await DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first()
+  if (!project) {
+    return c.json({ success: false, error: '案件が見つかりません' }, 404)
+  }
+  
+  // バリデーション
+  if (!project_name) {
+    return c.json({ error: '案件名は必須です' }, 400)
+  }
+  
+  // 許可されたステータスのみ
+  const validStatuses = ['active', 'won', 'lost', 'archived']
+  if (status && !validStatuses.includes(status)) {
+    return c.json({ error: '無効なステータスです' }, 400)
+  }
+  
+  try {
+    // 案件を更新
+    await DB.prepare(`
+      UPDATE projects 
+      SET project_name = ?,
+          sales_rep_id = ?,
+          status = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      project_name,
+      sales_rep_id || null,
+      status || 'active',
+      id
+    ).run()
+    
+    // 監査ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'update_project',
+      'projects',
+      parseInt(id),
+      {
+        old_name: project.project_name,
+        new_name: project_name,
+        old_status: project.status,
+        new_status: status || 'active',
+        old_sales_rep_id: project.sales_rep_id,
+        new_sales_rep_id: sales_rep_id
+      },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ 
+      success: true,
+      message: '案件を更新しました'
+    })
+  } catch (error: any) {
+    return c.json({ error: '案件の更新に失敗しました: ' + error.message }, 500)
+  }
+})
+
 // --- 契約 API ---
 // 契約詳細取得（認証必須、閲覧のみ）
 app.get('/api/contracts/:id', authMiddleware, async (c) => {
@@ -3479,11 +3546,12 @@ app.get('/', async (c) => {
 app.get('/projects/:id', async (c) => {
   const id = c.req.param('id')
   
-  // 案件情報とリード情報を取得
+  // 案件情報とリード情報、営業担当を取得
   const project = await c.env.DB.prepare(`
-    SELECT p.*, l.company_name, l.contact_person 
+    SELECT p.*, l.company_name, l.contact_person, m.name as sales_rep_name
     FROM projects p
     LEFT JOIN leads l ON p.lead_id = l.id
+    LEFT JOIN members m ON p.sales_rep_id = m.id
     WHERE p.id = ?
   `).bind(id).first()
   
@@ -3499,6 +3567,11 @@ app.get('/projects/:id', async (c) => {
     WHERE c.project_id = ?
     ORDER BY c.contract_start_date DESC
   `).bind(id).all()
+  
+  // アクティブなメンバー一覧を取得（編集モーダル用）
+  const { results: members } = await c.env.DB.prepare(
+    'SELECT id, name, email FROM members WHERE status = ? ORDER BY name ASC'
+  ).bind('active').all()
 
   return c.html(`
     <!DOCTYPE html>
@@ -3564,35 +3637,45 @@ app.get('/projects/:id', async (c) => {
                 <div class="flex justify-between items-start mb-6">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-800 mb-2">
-                            <i class="fas fa-folder-open mr-2 text-blue-600"></i>${project.project_name}
+                            <i class="fas fa-folder-open mr-2 text-blue-600"></i><span id="project-name-display">${project.project_name}</span>
                         </h1>
                         <p class="text-gray-600">
                             <i class="fas fa-building mr-2"></i>${project.company_name}
                             ${project.contact_person ? ` / ${project.contact_person}` : ''}
                         </p>
                     </div>
-                    <span class="px-3 py-1 rounded-full text-sm font-semibold ${
-                      project.status === 'active' ? 'bg-green-100 text-green-800' :
-                      project.status === 'won' ? 'bg-blue-100 text-blue-800' :
-                      project.status === 'lost' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }">
-                        ${project.status === 'active' ? '商談中' :
-                          project.status === 'won' ? '受注' :
-                          project.status === 'lost' ? '失注' : project.status}
-                    </span>
+                    <div class="flex items-center space-x-3">
+                        <span id="project-status-display" class="px-3 py-1 rounded-full text-sm font-semibold ${
+                          project.status === 'active' ? 'bg-green-100 text-green-800' :
+                          project.status === 'won' ? 'bg-blue-100 text-blue-800' :
+                          project.status === 'lost' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }">
+                            ${project.status === 'active' ? '商談中' :
+                              project.status === 'won' ? '受注' :
+                              project.status === 'lost' ? '失注' : project.status}
+                        </span>
+                        <button onclick="openEditProjectModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-edit mr-2"></i>編集
+                        </button>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="text-sm text-gray-600">予算見込</label>
-                        <p class="text-gray-800 font-medium">
-                            ${project.estimated_value ? `¥${project.estimated_value.toLocaleString()}` : '-'}
+                        <label class="text-sm text-gray-600">営業担当</label>
+                        <p id="sales-rep-display" class="text-gray-800">
+                            ${project.sales_rep_name ? `<i class="fas fa-user mr-1 text-blue-500"></i>${project.sales_rep_name}` : '<span class="text-gray-400">未設定</span>'}
                         </p>
                     </div>
                     <div>
-                        <label class="text-sm text-gray-600">営業担当</label>
-                        <p class="text-gray-800">${project.sales_owner || '-'}</p>
+                        <label class="text-sm text-gray-600">ステータス</label>
+                        <p class="text-gray-800">
+                            ${project.status === 'active' ? '商談中' :
+                              project.status === 'won' ? '受注' :
+                              project.status === 'lost' ? '失注' :
+                              project.status === 'archived' ? 'アーカイブ' : project.status}
+                        </p>
                     </div>
                     <div>
                         <label class="text-sm text-gray-600">作成日</label>
@@ -3603,13 +3686,6 @@ app.get('/projects/:id', async (c) => {
                         <p class="text-gray-800">${project.updated_at}</p>
                     </div>
                 </div>
-
-                ${project.notes ? `
-                <div class="mt-4">
-                    <label class="text-sm text-gray-600">備考</label>
-                    <p class="text-gray-800 whitespace-pre-wrap">${project.notes}</p>
-                </div>
-                ` : ''}
             </div>
 
             <!-- 契約一覧 -->
@@ -3669,8 +3745,79 @@ app.get('/projects/:id', async (c) => {
             </div>
         </div>
 
+        <!-- 案件編集モーダル -->
+        <div id="edit-project-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                <h3 class="text-xl font-semibold text-gray-800 mb-4">
+                    <i class="fas fa-edit mr-2"></i>案件編集
+                </h3>
+                
+                <!-- 成功・エラーメッセージ -->
+                <div id="modal-success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+                    <p class="text-sm text-green-700">
+                        <i class="fas fa-check-circle mr-2"></i>
+                        <span id="modal-success-text"></span>
+                    </p>
+                </div>
+                <div id="modal-error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+                    <p class="text-sm text-red-700">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        <span id="modal-error-text"></span>
+                    </p>
+                </div>
+
+                <form id="edit-project-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            案件名 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" id="edit-project-name" required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            value="${project.project_name}">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-user mr-1"></i>営業担当
+                        </label>
+                        <select id="edit-sales-rep-id" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="">未設定</option>
+                            ${members.map((member: any) => `
+                              <option value="${member.id}" ${project.sales_rep_id === member.id ? 'selected' : ''}>
+                                ${member.name}${member.email ? ` (${member.email})` : ''}
+                              </option>
+                            `).join('')}
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            ステータス <span class="text-red-500">*</span>
+                        </label>
+                        <select id="edit-status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="active" ${project.status === 'active' ? 'selected' : ''}>商談中</option>
+                            <option value="won" ${project.status === 'won' ? 'selected' : ''}>受注</option>
+                            <option value="lost" ${project.status === 'lost' ? 'selected' : ''}>失注</option>
+                            <option value="archived" ${project.status === 'archived' ? 'selected' : ''}>アーカイブ</option>
+                        </select>
+                    </div>
+
+                    <div class="flex space-x-3 pt-4">
+                        <button type="submit" class="flex-1 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-save mr-2"></i>保存
+                        </button>
+                        <button type="button" onclick="closeEditProjectModal()" class="flex-1 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400">
+                            キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+          const PROJECT_ID = ${id};
+          
           // AUTH_UTILS - 認証ユーティリティ
           const AUTH_UTILS = {
             getToken: () => localStorage.getItem('jwt_token'),
@@ -3718,6 +3865,81 @@ app.get('/projects/:id', async (c) => {
           }).catch(error => {
             console.error('Failed to load user info:', error);
             document.getElementById('nav-user-name').textContent = 'ゲスト';
+          });
+          
+          // 編集モーダルを開く
+          window.openEditProjectModal = function() {
+            document.getElementById('edit-project-modal').classList.remove('hidden');
+          }
+          
+          // 編集モーダルを閉じる
+          window.closeEditProjectModal = function() {
+            document.getElementById('edit-project-modal').classList.add('hidden');
+            document.getElementById('modal-success-message').classList.add('hidden');
+            document.getElementById('modal-error-message').classList.add('hidden');
+          }
+          
+          // 案件を更新
+          document.getElementById('edit-project-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const projectName = document.getElementById('edit-project-name').value;
+            const salesRepId = document.getElementById('edit-sales-rep-id').value;
+            const status = document.getElementById('edit-status').value;
+            
+            const errorDiv = document.getElementById('modal-error-message');
+            const successDiv = document.getElementById('modal-success-message');
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+            
+            try {
+              const response = await axios.put(\`/api/projects/\${PROJECT_ID}\`, {
+                project_name: projectName,
+                sales_rep_id: salesRepId || null,
+                status: status
+              });
+              
+              document.getElementById('modal-success-text').textContent = '案件を更新しました';
+              successDiv.classList.remove('hidden');
+              
+              // 画面の表示を更新
+              document.getElementById('project-name-display').textContent = projectName;
+              
+              // ステータス表示を更新
+              const statusDisplay = document.getElementById('project-status-display');
+              const statusLabels = {
+                'active': '商談中',
+                'won': '受注',
+                'lost': '失注',
+                'archived': 'アーカイブ'
+              };
+              const statusColors = {
+                'active': 'bg-green-100 text-green-800',
+                'won': 'bg-blue-100 text-blue-800',
+                'lost': 'bg-red-100 text-red-800',
+                'archived': 'bg-gray-100 text-gray-800'
+              };
+              statusDisplay.className = 'px-3 py-1 rounded-full text-sm font-semibold ' + statusColors[status];
+              statusDisplay.textContent = statusLabels[status];
+              
+              // 営業担当表示を更新
+              const salesRepSelect = document.getElementById('edit-sales-rep-id');
+              const salesRepText = salesRepSelect.options[salesRepSelect.selectedIndex].text;
+              const salesRepDisplay = document.getElementById('sales-rep-display');
+              if (salesRepId) {
+                salesRepDisplay.innerHTML = \`<i class="fas fa-user mr-1 text-blue-500"></i>\${salesRepText}\`;
+              } else {
+                salesRepDisplay.innerHTML = '<span class="text-gray-400">未設定</span>';
+              }
+              
+              setTimeout(() => {
+                closeEditProjectModal();
+                window.location.reload();
+              }, 1500);
+            } catch (error) {
+              document.getElementById('modal-error-text').textContent = error.response?.data?.error || '案件の更新に失敗しました';
+              errorDiv.classList.remove('hidden');
+            }
           });
         </script>
     </body>
