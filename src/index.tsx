@@ -2741,7 +2741,7 @@ app.get('/leads/:id', async (c) => {
       <script>
         // AUTH_UTILS - 認証ユーティリティ
         const AUTH_UTILS = {
-          getToken: () => localStorage.getItem('token'),
+          getToken: () => localStorage.getItem('jwt_token'),
           getCurrentUser: async () => {
             try {
               const response = await axios.get('/api/auth/me', {
@@ -3231,6 +3231,9 @@ app.get('/', async (c) => {
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
+        // Axiosセットアップ（認証ヘッダー設定）
+        AUTH_UTILS.setupAxios();
+        
         // 未処理タスクの読み込み
         axios.get('/api/dashboard/pending-tasks').then(response => {
           const tasks = response.data.data;
@@ -3619,7 +3622,7 @@ app.get('/projects/:id', async (c) => {
         <script>
           // AUTH_UTILS - 認証ユーティリティ
           const AUTH_UTILS = {
-            getToken: () => localStorage.getItem('token'),
+            getToken: () => localStorage.getItem('jwt_token'),
             checkAuth: () => {
               if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
                 window.location.href = '/login';
@@ -3637,7 +3640,7 @@ app.get('/projects/:id', async (c) => {
               }
             },
             logout: () => {
-              localStorage.removeItem('token');
+              localStorage.removeItem('jwt_token');
               window.location.href = '/login';
             },
             setupAxios: () => {
@@ -4493,7 +4496,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
         <script>
             // AUTH_UTILS - 認証ユーティリティ
             const AUTH_UTILS = {
-              getToken: () => localStorage.getItem('token'),
+              getToken: () => localStorage.getItem('jwt_token'),
               checkAuth: () => {
                 if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
                   window.location.href = '/login';
@@ -4511,7 +4514,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                 }
               },
               logout: () => {
-                localStorage.removeItem('token');
+                localStorage.removeItem('jwt_token');
                 window.location.href = '/login';
               },
               setupAxios: () => {
