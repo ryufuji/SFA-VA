@@ -3438,10 +3438,17 @@ app.get('/projects/:id', async (c) => {
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-500 mr-4">
-                  <i class="fas fa-user-circle mr-1"></i>管理者
-                </span>
+              <div class="flex items-center space-x-4">
+                <span id="nav-user-name" class="text-sm text-gray-700">読込中...</span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-user mr-1"></i>プロフィール
+                </a>
+                <a href="/admin/users" id="admin-users-link" class="text-sm text-gray-600 hover:text-gray-900 hidden">
+                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
               </div>
             </div>
           </div>
@@ -3563,6 +3570,54 @@ app.get('/projects/:id', async (c) => {
                 `}
             </div>
         </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+          // AUTH_UTILS - 認証ユーティリティ
+          const AUTH_UTILS = {
+            getToken: () => localStorage.getItem('token'),
+            checkAuth: () => {
+              if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+                window.location.href = '/login';
+              }
+            },
+            getCurrentUser: async () => {
+              try {
+                const response = await axios.get('/api/auth/me', {
+                  headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+                });
+                return response.data.user;
+              } catch (error) {
+                console.error('Failed to get current user:', error);
+                return null;
+              }
+            },
+            logout: () => {
+              localStorage.removeItem('token');
+              window.location.href = '/login';
+            },
+            setupAxios: () => {
+              const token = AUTH_UTILS.getToken();
+              if (token) {
+                axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+              }
+            }
+          };
+
+          // ページロード時に認証チェックとAxiosセットアップ
+          AUTH_UTILS.checkAuth();
+          AUTH_UTILS.setupAxios();
+
+          // ユーザー情報を取得してナビゲーションを更新
+          AUTH_UTILS.getCurrentUser().then(user => {
+            if (user) {
+              document.getElementById('nav-user-name').textContent = user.name;
+              if (user.role === 'admin') {
+                document.getElementById('admin-users-link').classList.remove('hidden');
+              }
+            }
+          });
+        </script>
     </body>
     </html>
   `)
@@ -4169,10 +4224,17 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-500 mr-4">
-                  <i class="fas fa-user-circle mr-1"></i>管理者
-                </span>
+              <div class="flex items-center space-x-4">
+                <span id="nav-user-name" class="text-sm text-gray-700">読込中...</span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-user mr-1"></i>プロフィール
+                </a>
+                <a href="/admin/users" id="admin-users-link" class="text-sm text-gray-600 hover:text-gray-900 hidden">
+                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
               </div>
             </div>
           </div>
@@ -4220,8 +4282,8 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                                placeholder="例: Q1 2026 契約">
                     </div>
 
-                    <!-- 契約種別と契約日 -->
-                    <div class="grid grid-cols-2 gap-4">
+                    <!-- 契約種別、契約日、支払種別 -->
+                    <div class="grid grid-cols-3 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">
                                 契約種別
@@ -4239,6 +4301,16 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                             </label>
                             <input type="date" name="contract_date"
                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                支払種別 <span class="text-red-500">*</span>
+                            </label>
+                            <select name="payment_type" id="payment_type" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="毎月支払">毎月支払</option>
+                                <option value="初回全額支払">初回全額支払</option>
+                            </select>
                         </div>
                     </div>
 
@@ -4371,6 +4443,51 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+            // AUTH_UTILS - 認証ユーティリティ
+            const AUTH_UTILS = {
+              getToken: () => localStorage.getItem('token'),
+              checkAuth: () => {
+                if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+                  window.location.href = '/login';
+                }
+              },
+              getCurrentUser: async () => {
+                try {
+                  const response = await axios.get('/api/auth/me', {
+                    headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+                  });
+                  return response.data.user;
+                } catch (error) {
+                  console.error('Failed to get current user:', error);
+                  return null;
+                }
+              },
+              logout: () => {
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+              },
+              setupAxios: () => {
+                const token = AUTH_UTILS.getToken();
+                if (token) {
+                  axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+                }
+              }
+            };
+
+            // ページロード時に認証チェックとAxiosセットアップ
+            AUTH_UTILS.checkAuth();
+            AUTH_UTILS.setupAxios();
+
+            // ユーザー情報を取得してナビゲーションを更新
+            AUTH_UTILS.getCurrentUser().then(user => {
+              if (user) {
+                document.getElementById('nav-user-name').textContent = user.name;
+                if (user.role === 'admin') {
+                  document.getElementById('admin-users-link').classList.remove('hidden');
+                }
+              }
+            });
+
             // メンバーデータ
             const members = ${JSON.stringify(members)}
             let memberRowIndex = 0
@@ -4378,15 +4495,17 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
             // 月次明細データを保持
             let monthlyBreakdownData = []
             
-            // 契約期間・金額変更時に月次明細テーブルを生成
+            // 契約期間・金額・支払種別変更時に月次明細テーブルを生成
             document.querySelector('input[name="start_date"]').addEventListener('change', generateMonthlyBreakdown)
             document.querySelector('input[name="end_date"]').addEventListener('change', generateMonthlyBreakdown)
             document.getElementById('contract_amount').addEventListener('change', generateMonthlyBreakdown)
+            document.getElementById('payment_type').addEventListener('change', generateMonthlyBreakdown)
             
             function generateMonthlyBreakdown() {
                 const startDate = document.querySelector('input[name="start_date"]').value
                 const endDate = document.querySelector('input[name="end_date"]').value
                 const contractAmount = parseInt(document.getElementById('contract_amount').value) || 0
+                const paymentType = document.getElementById('payment_type').value
                 
                 if (!startDate || !endDate || contractAmount === 0) {
                     document.getElementById('monthly-breakdown-section').classList.add('hidden')
@@ -4415,9 +4534,17 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                     return
                 }
                 
-                // 均等割の計算（初期値）
-                const baseAmount = Math.floor(contractAmount / months.length)
-                const remainder = contractAmount - (baseAmount * months.length)
+                // 支払種別に応じた金額配分
+                let baseAmount, remainder
+                if (paymentType === '初回全額支払') {
+                    // 初回全額支払: 初月に全額、以降は0円
+                    baseAmount = 0
+                    remainder = contractAmount
+                } else {
+                    // 毎月支払: 均等割（端数は初月）
+                    baseAmount = Math.floor(contractAmount / months.length)
+                    remainder = contractAmount - (baseAmount * months.length)
+                }
                 
                 // 月次明細データを初期化
                 monthlyBreakdownData = months.map((month, index) => ({
@@ -4669,6 +4796,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                     start_date: formData.get('start_date'),
                     end_date: formData.get('end_date'),
                     contract_amount: parseInt(formData.get('contract_amount')),
+                    payment_type: formData.get('payment_type'),
                     notes: formData.get('notes') || '',
                     monthly_breakdown: monthlyBreakdownData,
                     member_assignments: memberAssignments
