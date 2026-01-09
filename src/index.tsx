@@ -50,6 +50,147 @@ app.get('/test', (c) => {
   `)
 })
 
+// ログインページ
+app.get('/login', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>ログイン - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center p-4">
+      <div class="max-w-md w-full">
+        <!-- ロゴ・タイトル -->
+        <div class="text-center mb-8">
+          <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 text-white rounded-full mb-4">
+            <i class="fas fa-chart-line text-2xl"></i>
+          </div>
+          <h1 class="text-3xl font-bold text-gray-800">SFA システム</h1>
+          <p class="text-gray-600 mt-2">営業支援・契約管理システム</p>
+        </div>
+
+        <!-- ログインフォーム -->
+        <div class="bg-white rounded-lg shadow-xl p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6">ログイン</h2>
+          
+          <!-- エラーメッセージ -->
+          <div id="error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+            <div class="flex">
+              <i class="fas fa-exclamation-circle text-red-400 mt-0.5 mr-2"></i>
+              <p class="text-sm text-red-700" id="error-text"></p>
+            </div>
+          </div>
+
+          <form id="login-form" class="space-y-4">
+            <!-- メールアドレス -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-envelope mr-2"></i>メールアドレス
+              </label>
+              <input 
+                type="email" 
+                id="email" 
+                name="email" 
+                required 
+                autocomplete="email"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="your.email@example.com">
+            </div>
+
+            <!-- パスワード -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-lock mr-2"></i>パスワード
+              </label>
+              <input 
+                type="password" 
+                id="password" 
+                name="password" 
+                required 
+                autocomplete="current-password"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="パスワードを入力">
+            </div>
+
+            <!-- ログインボタン -->
+            <button 
+              type="submit" 
+              id="login-button"
+              class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+              <i class="fas fa-sign-in-alt mr-2"></i>ログイン
+            </button>
+          </form>
+
+          <!-- 初期ログイン情報 -->
+          <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <p class="text-xs text-blue-800 mb-2">
+              <i class="fas fa-info-circle mr-1"></i>
+              <strong>初回ログイン情報</strong>
+            </p>
+            <div class="text-xs text-blue-700 space-y-1">
+              <p><strong>管理者:</strong> admin@system.local</p>
+              <p><strong>一般ユーザー:</strong> メンバーのメールアドレス</p>
+              <p><strong>初期パスワード:</strong> va1234</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- フッター -->
+        <div class="text-center mt-6 text-sm text-gray-600">
+          <p>&copy; 2026 SFA System. All rights reserved.</p>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+          const button = document.getElementById('login-button');
+          const errorDiv = document.getElementById('error-message');
+          const errorText = document.getElementById('error-text');
+          
+          // ボタンを無効化
+          button.disabled = true;
+          button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>ログイン中...';
+          errorDiv.classList.add('hidden');
+          
+          try {
+            const response = await axios.post('/api/auth/login', {
+              email: email,
+              password: password
+            });
+            
+            if (response.data.success) {
+              // JWTトークンをlocalStorageに保存
+              localStorage.setItem('jwt_token', response.data.token);
+              localStorage.setItem('user', JSON.stringify(response.data.user));
+              
+              // ダッシュボードへリダイレクト
+              window.location.href = '/';
+            }
+          } catch (error) {
+            // エラー表示
+            errorText.textContent = error.response?.data?.error || 'ログインに失敗しました';
+            errorDiv.classList.remove('hidden');
+            
+            // ボタンを再度有効化
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>ログイン';
+          }
+        });
+      </script>
+    </body>
+    </html>
+  `)
+})
+
 // ========================================
 // API Routes
 // ========================================
@@ -401,6 +542,158 @@ app.post('/api/payment-histories', async (c) => {
   `).bind(totalPayment, paymentStatus, payment_date, monthly_detail_id).run()
   
   return c.json({ success: true, message: 'Payment added successfully', totalPayment, paymentStatus })
+})
+
+// --- 認証 API ---
+import { hashPassword, verifyPassword, getUserPermissions, logAction, ADMIN_PERMISSIONS } from './auth'
+import { generateJWT, authMiddleware, requirePermission, requireAdmin } from './middleware/auth'
+
+// ログインAPI
+app.post('/api/auth/login', async (c) => {
+  const { email, password } = await c.req.json()
+  
+  // バリデーション
+  if (!email || !password) {
+    return c.json({ error: 'メールアドレスとパスワードを入力してください' }, 400)
+  }
+  
+  // ユーザー検索
+  const user = await c.env.DB.prepare(`
+    SELECT u.*, m.name as member_name 
+    FROM users u
+    LEFT JOIN members m ON u.member_id = m.id
+    WHERE u.email = ? AND u.is_active = 1
+  `).bind(email).first()
+  
+  if (!user) {
+    return c.json({ error: 'メールアドレスまたはパスワードが正しくありません' }, 401)
+  }
+  
+  // パスワード検証
+  const isValid = await verifyPassword(password, user.password_hash)
+  if (!isValid) {
+    return c.json({ error: 'メールアドレスまたはパスワードが正しくありません' }, 401)
+  }
+  
+  // 権限取得
+  const permissions = user.role === 'admin' 
+    ? ADMIN_PERMISSIONS
+    : await getUserPermissions(c.env.DB, user.id)
+  
+  // JWT生成
+  const token = await generateJWT({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    permissions: permissions
+  })
+  
+  // 最終ログイン時刻更新
+  await c.env.DB.prepare(`
+    UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).bind(user.id).run()
+  
+  // 監査ログ記録
+  await logAction(c.env.DB, user.id, 'login', null, null, {}, c.req.header('CF-Connecting-IP'))
+  
+  return c.json({
+    success: true,
+    token: token,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.member_name || '管理者',
+      permissions: permissions
+    }
+  })
+})
+
+// 現在のユーザー情報取得API
+app.get('/api/auth/me', authMiddleware, async (c) => {
+  const user = c.get('user')
+  
+  const userData = await c.env.DB.prepare(`
+    SELECT u.id, u.email, u.role, u.last_login_at, m.name as member_name 
+    FROM users u
+    LEFT JOIN members m ON u.member_id = m.id
+    WHERE u.id = ?
+  `).bind(user.userId).first()
+  
+  if (!userData) {
+    return c.json({ error: 'ユーザーが見つかりません' }, 404)
+  }
+  
+  return c.json({
+    success: true,
+    user: {
+      id: userData.id,
+      email: userData.email,
+      role: userData.role,
+      name: userData.member_name || '管理者',
+      lastLoginAt: userData.last_login_at,
+      permissions: user.permissions
+    }
+  })
+})
+
+// パスワード変更API
+app.post('/api/auth/change-password', authMiddleware, async (c) => {
+  const user = c.get('user')
+  const { current_password, new_password, confirm_password } = await c.req.json()
+  
+  // バリデーション
+  if (!current_password || !new_password || !confirm_password) {
+    return c.json({ error: 'すべての項目を入力してください' }, 400)
+  }
+  
+  if (new_password !== confirm_password) {
+    return c.json({ error: '新しいパスワードが一致しません' }, 400)
+  }
+  
+  if (new_password.length < 6) {
+    return c.json({ error: 'パスワードは6文字以上で入力してください' }, 400)
+  }
+  
+  // 現在のユーザー情報取得
+  const userData = await c.env.DB.prepare(`
+    SELECT password_hash FROM users WHERE id = ?
+  `).bind(user.userId).first()
+  
+  if (!userData) {
+    return c.json({ error: 'ユーザーが見つかりません' }, 404)
+  }
+  
+  // 現在のパスワード検証
+  const isValid = await verifyPassword(current_password, userData.password_hash)
+  if (!isValid) {
+    return c.json({ error: '現在のパスワードが正しくありません' }, 401)
+  }
+  
+  // 新しいパスワードをハッシュ化
+  const newPasswordHash = await hashPassword(new_password)
+  
+  // パスワード更新
+  await c.env.DB.prepare(`
+    UPDATE users 
+    SET password_hash = ?, updated_at = CURRENT_TIMESTAMP 
+    WHERE id = ?
+  `).bind(newPasswordHash, user.userId).run()
+  
+  // 監査ログ記録
+  await logAction(c.env.DB, user.userId, 'change_password', 'user', user.userId, {}, c.req.header('CF-Connecting-IP'))
+  
+  return c.json({ success: true, message: 'パスワードを変更しました' })
+})
+
+// ログアウトAPI（クライアント側でトークンを削除するため、サーバー側では特に処理なし）
+app.post('/api/auth/logout', authMiddleware, async (c) => {
+  const user = c.get('user')
+  
+  // 監査ログ記録
+  await logAction(c.env.DB, user.userId, 'logout', null, null, {}, c.req.header('CF-Connecting-IP'))
+  
+  return c.json({ success: true, message: 'ログアウトしました' })
 })
 
 // --- メンバー API ---
