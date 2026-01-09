@@ -4982,10 +4982,20 @@ app.get('/monthly/:id', async (c) => {
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-500 mr-4">
-                  <i class="fas fa-user-circle mr-1"></i>管理者
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
                 </span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
+                </a>
+                <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
+                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
               </div>
             </div>
           </div>
@@ -5258,7 +5268,75 @@ app.get('/monthly/:id', async (c) => {
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+            // 認証チェック用のユーティリティ関数
+            const AUTH_UTILS = {
+              getToken: function() { return localStorage.getItem('jwt_token'); },
+              checkAuth: function() {
+                const token = this.getToken();
+                if (!token) { window.location.href = '/login'; return false; }
+                return true;
+              },
+              getCurrentUser: async function() {
+                const token = this.getToken();
+                if (!token) return null;
+                try {
+                  const response = await axios.get('/api/auth/me', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                  });
+                  return response.data.user;
+                } catch (error) {
+                  if (error.response?.status === 401) {
+                    localStorage.removeItem('jwt_token');
+                    window.location.href = '/login';
+                  }
+                  return null;
+                }
+              },
+              logout: async function() {
+                const token = this.getToken();
+                if (token) {
+                  try {
+                    await axios.post('/api/auth/logout', {}, {
+                      headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                  } catch (error) {
+                    console.error('ログアウトエラー:', error);
+                  }
+                }
+                localStorage.removeItem('jwt_token');
+                window.location.href = '/login';
+              },
+              setupAxios: function() {
+                const token = this.getToken();
+                if (token) {
+                  axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+                }
+              }
+            };
+            
+            // ユーザー情報を読み込む
+            async function loadUserInfo() {
+              AUTH_UTILS.checkAuth();
+              AUTH_UTILS.setupAxios();
+              const user = await AUTH_UTILS.getCurrentUser();
+              if (user) {
+                const navUserName = document.getElementById('nav-user-name');
+                if (navUserName) {
+                  navUserName.textContent = user.name;
+                }
+                if (user.role === 'admin') {
+                  const adminMenu = document.getElementById('admin-menu');
+                  if (adminMenu) {
+                    adminMenu.style.display = '';
+                  }
+                }
+              }
+            }
+
             document.addEventListener('DOMContentLoaded', function() {
+            // ユーザー情報を読み込む
+            loadUserInfo();
+            
             // 検収情報の更新
             document.getElementById('inspection-form').addEventListener('submit', async (e) => {
                 e.preventDefault()
