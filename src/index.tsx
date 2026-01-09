@@ -898,7 +898,7 @@ app.put('/api/contracts/:id', authMiddleware, requirePermission('contract_manage
   const { DB } = c.env
   const user = c.get('user')
   const id = c.req.param('id')
-  const { contract_name, contract_type, contract_date, notes, status } = await c.req.json()
+  const { contract_name, contract_type, contract_date, notes, status, payment_type } = await c.req.json()
   
   // 契約の存在確認
   const contract = await DB.prepare('SELECT * FROM contracts WHERE id = ?').bind(id).first()
@@ -926,6 +926,7 @@ app.put('/api/contracts/:id', authMiddleware, requirePermission('contract_manage
           contract_date = ?,
           notes = ?,
           status = ?,
+          payment_type = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
@@ -934,6 +935,7 @@ app.put('/api/contracts/:id', authMiddleware, requirePermission('contract_manage
       contract_date || null,
       notes || null,
       status || 'active',
+      payment_type || '毎月支払',
       id
     ).run()
     
@@ -1489,12 +1491,15 @@ app.get('/api/members', authMiddleware, async (c) => {
 
 // API: 契約作成（contract_manage権限が必要）
 app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'), async (c) => {
-  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, monthly_breakdown, member_assignments } = await c.req.json()
+  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, payment_type, monthly_breakdown, member_assignments } = await c.req.json()
 
   // バリデーション
   if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
     return c.json({ error: '必須項目が入力されていません' }, 400)
   }
+  
+  // 支払種別のデフォルト値
+  const paymentTypeValue = payment_type || '毎月支払'
 
   // プロジェクト名を取得
   const project = await c.env.DB.prepare('SELECT project_name FROM projects WHERE id = ?').bind(project_id).first()
@@ -1541,20 +1546,28 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
     }
   }
 
-  // 均等割の計算（monthly_breakdownが無い場合のフォールバック）
-  const baseAmount = Math.floor(contract_amount / months.length)
-  const remainder = contract_amount - (baseAmount * months.length)
+  // 金額配分の計算（支払種別に応じて）
+  let baseAmount, remainder
+  if (paymentTypeValue === '初回全額支払') {
+    // 初回全額支払の場合、初月に全額、以降は0円
+    baseAmount = 0
+    remainder = contract_amount
+  } else {
+    // 毎月支払の場合、均等割（端数は初月）
+    baseAmount = Math.floor(contract_amount / months.length)
+    remainder = contract_amount - (baseAmount * months.length)
+  }
 
   try {
     // 契約を作成
     const contractResult = await c.env.DB.prepare(`
       INSERT INTO contracts (
         project_id, contract_name, contract_type, contract_date, contract_start_date, contract_end_date, 
-        contract_amount, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        contract_amount, payment_type, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       project_id, contract_name, contract_type || '準委任', contract_date || null, start_date, end_date, 
-      contract_amount, 'active'
+      contract_amount, paymentTypeValue, 'active'
     ).run()
 
     const contractId = contractResult.meta.last_row_id
@@ -1609,8 +1622,15 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
 
     // メンバーアサインがある場合、各月次明細に追加
     if (member_assignments && member_assignments.length > 0) {
-      for (const monthlyDetailId of monthlyDetailIds) {
+      for (let i = 0; i < monthlyDetailIds.length; i++) {
+        const monthlyDetailId = monthlyDetailIds[i]
         for (const assignment of member_assignments) {
+          // 初回全額支払の場合、2ヶ月目以降は単価を0にする
+          let unitPrice = assignment.unit_price
+          if (paymentTypeValue === '初回全額支払' && i > 0) {
+            unitPrice = 0
+          }
+          
           await c.env.DB.prepare(`
             INSERT INTO monthly_member_assignments (
               monthly_detail_id, member_id, allocation_ratio, unit_price, notes
@@ -1619,7 +1639,7 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
             monthlyDetailId,
             assignment.member_id,
             assignment.allocation_ratio,
-            assignment.unit_price,
+            unitPrice,
             assignment.notes || ''
           ).run()
         }
@@ -2146,12 +2166,33 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
     LIMIT 10
   `).bind(today).all()
   
+  // 金額と想定売上の不一致（月次明細の金額と、メンバーアサインの想定売上が一致しない）
+  const { results: amountMismatch } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      c.contract_name,
+      p.project_name,
+      md.amount,
+      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as expected_revenue,
+      ABS(md.amount - COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0)) as difference
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    LEFT JOIN monthly_member_assignments mma ON md.id = mma.monthly_detail_id
+    GROUP BY md.id, md.target_month, c.contract_name, p.project_name, md.amount
+    HAVING ABS(md.amount - COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0)) > 0
+    ORDER BY difference DESC
+    LIMIT 10
+  `).all()
+  
   return c.json({ 
     success: true, 
     data: {
       overdueInspections,
       overdueBillings,
-      overduePayments
+      overduePayments,
+      amountMismatch
     }
   })
 })
@@ -3149,9 +3190,9 @@ app.get('/', async (c) => {
         // 未処理タスクの読み込み
         axios.get('/api/dashboard/pending-tasks').then(response => {
           const tasks = response.data.data;
-          const { overdueInspections, overdueBillings, overduePayments } = tasks;
+          const { overdueInspections, overdueBillings, overduePayments, amountMismatch } = tasks;
           
-          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length;
+          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length + (amountMismatch ? amountMismatch.length : 0);
           
           if (totalTasks === 0) {
             document.getElementById('pending-tasks-content').innerHTML = \`
@@ -3228,6 +3269,34 @@ app.get('/', async (c) => {
                       </div>
                       <div class="text-xs text-orange-600">
                         <i class="fas fa-clock mr-1"></i>\${Math.floor(task.days_overdue)}日超過
+                      </div>
+                    </a>
+                  \`).join('')}
+                </div>
+              </div>
+            \`;
+          }
+          
+          // 金額と想定売上の不一致
+          if (amountMismatch && amountMismatch.length > 0) {
+            html += \`
+              <div class="border-l-4 border-purple-500 bg-purple-50 p-4 rounded">
+                <h3 class="text-purple-800 font-semibold mb-3 flex items-center">
+                  <i class="fas fa-exclamation mr-2"></i>🟣 金額不一致 (\${amountMismatch.length}件)
+                </h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                  \${amountMismatch.map(task => \`
+                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
+                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
+                      <div class="text-xs text-gray-600">\${task.target_month}</div>
+                      <div class="text-xs text-purple-600 mt-1">
+                        明細金額: ¥\${task.amount.toLocaleString()}
+                      </div>
+                      <div class="text-xs text-purple-600">
+                        想定売上: ¥\${Math.round(task.expected_revenue).toLocaleString()}
+                      </div>
+                      <div class="text-xs text-purple-600 font-semibold">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>差額: ¥\${Math.round(task.difference).toLocaleString()}
                       </div>
                     </a>
                   \`).join('')}
@@ -3892,6 +3961,18 @@ app.get('/contracts/:id', async (c) => {
                     </div>
                     
                     <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">支払種別</label>
+                        <select id="edit-payment-type" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="毎月支払" ${(contract.payment_type || '毎月支払') === '毎月支払' ? 'selected' : ''}>毎月支払</option>
+                            <option value="初回全額支払" ${contract.payment_type === '初回全額支払' ? 'selected' : ''}>初回全額支払</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">
+                            <span class="font-medium">毎月支払:</span> 契約金額を月数で均等割（端数は初月）<br>
+                            <span class="font-medium">初回全額支払:</span> 初月に全額、2ヶ月目以降は0円
+                        </p>
+                    </div>
+                    
+                    <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
                         <select id="edit-status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                             <option value="active" ${contract.status === 'active' ? 'selected' : ''}>進行中</option>
@@ -3973,6 +4054,7 @@ app.get('/contracts/:id', async (c) => {
                 const contractDate = document.getElementById('edit-contract-date').value;
                 const status = document.getElementById('edit-status').value;
                 const notes = document.getElementById('edit-notes').value;
+                const paymentType = document.getElementById('edit-payment-type').value;
 
                 const errorDiv = document.getElementById('modal-error-message');
                 const successDiv = document.getElementById('modal-success-message');
@@ -3985,7 +4067,8 @@ app.get('/contracts/:id', async (c) => {
                         contract_type: contractType,
                         contract_date: contractDate || null,
                         status: status,
-                        notes: notes
+                        notes: notes,
+                        payment_type: paymentType
                     });
 
                     document.getElementById('modal-success-text').textContent = response.data.message;
