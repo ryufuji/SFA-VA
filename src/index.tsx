@@ -196,7 +196,8 @@ app.get('/login', (c) => {
 // ========================================
 
 // --- リード API ---
-app.get('/api/leads', async (c) => {
+// リード一覧取得（認証必須、閲覧のみ）
+app.get('/api/leads', authMiddleware, async (c) => {
   const { DB } = c.env
   const { status, search } = c.req.query()
   
@@ -219,7 +220,8 @@ app.get('/api/leads', async (c) => {
   return c.json({ success: true, data: results })
 })
 
-app.get('/api/leads/:id', async (c) => {
+// リード詳細取得（認証必須、閲覧のみ）
+app.get('/api/leads/:id', authMiddleware, async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   
@@ -236,7 +238,8 @@ app.get('/api/leads/:id', async (c) => {
   return c.json({ success: true, data: { ...lead, projects } })
 })
 
-app.post('/api/leads', async (c) => {
+// リード作成（lead_manage権限が必要）
+app.post('/api/leads', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
   const { company_name, contact_person, department, email, phone } = body
@@ -252,8 +255,8 @@ app.post('/api/leads', async (c) => {
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
 
-// リード更新
-app.put('/api/leads/:id', async (c) => {
+// リード更新（lead_manage権限が必要）
+app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   const body = await c.req.json()
@@ -273,7 +276,8 @@ app.put('/api/leads/:id', async (c) => {
 })
 
 // --- 案件 API ---
-app.get('/api/projects/:id', async (c) => {
+// 案件詳細取得（認証必須、閲覧のみ）
+app.get('/api/projects/:id', authMiddleware, async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   
@@ -293,7 +297,8 @@ app.get('/api/projects/:id', async (c) => {
   return c.json({ success: true, data: { ...project, lead, contracts } })
 })
 
-app.post('/api/projects', async (c) => {
+// 案件作成（lead_manage権限が必要）
+app.post('/api/projects', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
   const { lead_id, project_name } = body
@@ -310,7 +315,8 @@ app.post('/api/projects', async (c) => {
 })
 
 // --- 契約 API ---
-app.get('/api/contracts/:id', async (c) => {
+// 契約詳細取得（認証必須、閲覧のみ）
+app.get('/api/contracts/:id', authMiddleware, async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   
@@ -395,7 +401,8 @@ app.get('/api/contracts/:id', async (c) => {
 // 新しいバージョン（メンバーアサイン対応版）が優先されるはず
 
 // --- 月次明細 API ---
-app.get('/api/monthly-details/:id', async (c) => {
+// 月次明細詳細取得（認証必須、閲覧のみ）
+app.get('/api/monthly-details/:id', authMiddleware, async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   
@@ -417,7 +424,8 @@ app.get('/api/monthly-details/:id', async (c) => {
   return c.json({ success: true, data: { ...detail, paymentHistories, statusHistories } })
 })
 
-app.put('/api/monthly-details/:id', async (c) => {
+// 月次明細更新（contract_manage権限が必要）
+app.put('/api/monthly-details/:id', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
   const body = await c.req.json()
@@ -494,7 +502,8 @@ app.put('/api/monthly-details/:id', async (c) => {
 })
 
 // --- 入金履歴 API ---
-app.post('/api/payment-histories', async (c) => {
+// 入金追加（payment_manage権限が必要）
+app.post('/api/payment-histories', authMiddleware, requirePermission('payment_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
   const { monthly_detail_id, payment_date, payment_amount, note } = body
@@ -697,7 +706,8 @@ app.post('/api/auth/logout', authMiddleware, async (c) => {
 })
 
 // --- メンバー API ---
-app.get('/api/members', async (c) => {
+// メンバー一覧取得（認証必須、閲覧のみ）
+app.get('/api/members', authMiddleware, async (c) => {
   const { DB } = c.env
   const { results } = await DB.prepare(
     'SELECT * FROM members WHERE status = ? ORDER BY name ASC'
@@ -708,8 +718,8 @@ app.get('/api/members', async (c) => {
 
 // --- 契約 API ---
 
-// API: 契約作成（月次明細自動生成）
-app.post('/api/contracts', async (c) => {
+// API: 契約作成（contract_manage権限が必要）
+app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, monthly_breakdown, member_assignments } = await c.req.json()
 
   // バリデーション
@@ -861,8 +871,8 @@ app.post('/api/contracts', async (c) => {
 
 // --- 月次明細 API ---
 
-// API: 月次明細の検収情報更新
-app.put('/api/monthly-details/:id/inspection', async (c) => {
+// API: 月次明細の検収情報更新（inspection_manage権限が必要）
+app.put('/api/monthly-details/:id/inspection', authMiddleware, requirePermission('inspection_manage'), async (c) => {
   const id = c.req.param('id')
   const { inspection_status, inspection_date } = await c.req.json()
 
@@ -894,8 +904,8 @@ app.put('/api/monthly-details/:id/inspection', async (c) => {
   return c.json({ success: true })
 })
 
-// API: 月次明細の請求情報更新
-app.put('/api/monthly-details/:id/billing', async (c) => {
+// API: 月次明細の請求情報更新（inspection_manage権限が必要）
+app.put('/api/monthly-details/:id/billing', authMiddleware, requirePermission('inspection_manage'), async (c) => {
   const id = c.req.param('id')
   const { billing_status, billing_date, invoice_number, expected_payment_date } = await c.req.json()
 
@@ -933,8 +943,8 @@ app.put('/api/monthly-details/:id/billing', async (c) => {
   return c.json({ success: true })
 })
 
-// API: 月次明細の金額更新
-app.put('/api/monthly-details/:id/amount', async (c) => {
+// API: 月次明細の金額更新（contract_manage権限が必要）
+app.put('/api/monthly-details/:id/amount', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const id = c.req.param('id')
   const { amount } = await c.req.json()
 
@@ -957,7 +967,8 @@ app.put('/api/monthly-details/:id/amount', async (c) => {
 })
 
 // API: 入金履歴削除
-app.delete('/api/payment-histories/:id', async (c) => {
+// 入金削除（payment_manage権限が必要）
+app.delete('/api/payment-histories/:id', authMiddleware, requirePermission('payment_manage'), async (c) => {
   const id = c.req.param('id')
 
   // 入金履歴を取得
@@ -988,7 +999,8 @@ app.delete('/api/payment-histories/:id', async (c) => {
 })
 
 // API: 月次メンバーアサイン追加
-app.post('/api/monthly-member-assignments', async (c) => {
+// メンバーアサイン追加（contract_manage権限が必要）
+app.post('/api/monthly-member-assignments', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const { monthly_detail_id, member_id, allocation_ratio, unit_price, notes } = await c.req.json()
 
   // バリデーション
@@ -1031,7 +1043,8 @@ app.post('/api/monthly-member-assignments', async (c) => {
 })
 
 // API: 月次メンバーアサイン バッチ登録
-app.post('/api/monthly-member-assignments/batch', async (c) => {
+// メンバーアサイン一括追加（contract_manage権限が必要）
+app.post('/api/monthly-member-assignments/batch', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const { monthly_detail_id, assignments } = await c.req.json()
 
   // バリデーション
@@ -1091,7 +1104,8 @@ app.post('/api/monthly-member-assignments/batch', async (c) => {
 })
 
 // API: 月次メンバーアサイン更新
-app.put('/api/monthly-member-assignments/:id', async (c) => {
+// メンバーアサイン更新（contract_manage権限が必要）
+app.put('/api/monthly-member-assignments/:id', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const id = c.req.param('id')
   const { allocation_ratio, unit_price, notes } = await c.req.json()
 
@@ -1137,7 +1151,8 @@ app.put('/api/monthly-member-assignments/:id', async (c) => {
 })
 
 // API: 月次メンバーアサイン削除
-app.delete('/api/monthly-member-assignments/:id', async (c) => {
+// メンバーアサイン削除（contract_manage権限が必要）
+app.delete('/api/monthly-member-assignments/:id', authMiddleware, requirePermission('contract_manage'), async (c) => {
   const id = c.req.param('id')
 
   // 削除前に情報を取得
@@ -1174,7 +1189,8 @@ app.get('/api/members', async (c) => {
 })
 
 // API: メンバー作成
-app.post('/api/members/create', async (c) => {
+// メンバー作成（管理者のみ）
+app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
   const { name, email, default_unit_price } = await c.req.json()
 
   if (!name || !default_unit_price) {
@@ -1190,7 +1206,8 @@ app.post('/api/members/create', async (c) => {
 })
 
 // API: メンバー更新
-app.put('/api/members/:id', async (c) => {
+// メンバー更新（管理者のみ）
+app.put('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
   const id = c.req.param('id')
   const { name, email, default_unit_price } = await c.req.json()
 
@@ -1208,7 +1225,8 @@ app.put('/api/members/:id', async (c) => {
 })
 
 // API: メンバーステータス変更
-app.put('/api/members/:id/status', async (c) => {
+// メンバーステータス更新（管理者のみ）
+app.put('/api/members/:id/status', authMiddleware, requireAdmin, async (c) => {
   const id = c.req.param('id')
   const { status } = await c.req.json()
 
@@ -1226,7 +1244,8 @@ app.put('/api/members/:id/status', async (c) => {
 })
 
 // --- ダッシュボード API ---
-app.get('/api/dashboard/summary', async (c) => {
+// ダッシュボードサマリ（認証必須、閲覧のみ）
+app.get('/api/dashboard/summary', authMiddleware, async (c) => {
   const { DB } = c.env
   
   // 当月を取得
@@ -1265,7 +1284,8 @@ app.get('/api/dashboard/summary', async (c) => {
 })
 
 // 月次売上推移(直近12ヶ月)
-app.get('/api/dashboard/sales-trend', async (c) => {
+// 売上推移（認証必須、閲覧のみ）
+app.get('/api/dashboard/sales-trend', authMiddleware, async (c) => {
   const { DB } = c.env
   
   // 直近12ヶ月のデータを取得（検収日ベース、検収済のみ）
@@ -1285,7 +1305,8 @@ app.get('/api/dashboard/sales-trend', async (c) => {
 })
 
 // 未処理タスク取得API
-app.get('/api/dashboard/pending-tasks', async (c) => {
+// 保留中タスク（認証必須、閲覧のみ）
+app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
   const { DB } = c.env
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
