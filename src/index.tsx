@@ -168,8 +168,14 @@ app.get('/login', (c) => {
               localStorage.setItem('jwt_token', response.data.token);
               localStorage.setItem('user', JSON.stringify(response.data.user));
               
-              // ダッシュボードへリダイレクト
-              window.location.href = '/';
+              // パスワード変更が必要な場合は強制的にパスワード変更画面へ
+              if (response.data.password_change_required) {
+                alert('初期パスワードを変更する必要があります。パスワード変更画面に移動します。');
+                window.location.href = '/change-password?required=true';
+              } else {
+                // ダッシュボードへリダイレクト
+                window.location.href = '/';
+              }
             }
           } catch (error) {
             // エラー表示
@@ -424,6 +430,215 @@ app.get('/profile', (c) => {
         });
         
         loadUserInfo();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// パスワード変更画面
+app.get('/change-password', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>パスワード変更 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center p-4">
+      <div class="max-w-md w-full">
+        <!-- ロゴ・タイトル -->
+        <div class="text-center mb-8">
+          <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 text-white rounded-full mb-4">
+            <i class="fas fa-lock text-2xl"></i>
+          </div>
+          <h1 class="text-3xl font-bold text-gray-800">パスワード変更</h1>
+          <p class="text-gray-600 mt-2" id="subtitle">セキュリティのため、パスワードを変更してください</p>
+        </div>
+
+        <!-- 警告メッセージ（必須の場合のみ表示） -->
+        <div id="required-warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+          <div class="flex">
+            <i class="fas fa-exclamation-triangle text-yellow-400 mt-0.5 mr-2"></i>
+            <div>
+              <p class="text-sm font-semibold text-yellow-800">初期パスワードの変更が必要です</p>
+              <p class="text-xs text-yellow-700 mt-1">セキュリティのため、初期パスワードから変更してください。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- パスワード変更フォーム -->
+        <div class="bg-white rounded-lg shadow-xl p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6">新しいパスワードを設定</h2>
+          
+          <!-- 成功メッセージ -->
+          <div id="success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+            <div class="flex">
+              <i class="fas fa-check-circle text-green-400 mt-0.5 mr-2"></i>
+              <p class="text-sm text-green-700" id="success-text"></p>
+            </div>
+          </div>
+
+          <!-- エラーメッセージ -->
+          <div id="error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+            <div class="flex">
+              <i class="fas fa-exclamation-circle text-red-400 mt-0.5 mr-2"></i>
+              <p class="text-sm text-red-700" id="error-text"></p>
+            </div>
+          </div>
+
+          <form id="change-password-form" class="space-y-4">
+            <!-- 現在のパスワード -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-lock mr-2"></i>現在のパスワード
+              </label>
+              <input 
+                type="password" 
+                id="current_password" 
+                name="current_password" 
+                required 
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="現在のパスワードを入力">
+            </div>
+
+            <!-- 新しいパスワード -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-key mr-2"></i>新しいパスワード
+              </label>
+              <input 
+                type="password" 
+                id="new_password" 
+                name="new_password" 
+                required 
+                minlength="6"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="新しいパスワード（6文字以上）">
+              <p class="text-xs text-gray-500 mt-1">6文字以上で入力してください</p>
+            </div>
+
+            <!-- パスワード確認 -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-key mr-2"></i>新しいパスワード（確認）
+              </label>
+              <input 
+                type="password" 
+                id="confirm_password" 
+                name="confirm_password" 
+                required 
+                minlength="6"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="新しいパスワードを再入力">
+            </div>
+
+            <!-- 変更ボタン -->
+            <button 
+              type="submit" 
+              id="change-button"
+              class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+              <i class="fas fa-save mr-2"></i>パスワードを変更
+            </button>
+          </form>
+
+          <!-- キャンセルボタン（必須でない場合のみ表示） -->
+          <div id="cancel-section" class="mt-4 text-center">
+            <a href="/" class="text-sm text-gray-600 hover:text-blue-600">
+              <i class="fas fa-arrow-left mr-1"></i>ダッシュボードに戻る
+            </a>
+          </div>
+        </div>
+
+        <!-- フッター -->
+        <div class="text-center mt-6 text-sm text-gray-600">
+          <p>&copy; 2026 SFA System. All rights reserved.</p>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        // URLパラメータから必須かどうかを確認
+        const urlParams = new URLSearchParams(window.location.search);
+        const isRequired = urlParams.get('required') === 'true';
+        
+        if (isRequired) {
+          document.getElementById('required-warning').classList.remove('hidden');
+          document.getElementById('cancel-section').style.display = 'none';
+          document.getElementById('subtitle').textContent = '初期パスワードの変更が必須です';
+        }
+        
+        // 認証チェック
+        const token = localStorage.getItem('jwt_token');
+        if (!token) {
+          window.location.href = '/login';
+        }
+        
+        // Axiosのデフォルトヘッダーに認証トークンを設定
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+        
+        document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          
+          const currentPassword = document.getElementById('current_password').value;
+          const newPassword = document.getElementById('new_password').value;
+          const confirmPassword = document.getElementById('confirm_password').value;
+          const button = document.getElementById('change-button');
+          const errorDiv = document.getElementById('error-message');
+          const errorText = document.getElementById('error-text');
+          const successDiv = document.getElementById('success-message');
+          const successText = document.getElementById('success-text');
+          
+          // クライアント側バリデーション
+          if (newPassword !== confirmPassword) {
+            errorText.textContent = '新しいパスワードが一致しません';
+            errorDiv.classList.remove('hidden');
+            successDiv.classList.add('hidden');
+            return;
+          }
+          
+          if (newPassword.length < 6) {
+            errorText.textContent = 'パスワードは6文字以上で入力してください';
+            errorDiv.classList.remove('hidden');
+            successDiv.classList.add('hidden');
+            return;
+          }
+          
+          // ボタンを無効化
+          button.disabled = true;
+          button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>変更中...';
+          errorDiv.classList.add('hidden');
+          successDiv.classList.add('hidden');
+          
+          try {
+            const response = await axios.post('/api/auth/change-password', {
+              current_password: currentPassword,
+              new_password: newPassword,
+              confirm_password: confirmPassword
+            });
+            
+            if (response.data.success) {
+              successText.textContent = 'パスワードを変更しました。3秒後にダッシュボードに移動します。';
+              successDiv.classList.remove('hidden');
+              
+              // 3秒後にダッシュボードへリダイレクト
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 3000);
+            }
+          } catch (error) {
+            // エラー表示
+            errorText.textContent = error.response?.data?.error || 'パスワード変更に失敗しました';
+            errorDiv.classList.remove('hidden');
+            
+            // ボタンを再度有効化
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-save mr-2"></i>パスワードを変更';
+          }
+        });
       </script>
     </body>
     </html>
@@ -1307,7 +1522,8 @@ app.post('/api/auth/login', async (c) => {
       role: user.role,
       name: user.member_name || '管理者',
       permissions: permissions
-    }
+    },
+    password_change_required: user.password_change_required === 1
   })
 })
 
@@ -1375,10 +1591,10 @@ app.post('/api/auth/change-password', authMiddleware, async (c) => {
   // 新しいパスワードをハッシュ化
   const newPasswordHash = await hashPassword(new_password)
   
-  // パスワード更新
+  // パスワード更新（password_change_requiredフラグもクリア）
   await c.env.DB.prepare(`
     UPDATE users 
-    SET password_hash = ?, updated_at = CURRENT_TIMESTAMP 
+    SET password_hash = ?, password_change_required = 0, updated_at = CURRENT_TIMESTAMP 
     WHERE id = ?
   `).bind(newPasswordHash, user.userId).run()
   
