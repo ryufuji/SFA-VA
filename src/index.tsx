@@ -945,6 +945,402 @@ app.get('/admin/users', (c) => {
   `)
 })
 
+// データインポート画面（管理者専用）
+app.get('/admin/import', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>データインポート - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-50">
+      <!-- ナビゲーション -->
+      <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex items-center">
+              <i class="fas fa-chart-line text-2xl text-blue-600 mr-3"></i>
+              <span class="text-xl font-semibold text-gray-800">SFA システム</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span id="nav-user-name" class="text-gray-700">読込中...</span>
+              <a href="/" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-home mr-1"></i>ダッシュボード
+              </a>
+              <a href="/admin/users" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              </a>
+              <button onclick="AUTH_UTILS.logout()" class="text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-8 px-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">
+          <i class="fas fa-file-import mr-2"></i>データインポート
+        </h1>
+        <p class="text-gray-600 mb-8">NotionなどからエクスポートしたCSVファイルをインポートできます</p>
+
+        <!-- 移行ガイドへのリンク -->
+        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+          <div class="flex">
+            <i class="fas fa-info-circle text-blue-400 mt-0.5 mr-2"></i>
+            <div>
+              <p class="text-sm font-semibold text-blue-800">Notionからの移行ガイド</p>
+              <p class="text-xs text-blue-700 mt-1">
+                Notionからのデータ移行方法については
+                <a href="/NOTION_MIGRATION_GUIDE.md" target="_blank" class="underline font-semibold">移行ガイド</a>
+                をご参照ください
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- インポート対象選択 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">
+            <i class="fas fa-database mr-2"></i>インポート対象
+          </h2>
+          <select id="import-type" onchange="updateFormatGuide()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <option value="">選択してください</option>
+            <option value="members">メンバー</option>
+            <option value="leads">リード（顧客情報）</option>
+            <option value="projects">案件</option>
+            <option value="contracts">契約</option>
+          </select>
+        </div>
+
+        <!-- CSVフォーマット説明 -->
+        <div id="format-guide" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+          <h3 class="text-lg font-semibold text-gray-800 mb-3">
+            <i class="fas fa-file-csv mr-2"></i>必要なCSV列
+          </h3>
+          <div class="bg-gray-50 p-4 rounded mb-4">
+            <pre id="csv-format" class="text-sm font-mono whitespace-pre-wrap"></pre>
+          </div>
+          <button onclick="downloadTemplate()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            <i class="fas fa-download mr-2"></i>テンプレートをダウンロード
+          </button>
+        </div>
+
+        <!-- ファイルアップロード -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">
+            <i class="fas fa-upload mr-2"></i>CSVファイル選択
+          </h2>
+          <input type="file" id="csv-file" accept=".csv" class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-lg file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100 mb-4">
+          <button onclick="previewImport()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+            <i class="fas fa-eye mr-2"></i>プレビュー
+          </button>
+        </div>
+
+        <!-- プレビュー -->
+        <div id="preview-section" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">
+            <i class="fas fa-list-check mr-2"></i>インポートプレビュー
+          </h2>
+          <div class="mb-4 p-4 bg-blue-50 rounded">
+            <span class="font-medium text-gray-700">検出件数:</span> 
+            <span id="record-count" class="text-2xl font-bold text-blue-600 ml-2"></span>件
+          </div>
+          <div id="preview-table" class="overflow-x-auto mb-6"></div>
+          
+          <!-- オプション -->
+          <div class="space-y-3 mb-6 p-4 bg-gray-50 rounded">
+            <h3 class="font-semibold text-gray-800 mb-2">インポートオプション</h3>
+            <label class="flex items-center">
+              <input type="checkbox" id="skip-duplicates" checked class="w-4 h-4 text-blue-600 mr-3">
+              <span class="text-sm">重複データをスキップ（メールアドレスや会社名で判定）</span>
+            </label>
+            <label class="flex items-center">
+              <input type="checkbox" id="auto-match" checked class="w-4 h-4 text-blue-600 mr-3">
+              <span class="text-sm">リレーションを自動マッチング（会社名やメールアドレスでID検索）</span>
+            </label>
+            <label class="flex items-center">
+              <input type="checkbox" id="dry-run" checked class="w-4 h-4 text-blue-600 mr-3">
+              <span class="text-sm text-yellow-700 font-semibold">テスト実行（実際にはデータを書き込まない）</span>
+            </label>
+          </div>
+          
+          <button onclick="executeImport()" class="px-8 py-3 bg-red-600 text-white rounded-lg text-lg font-semibold hover:bg-red-700">
+            <i class="fas fa-upload mr-2"></i>インポート実行
+          </button>
+        </div>
+
+        <!-- 実行結果 -->
+        <div id="result-section" class="bg-white rounded-lg shadow p-6 hidden">
+          <h2 class="text-xl font-semibold text-gray-800 mb-4">
+            <i class="fas fa-chart-bar mr-2"></i>インポート結果
+          </h2>
+          <div id="result-content"></div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+      <script>
+        const AUTH_UTILS = {
+          checkAuth: function() {
+            const token = localStorage.getItem('jwt_token');
+            if (!token) {
+              window.location.href = '/login';
+              return false;
+            }
+            return true;
+          },
+          setupAxios: function() {
+            const token = localStorage.getItem('jwt_token');
+            if (token) {
+              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+            }
+          },
+          logout: function() {
+            localStorage.removeItem('jwt_token');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+          },
+          getCurrentUser: async function() {
+            try {
+              const response = await axios.get('/api/auth/me');
+              return response.data.user;
+            } catch (error) {
+              return null;
+            }
+          }
+        };
+
+        // CSVフォーマット定義
+        const formats = {
+          members: {
+            columns: ['name', 'email', 'default_unit_price', 'position', 'memo', 'status'],
+            description: '名前（必須）,メールアドレス（必須）,デフォルト単価（必須）,役職,メモ,ステータス',
+            example: 'name,email,default_unit_price,position,memo,status\\n山田太郎,yamada@example.com,500000,シニアコンサルタント,備考,active\\n佐藤花子,sato@example.com,600000,マネージャー,,active'
+          },
+          leads: {
+            columns: ['company_name', 'contact_person', 'email', 'phone', 'status'],
+            description: '会社名（必須）,担当者名,メールアドレス,電話番号,ステータス',
+            example: 'company_name,contact_person,email,phone,status\\n株式会社サンプル,山田太郎,yamada@example.com,03-1234-5678,active\\n株式会社テスト,佐藤花子,sato@test.com,03-2345-6789,active'
+          },
+          projects: {
+            columns: ['project_name', 'company_name', 'sales_rep_email', 'status'],
+            description: '案件名（必須）,会社名（必須・自動でlead_idに変換）,営業担当メールアドレス（自動でsales_rep_idに変換）,ステータス',
+            example: 'project_name,company_name,sales_rep_email,status\\nシステム開発案件A,株式会社サンプル,yamada@example.com,won\\nWebサイト制作,株式会社テスト,,active'
+          },
+          contracts: {
+            columns: ['contract_name', 'project_name', 'contract_start_date', 'contract_end_date', 'contract_amount', 'contract_type', 'payment_type', 'status'],
+            description: '契約名（必須）,案件名（必須・自動でproject_idに変換）,開始日（YYYY-MM-DD）,終了日（YYYY-MM-DD）,契約金額,契約形態,支払形態,ステータス',
+            example: 'contract_name,project_name,contract_start_date,contract_end_date,contract_amount,contract_type,payment_type,status\\nQ1 2026 契約,システム開発案件A,2026-01-01,2026-03-31,3000000,準委任,毎月支払,active'
+          }
+        };
+
+        let csvData = null;
+
+        document.addEventListener('DOMContentLoaded', async function() {
+          AUTH_UTILS.checkAuth();
+          AUTH_UTILS.setupAxios();
+          const user = await AUTH_UTILS.getCurrentUser();
+          if (user) {
+            document.getElementById('nav-user-name').textContent = user.name;
+            if (user.role !== 'admin') {
+              alert('管理者権限が必要です');
+              window.location.href = '/';
+            }
+          }
+        });
+
+        function updateFormatGuide() {
+          const type = document.getElementById('import-type').value;
+          const guide = document.getElementById('format-guide');
+          
+          if (!type) {
+            guide.classList.add('hidden');
+            return;
+          }
+          
+          const format = formats[type];
+          document.getElementById('csv-format').textContent = 
+            format.description + '\\n\\n例:\\n' + format.example.replace(/\\\\n/g, '\\n');
+          guide.classList.remove('hidden');
+        }
+
+        function downloadTemplate() {
+          const type = document.getElementById('import-type').value;
+          if (!type) return;
+          
+          const format = formats[type];
+          const csv = format.example.replace(/\\\\n/g, '\\n');
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = type + '_template.csv';
+          link.click();
+        }
+
+        function previewImport() {
+          const file = document.getElementById('csv-file').files[0];
+          const type = document.getElementById('import-type').value;
+          
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+          if (!type) {
+            alert('インポート対象を選択してください');
+            return;
+          }
+          
+          Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+              csvData = results.data;
+              displayPreview(results.data, type);
+            },
+            error: function(error) {
+              alert('CSVの読み込みに失敗しました: ' + error.message);
+            }
+          });
+        }
+
+        function displayPreview(data, type) {
+          document.getElementById('record-count').textContent = data.length;
+          document.getElementById('preview-section').classList.remove('hidden');
+          
+          const preview = data.slice(0, 10);
+          let html = '<table class="min-w-full border border-gray-300"><thead><tr class="bg-gray-100">';
+          
+          if (preview.length > 0) {
+            Object.keys(preview[0]).forEach(key => {
+              html += '<th class="border border-gray-300 px-4 py-2 text-left text-sm font-semibold">' + key + '</th>';
+            });
+            html += '</tr></thead><tbody>';
+            
+            preview.forEach((row, idx) => {
+              html += '<tr class="' + (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50') + '">';
+              Object.values(row).forEach(value => {
+                html += '<td class="border border-gray-300 px-4 py-2 text-sm">' + (value || '<span class="text-gray-400">-</span>') + '</td>';
+              });
+              html += '</tr>';
+            });
+            html += '</tbody></table>';
+            
+            if (data.length > 10) {
+              html += '<p class="mt-3 text-sm text-gray-600">※最初の10件のみ表示しています</p>';
+            }
+          } else {
+            html = '<p class="text-red-600">データが見つかりませんでした</p>';
+          }
+          
+          document.getElementById('preview-table').innerHTML = html;
+        }
+
+        async function executeImport() {
+          const type = document.getElementById('import-type').value;
+          const skipDuplicates = document.getElementById('skip-duplicates').checked;
+          const autoMatch = document.getElementById('auto-match').checked;
+          const dryRun = document.getElementById('dry-run').checked;
+          
+          if (!csvData) {
+            alert('先にプレビューを実行してください');
+            return;
+          }
+          
+          const message = dryRun 
+            ? 'テスト実行を開始しますか？（データは実際には登録されません）' 
+            : '本番実行を開始しますか？データが実際に登録されます。';
+          
+          if (!confirm(message)) return;
+          
+          try {
+            document.getElementById('result-section').classList.add('hidden');
+            
+            const response = await axios.post('/api/admin/import', {
+              type: type,
+              data: csvData,
+              skip_duplicates: skipDuplicates,
+              auto_match: autoMatch,
+              dry_run: dryRun
+            });
+            
+            displayResult(response.data);
+          } catch (error) {
+            alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        function displayResult(result) {
+          document.getElementById('result-section').classList.remove('hidden');
+          document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+          
+          let html = '';
+          
+          if (result.dry_run) {
+            html += '<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">';
+            html += '<p class="font-semibold text-yellow-800"><i class="fas fa-exclamation-triangle mr-2"></i>テスト実行結果（データは登録されていません）</p>';
+            html += '</div>';
+          } else {
+            html += '<div class="bg-green-50 border-l-4 border-green-400 p-4 mb-6">';
+            html += '<p class="font-semibold text-green-800"><i class="fas fa-check-circle mr-2"></i>本番実行完了</p>';
+            html += '</div>';
+          }
+          
+          html += '<div class="grid grid-cols-3 gap-4 mb-6">';
+          html += '<div class="bg-green-50 border border-green-200 p-6 rounded-lg text-center">';
+          html += '<p class="text-sm text-gray-600 mb-1">成功</p>';
+          html += '<p class="text-4xl font-bold text-green-600">' + result.success_count + '</p>';
+          html += '</div>';
+          html += '<div class="bg-red-50 border border-red-200 p-6 rounded-lg text-center">';
+          html += '<p class="text-sm text-gray-600 mb-1">失敗</p>';
+          html += '<p class="text-4xl font-bold text-red-600">' + result.error_count + '</p>';
+          html += '</div>';
+          html += '<div class="bg-gray-50 border border-gray-200 p-6 rounded-lg text-center">';
+          html += '<p class="text-sm text-gray-600 mb-1">スキップ</p>';
+          html += '<p class="text-4xl font-bold text-gray-600">' + result.skipped_count + '</p>';
+          html += '</div>';
+          html += '</div>';
+          
+          if (result.errors && result.errors.length > 0) {
+            html += '<div class="mt-6">';
+            html += '<h3 class="font-semibold text-gray-800 mb-3"><i class="fas fa-exclamation-circle mr-2 text-red-600"></i>エラー詳細:</h3>';
+            html += '<div class="bg-red-50 border border-red-200 rounded-lg p-4 max-h-96 overflow-y-auto">';
+            result.errors.forEach(err => {
+              html += '<div class="mb-2 pb-2 border-b border-red-200 last:border-0">';
+              html += '<p class="text-sm font-semibold text-red-800">行 ' + err.row + ':</p>';
+              html += '<p class="text-sm text-red-700 ml-4">' + err.message + '</p>';
+              html += '</div>';
+            });
+            html += '</div>';
+            html += '</div>';
+          }
+          
+          if (!result.dry_run && result.success_count > 0) {
+            html += '<div class="mt-6 text-center">';
+            html += '<a href="/" class="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">';
+            html += '<i class="fas fa-home mr-2"></i>ダッシュボードに戻る';
+            html += '</a>';
+            html += '</div>';
+          }
+          
+          document.getElementById('result-content').innerHTML = html;
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
+
 // ========================================
 // API Routes
 // ========================================
@@ -7392,5 +7788,348 @@ app.get('/members', async (c) => {
     </html>
   `)
 })
+
+// API: データインポート（管理者専用）
+app.post('/api/admin/import', authMiddleware, requireAdmin, async (c) => {
+  const { type, data, skip_duplicates, auto_match, dry_run } = await c.req.json()
+  
+  const result = {
+    success_count: 0,
+    error_count: 0,
+    skipped_count: 0,
+    errors: [],
+    dry_run: dry_run === true
+  }
+  
+  if (!type || !data || !Array.isArray(data)) {
+    return c.json({ error: 'Invalid request data' }, 400)
+  }
+  
+  try {
+    for (let i = 0; i < data.length; i++) {
+      const record = data[i]
+      
+      try {
+        // データ変換・バリデーション
+        const transformed = await transformRecord(c.env.DB, type, record, auto_match)
+        
+        // 必須フィールドチェック
+        const validationError = validateRecord(type, transformed)
+        if (validationError) {
+          throw new Error(validationError)
+        }
+        
+        // 重複チェック
+        if (skip_duplicates === true) {
+          const exists = await checkDuplicate(c.env.DB, type, transformed)
+          if (exists) {
+            result.skipped_count++
+            continue
+          }
+        }
+        
+        // インポート実行（dry_runでない場合のみ）
+        if (dry_run !== true) {
+          await insertRecord(c.env.DB, type, transformed)
+        }
+        
+        result.success_count++
+      } catch (error: any) {
+        result.error_count++
+        result.errors.push({
+          row: i + 2,  // ヘッダー行を考慮
+          message: error.message || 'Unknown error'
+        })
+      }
+    }
+    
+    return c.json(result)
+  } catch (error: any) {
+    return c.json({ error: 'インポート処理中にエラーが発生しました: ' + error.message }, 500)
+  }
+})
+
+// レコード変換関数（Notion形式に対応）
+async function transformRecord(db: D1Database, type: string, record: any, autoMatch: boolean = true): Promise<any> {
+  switch (type) {
+    case 'leads':
+      return {
+        company_name: record.company_name || record['会社名'] || record['Company Name'] || '',
+        contact_person: record.contact_person || record['担当者名'] || record['Contact Person'] || '',
+        email: record.email || record['メールアドレス'] || record['Email'] || '',
+        phone: record.phone || record['電話番号'] || record['Phone'] || '',
+        status: normalizeStatus(record.status || record['ステータス'] || record['Status'] || 'active', 'lead')
+      }
+      
+    case 'members':
+      return {
+        name: record.name || record['名前'] || record['Name'] || '',
+        email: record.email || record['メールアドレス'] || record['Email'] || '',
+        default_unit_price: parseNumber(record.default_unit_price || record['単価'] || record['デフォルト単価'] || record['Unit Price'] || '0'),
+        position: record.position || record['役職'] || record['Position'] || null,
+        memo: record.memo || record['メモ'] || record['Memo'] || null,
+        status: normalizeStatus(record.status || record['ステータス'] || record['Status'] || 'active', 'member')
+      }
+      
+    case 'projects':
+      let leadId = null
+      if (autoMatch && (record.company_name || record['会社名'] || record['Company Name'])) {
+        const companyName = record.company_name || record['会社名'] || record['Company Name']
+        const lead = await db.prepare('SELECT id FROM leads WHERE company_name = ?').bind(companyName).first()
+        if (lead) leadId = lead.id
+      }
+      
+      let salesRepId = null
+      if (autoMatch && (record.sales_rep_email || record['営業担当メール'] || record['Sales Rep Email'])) {
+        const email = record.sales_rep_email || record['営業担当メール'] || record['Sales Rep Email']
+        const member = await db.prepare('SELECT id FROM members WHERE email = ?').bind(email).first()
+        if (member) salesRepId = member.id
+      }
+      
+      return {
+        project_name: record.project_name || record['案件名'] || record['Project Name'] || '',
+        lead_id: leadId || parseNumber(record.lead_id || ''),
+        sales_rep_id: salesRepId || (record.sales_rep_id ? parseNumber(record.sales_rep_id) : null),
+        status: normalizeStatus(record.status || record['ステータス'] || record['Status'] || 'active', 'project')
+      }
+      
+    case 'contracts':
+      let projectId = null
+      if (autoMatch && (record.project_name || record['案件名'] || record['Project Name'])) {
+        const projectName = record.project_name || record['案件名'] || record['Project Name']
+        const project = await db.prepare('SELECT id FROM projects WHERE project_name = ?').bind(projectName).first()
+        if (project) projectId = project.id
+      }
+      
+      return {
+        contract_name: record.contract_name || record['契約名'] || record['Contract Name'] || '',
+        project_id: projectId || parseNumber(record.project_id || ''),
+        contract_start_date: normalizeDate(record.contract_start_date || record['開始日'] || record['Start Date']),
+        contract_end_date: normalizeDate(record.contract_end_date || record['終了日'] || record['End Date']),
+        contract_amount: parseNumber(record.contract_amount || record['契約金額'] || record['Amount'] || '0'),
+        contract_type: record.contract_type || record['契約形態'] || record['Type'] || '準委任',
+        payment_type: record.payment_type || record['支払形態'] || record['Payment Type'] || '毎月支払',
+        status: normalizeStatus(record.status || record['ステータス'] || record['Status'] || 'active', 'contract')
+      }
+      
+    default:
+      throw new Error('Unknown import type: ' + type)
+  }
+}
+
+// ステータス正規化（Notion日本語→英語キーワード）
+function normalizeStatus(value: string, entityType: string): string {
+  if (!value) return 'active'
+  
+  const statusMaps: Record<string, Record<string, string>> = {
+    lead: {
+      'アクティブ': 'active', '有効': 'active', 'Active': 'active',
+      'アーカイブ': 'archived', '終了': 'archived', 'Archived': 'archived'
+    },
+    member: {
+      'アクティブ': 'active', '有効': 'active', 'Active': 'active',
+      '無効': 'inactive', 'Inactive': 'inactive'
+    },
+    project: {
+      '進行中': 'active', '商談中': 'active', 'Active': 'active',
+      '受注': 'won', '成約': 'won', '完了': 'won', 'Won': 'won',
+      '失注': 'lost', 'キャンセル': 'lost', 'Lost': 'lost',
+      'アーカイブ': 'archived', '終了': 'archived', 'Archived': 'archived'
+    },
+    contract: {
+      '下書き': 'draft', 'Draft': 'draft',
+      'アクティブ': 'active', '有効': 'active', '進行中': 'active', 'Active': 'active',
+      '完了': 'completed', 'Completed': 'completed',
+      '終了': 'terminated', '解約': 'terminated', 'Terminated': 'terminated'
+    }
+  }
+  
+  const map = statusMaps[entityType] || {}
+  return map[value] || value.toLowerCase()
+}
+
+// 日付正規化（Notion ISO形式→YYYY-MM-DD）
+function normalizeDate(value: string | null | undefined): string {
+  if (!value) return ''
+  
+  // Notion ISO 8601形式: 2026-01-15T00:00:00.000Z
+  if (value.includes('T')) {
+    return value.split('T')[0]
+  }
+  
+  // すでにYYYY-MM-DD形式
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value
+  }
+  
+  // その他の形式
+  try {
+    const date = new Date(value)
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0]
+    }
+  } catch (e) {
+    // 変換失敗
+  }
+  
+  return value
+}
+
+// 数値パース（カンマ区切り対応）
+function parseNumber(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return value
+  if (!value) return 0
+  
+  // カンマを削除して数値化
+  const cleaned = String(value).replace(/,/g, '').trim()
+  const num = parseInt(cleaned)
+  return isNaN(num) ? 0 : num
+}
+
+// バリデーション
+function validateRecord(type: string, record: any): string | null {
+  switch (type) {
+    case 'leads':
+      if (!record.company_name || record.company_name.trim() === '') {
+        return '会社名は必須です'
+      }
+      break
+      
+    case 'members':
+      if (!record.name || record.name.trim() === '') {
+        return '名前は必須です'
+      }
+      if (!record.email || record.email.trim() === '') {
+        return 'メールアドレスは必須です'
+      }
+      if (!record.default_unit_price || record.default_unit_price <= 0) {
+        return 'デフォルト単価は必須です'
+      }
+      break
+      
+    case 'projects':
+      if (!record.project_name || record.project_name.trim() === '') {
+        return '案件名は必須です'
+      }
+      if (!record.lead_id || record.lead_id <= 0) {
+        return 'リードIDが見つかりません（会社名を確認してください）'
+      }
+      break
+      
+    case 'contracts':
+      if (!record.contract_name || record.contract_name.trim() === '') {
+        return '契約名は必須です'
+      }
+      if (!record.project_id || record.project_id <= 0) {
+        return '案件IDが見つかりません（案件名を確認してください）'
+      }
+      if (!record.contract_start_date) {
+        return '開始日は必須です'
+      }
+      if (!record.contract_end_date) {
+        return '終了日は必須です'
+      }
+      if (!record.contract_amount || record.contract_amount <= 0) {
+        return '契約金額は必須です'
+      }
+      break
+  }
+  
+  return null
+}
+
+// 重複チェック
+async function checkDuplicate(db: D1Database, type: string, record: any): Promise<boolean> {
+  try {
+    switch (type) {
+      case 'leads':
+        if (record.email) {
+          const lead = await db.prepare('SELECT id FROM leads WHERE email = ?').bind(record.email).first()
+          if (lead) return true
+        }
+        const leadByName = await db.prepare('SELECT id FROM leads WHERE company_name = ?').bind(record.company_name).first()
+        return !!leadByName
+        
+      case 'members':
+        const member = await db.prepare('SELECT id FROM members WHERE email = ?').bind(record.email).first()
+        return !!member
+        
+      case 'projects':
+        const project = await db.prepare('SELECT id FROM projects WHERE project_name = ? AND lead_id = ?')
+          .bind(record.project_name, record.lead_id).first()
+        return !!project
+        
+      case 'contracts':
+        const contract = await db.prepare('SELECT id FROM contracts WHERE contract_name = ? AND project_id = ?')
+          .bind(record.contract_name, record.project_id).first()
+        return !!contract
+        
+      default:
+        return false
+    }
+  } catch (e) {
+    return false
+  }
+}
+
+// レコード挿入
+async function insertRecord(db: D1Database, type: string, record: any): Promise<void> {
+  switch (type) {
+    case 'leads':
+      await db.prepare(`
+        INSERT INTO leads (company_name, contact_person, email, phone, status)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(
+        record.company_name,
+        record.contact_person,
+        record.email,
+        record.phone,
+        record.status
+      ).run()
+      break
+      
+    case 'members':
+      await db.prepare(`
+        INSERT INTO members (name, email, default_unit_price, position, memo, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        record.name,
+        record.email,
+        record.default_unit_price,
+        record.position,
+        record.memo,
+        record.status
+      ).run()
+      break
+      
+    case 'projects':
+      await db.prepare(`
+        INSERT INTO projects (project_name, lead_id, sales_rep_id, status)
+        VALUES (?, ?, ?, ?)
+      `).bind(
+        record.project_name,
+        record.lead_id,
+        record.sales_rep_id,
+        record.status
+      ).run()
+      break
+      
+    case 'contracts':
+      await db.prepare(`
+        INSERT INTO contracts (contract_name, project_id, contract_start_date, contract_end_date, contract_amount, contract_type, payment_type, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        record.contract_name,
+        record.project_id,
+        record.contract_start_date,
+        record.contract_end_date,
+        record.contract_amount,
+        record.contract_type,
+        record.payment_type,
+        record.status
+      ).run()
+      break
+  }
+}
 
 export default app
