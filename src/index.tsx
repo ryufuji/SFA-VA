@@ -3111,7 +3111,8 @@ app.get('/leads', async (c) => {
 
         <!-- データテーブル -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
-          <table class="min-w-full divide-y divide-gray-200">
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">会社名</th>
@@ -3150,6 +3151,7 @@ app.get('/leads', async (c) => {
               `).join('')}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
@@ -4883,6 +4885,7 @@ app.get('/contracts/:id', async (c) => {
                     
                     <!-- 月次明細タブ -->
                     ${monthlyDetails.results.length > 0 ? `
+                    <div class="overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-gray-50">
                             <tr>
@@ -4940,6 +4943,7 @@ app.get('/contracts/:id', async (c) => {
                             `).join('')}
                         </tbody>
                     </table>
+                    </div>
                     ` : `
                     <div class="text-center py-12 text-gray-500">
                         <i class="fas fa-calendar-times text-5xl mb-3"></i>
@@ -5976,6 +5980,7 @@ app.get('/monthly/:id', async (c) => {
                 ` : ''}
 
                 ${members.results.length > 0 ? `
+                <div class="overflow-x-auto">
                 <table class="w-full">
                     <thead class="bg-gray-50">
                         <tr>
@@ -6016,6 +6021,7 @@ app.get('/monthly/:id', async (c) => {
                         `}).join('')}
                     </tbody>
                 </table>
+                </div>
                 ` : `
                 <div class="text-center py-8 text-gray-500">
                     <i class="fas fa-user-slash text-4xl mb-2"></i>
@@ -6127,6 +6133,7 @@ app.get('/monthly/:id', async (c) => {
 
                 <!-- 入金履歴 -->
                 ${payments.results.length > 0 ? `
+                <div class="overflow-x-auto">
                 <table class="w-full">
                     <thead class="bg-gray-50">
                         <tr>
@@ -6151,6 +6158,7 @@ app.get('/monthly/:id', async (c) => {
                         `).join('')}
                     </tbody>
                 </table>
+                </div>
                 ` : `
                 <div class="text-center py-8 text-gray-500">
                     <i class="fas fa-inbox text-4xl mb-2"></i>
@@ -7197,6 +7205,7 @@ app.get('/contracts', async (c) => {
 
         <!-- 契約一覧 -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
+          <div class="overflow-x-auto">
           ${contracts.length > 0 ? `
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
@@ -7251,6 +7260,7 @@ app.get('/contracts', async (c) => {
               `).join('')}
             </tbody>
           </table>
+          </div>
           ` : `
           <div class="text-center py-12 text-gray-500">
             <i class="fas fa-inbox text-4xl mb-2"></i>
@@ -7427,6 +7437,7 @@ app.get('/members', async (c) => {
 
         <!-- メンバー一覧 -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
+          <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
@@ -7477,6 +7488,7 @@ app.get('/members', async (c) => {
               `).join('')}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
