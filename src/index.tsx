@@ -1427,6 +1427,102 @@ app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), asyn
   return c.json({ success: true })
 })
 
+// リードCSVエクスポートAPI（管理者のみ）
+app.get('/api/leads/export/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  
+  // 全リード取得
+  const { results } = await DB.prepare('SELECT * FROM leads ORDER BY created_at DESC').all()
+
+  // CSVヘッダー
+  let csv = '会社名,部署名,担当者,メールアドレス,電話番号,ステータス\n'
+
+  // データ行を追加
+  for (const lead of results) {
+    const company_name = (lead.company_name || '').replace(/"/g, '""')
+    const department = (lead.department || '').replace(/"/g, '""')
+    const contact_person = (lead.contact_person || '').replace(/"/g, '""')
+    const email = (lead.email || '').replace(/"/g, '""')
+    const phone = (lead.phone || '').replace(/"/g, '""')
+    const status = lead.status || 'active'
+    
+    csv += '"' + company_name + '","' + department + '","' + contact_person + '","' + email + '","' + phone + '","' + status + '"\n'
+  }
+
+  // CSVとして返す
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="leads.csv"'
+    }
+  })
+})
+
+// リードCSVインポートAPI（管理者のみ）
+app.post('/api/leads/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const { leads } = await c.req.json()
+
+  if (!Array.isArray(leads) || leads.length === 0) {
+    return c.json({ success: false, error: 'リードデータが必要です' }, 400)
+  }
+
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+
+  for (let i = 0; i < leads.length; i++) {
+    const lead = leads[i]
+    const { company_name, department, contact_person, email, phone, status } = lead
+
+    // バリデーション
+    if (!company_name) {
+      errors.push({ line: i + 2, email: email || '', error: '会社名は必須です' })
+      error_count++
+      continue
+    }
+
+    try {
+      // 重複チェック（会社名+部署名の組み合わせ）
+      const existing = await DB.prepare(
+        'SELECT id FROM leads WHERE company_name = ? AND department = ?'
+      ).bind(company_name, department || null).first()
+
+      if (existing) {
+        errors.push({ line: i + 2, email: email || '', error: '同じ会社名と部署名の組み合わせが既に存在します' })
+        error_count++
+        continue
+      }
+
+      // 挿入
+      await DB.prepare(`
+        INSERT INTO leads (company_name, department, contact_person, email, phone, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        company_name,
+        department || null,
+        contact_person || null,
+        email || null,
+        phone || null,
+        status || 'active'
+      ).run()
+
+      success_count++
+    } catch (error) {
+      errors.push({ line: i + 2, email: email || '', error: error.message || '不明なエラー' })
+      error_count++
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: leads.length,
+    success_count,
+    error_count,
+    errors
+  })
+})
+
 // --- 案件 API ---
 // 案件一覧取得（認証必須、閲覧のみ）
 app.get('/api/projects', authMiddleware, async (c) => {
@@ -1554,6 +1650,127 @@ app.put('/api/projects/:id', authMiddleware, requirePermission('lead_manage'), a
   }
 })
 
+// 案件CSVエクスポートAPI（管理者のみ）
+app.get('/api/projects/export/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  
+  // 全案件取得（リード情報と営業担当者情報を含む）
+  const { results } = await DB.prepare(`
+    SELECT 
+      p.*,
+      l.company_name,
+      l.department,
+      m.name as sales_rep_name
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    LEFT JOIN members m ON p.sales_rep_id = m.id
+    ORDER BY p.created_at DESC
+  `).all()
+
+  // CSVヘッダー
+  let csv = '案件名,会社名,部署名,営業担当,ステータス\n'
+
+  // データ行を追加
+  for (const project of results) {
+    const project_name = (project.project_name || '').replace(/"/g, '""')
+    const company_name = (project.company_name || '').replace(/"/g, '""')
+    const department = (project.department || '').replace(/"/g, '""')
+    const sales_rep_name = (project.sales_rep_name || '').replace(/"/g, '""')
+    const status = project.status || 'active'
+    
+    csv += '"' + project_name + '","' + company_name + '","' + department + '","' + sales_rep_name + '","' + status + '"\n'
+  }
+
+  // CSVとして返す
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="projects.csv"'
+    }
+  })
+})
+
+// 案件CSVインポートAPI（管理者のみ）
+app.post('/api/projects/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const { projects } = await c.req.json()
+
+  if (!Array.isArray(projects) || projects.length === 0) {
+    return c.json({ success: false, error: '案件データが必要です' }, 400)
+  }
+
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+
+  for (let i = 0; i < projects.length; i++) {
+    const project = projects[i]
+    const { project_name, company_name, department, sales_rep_name, status } = project
+
+    // バリデーション
+    if (!project_name) {
+      errors.push({ line: i + 2, project_name: '', error: '案件名は必須です' })
+      error_count++
+      continue
+    }
+
+    if (!company_name) {
+      errors.push({ line: i + 2, project_name: project_name, error: '会社名は必須です' })
+      error_count++
+      continue
+    }
+
+    try {
+      // リードIDを検索
+      const lead = await DB.prepare(
+        'SELECT id FROM leads WHERE company_name = ? AND (department = ? OR (department IS NULL AND ? IS NULL))'
+      ).bind(company_name, department || null, department || null).first()
+
+      if (!lead) {
+        errors.push({ line: i + 2, project_name: project_name, error: '対応するリードが見つかりません' })
+        error_count++
+        continue
+      }
+
+      // 営業担当者IDを検索（指定がある場合）
+      let sales_rep_id = null
+      if (sales_rep_name) {
+        const member = await DB.prepare('SELECT id FROM members WHERE name = ?').bind(sales_rep_name).first()
+        if (!member) {
+          errors.push({ line: i + 2, project_name: project_name, error: '営業担当者が見つかりません: ' + sales_rep_name })
+          error_count++
+          continue
+        }
+        sales_rep_id = member.id
+      }
+
+      // 挿入
+      await DB.prepare(`
+        INSERT INTO projects (lead_id, project_name, sales_rep_id, status)
+        VALUES (?, ?, ?, ?)
+      `).bind(
+        lead.id,
+        project_name,
+        sales_rep_id,
+        status || 'active'
+      ).run()
+
+      success_count++
+    } catch (error) {
+      errors.push({ line: i + 2, project_name: project_name, error: error.message || '不明なエラー' })
+      error_count++
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: projects.length,
+    success_count,
+    error_count,
+    errors
+  })
+})
+
 // --- 契約 API ---
 // 契約詳細取得（認証必須、閲覧のみ）
 app.get('/api/contracts/:id', authMiddleware, async (c) => {
@@ -1663,6 +1880,156 @@ app.put('/api/contracts/:id', authMiddleware, requirePermission('contract_manage
   } catch (error: any) {
     return c.json({ error: '契約の更新に失敗しました: ' + error.message }, 500)
   }
+})
+
+// 契約CSVエクスポートAPI（管理者のみ）
+app.get('/api/contracts/export/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  
+  // 全契約取得（案件・リード情報と月次明細を含む）
+  const { results } = await DB.prepare(`
+    SELECT 
+      c.*,
+      p.project_name,
+      l.company_name,
+      (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id) as monthly_count
+    FROM contracts c
+    LEFT JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    ORDER BY c.created_at DESC
+  `).all()
+
+  // CSVヘッダー
+  let csv = '契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,月次明細数,ステータス\n'
+
+  // データ行を追加
+  for (const contract of results) {
+    const contract_name = (contract.contract_name || '').replace(/"/g, '""')
+    const project_name = (contract.project_name || '').replace(/"/g, '""')
+    const company_name = (contract.company_name || '').replace(/"/g, '""')
+    const contract_type = (contract.contract_type || '').replace(/"/g, '""')
+    const start_date = contract.contract_start_date || ''
+    const end_date = contract.contract_end_date || ''
+    const amount = contract.contract_amount || 0
+    const payment_type = (contract.payment_type || '毎月支払').replace(/"/g, '""')
+    const monthly_count = contract.monthly_count || 0
+    const status = contract.status || 'active'
+    
+    csv += '"' + contract_name + '","' + project_name + '","' + company_name + '","' + contract_type + '","' + start_date + '","' + end_date + '",' + amount + ',"' + payment_type + '",' + monthly_count + ',"' + status + '"\n'
+  }
+
+  // CSVとして返す
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="contracts.csv"'
+    }
+  })
+})
+
+// 契約CSVインポートAPI（管理者のみ、月次明細も自動生成）
+app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const { contracts } = await c.req.json()
+
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return c.json({ success: false, error: '契約データが必要です' }, 400)
+  }
+
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+
+  for (let i = 0; i < contracts.length; i++) {
+    const contract = contracts[i]
+    const { contract_name, project_name, company_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status } = contract
+
+    // バリデーション
+    if (!contract_name || !contract_start_date || !contract_end_date || !contract_amount) {
+      errors.push({ line: i + 2, contract_name: contract_name || '', error: '契約名、契約開始日、契約終了日、契約金額は必須です' })
+      error_count++
+      continue
+    }
+
+    try {
+      // 案件IDを検索
+      let project_id = null
+      if (project_name && company_name) {
+        const project = await DB.prepare(`
+          SELECT p.id FROM projects p
+          LEFT JOIN leads l ON p.lead_id = l.id
+          WHERE p.project_name = ? AND l.company_name = ?
+        `).bind(project_name, company_name).first()
+        
+        if (project) {
+          project_id = project.id
+        }
+      }
+
+      if (!project_id) {
+        errors.push({ line: i + 2, contract_name: contract_name, error: '対応する案件が見つかりません' })
+        error_count++
+        continue
+      }
+
+      // 日付バリデーション
+      const startDate = new Date(contract_start_date)
+      const endDate = new Date(contract_end_date)
+      
+      if (startDate > endDate) {
+        errors.push({ line: i + 2, contract_name: contract_name, error: '開始日は終了日より前である必要があります' })
+        error_count++
+        continue
+      }
+
+      // 契約を挿入
+      const result = await DB.prepare(`
+        INSERT INTO contracts (project_id, contract_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        project_id,
+        contract_name,
+        contract_type || '準委任',
+        contract_start_date,
+        contract_end_date,
+        contract_amount,
+        payment_type || '毎月支払',
+        status || 'active'
+      ).run()
+
+      const contract_id = result.meta.last_row_id
+
+      // 月次明細を自動生成
+      const months = []
+      let current = new Date(startDate)
+      while (current <= endDate) {
+        months.push(current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0'))
+        current.setMonth(current.getMonth() + 1)
+      }
+
+      const monthlyAmount = Math.floor(contract_amount / months.length)
+      
+      for (const month of months) {
+        await DB.prepare(`
+          INSERT INTO monthly_details (contract_id, target_month, amount, inspection_status, billing_status, payment_status)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(contract_id, month, monthlyAmount, '未検収', '未請求', '未入金').run()
+      }
+
+      success_count++
+    } catch (error) {
+      errors.push({ line: i + 2, contract_name: contract_name, error: error.message || '不明なエラー' })
+      error_count++
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: contracts.length,
+    success_count,
+    error_count,
+    errors
+  })
 })
 
 // app.post('/api/contracts', async (c) => {
@@ -3138,9 +3505,119 @@ app.get('/leads', async (c) => {
             document.getElementById('nav-user-name').textContent = user.name;
             if (user.role === 'admin') {
               document.getElementById('admin-menu').style.display = '';
+              document.getElementById('csv-export-button').style.display = '';
+              document.getElementById('csv-import-button').style.display = '';
             }
           }
         });
+
+        // CSVエクスポート機能
+        async function exportLeadsCSV() {
+          try {
+            const response = await axios.get('/api/leads/export/csv', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'leads.csv');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } catch (error) {
+            alert('CSVエクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSVインポートモーダル
+        function openImportModal() {
+          document.getElementById('import-modal').style.display = 'block';
+        }
+
+        function closeImportModal() {
+          document.getElementById('import-modal').style.display = 'none';
+          document.getElementById('csv-file').value = '';
+          document.getElementById('import-preview').innerHTML = '';
+          document.getElementById('import-button').disabled = true;
+        }
+
+        // CSVファイル読み込み
+        document.getElementById('csv-file').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+              alert('CSVファイルが空です');
+              return;
+            }
+
+            // プレビュー表示
+            const preview = lines.slice(0, 6).map((line, idx) => {
+              if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+              return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+            }).join('');
+            
+            document.getElementById('import-preview').innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+            document.getElementById('import-button').disabled = false;
+          };
+          reader.readAsText(file);
+        });
+
+        // CSVインポート実行
+        async function importLeadsCSV() {
+          const file = document.getElementById('csv-file').files[0];
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+
+          if (!confirm('CSVファイルをインポートしますか？')) return;
+
+          const reader = new FileReader();
+          reader.onload = async function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            // ヘッダーをスキップ
+            const dataLines = lines.slice(1);
+            
+            const leads = dataLines.map(line => {
+              const values = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+              return {
+                company_name: values[0] || '',
+                department: values[1] || '',
+                contact_person: values[2] || '',
+                email: values[3] || '',
+                phone: values[4] || '',
+                status: values[5] || 'active'
+              };
+            });
+
+            try {
+              const response = await axios.post('/api/leads/import/csv', { leads });
+              const { success_count, error_count, errors } = response.data;
+              
+              let message = success_count + '件のリードをインポートしました';
+              if (error_count > 0) {
+                message += '\\n\\nエラー: ' + error_count + '件';
+                errors.slice(0, 5).forEach(err => {
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.email + ')';
+                });
+              }
+              
+              alert(message);
+              if (success_count > 0) {
+                location.reload();
+              }
+            } catch (error) {
+              alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+            }
+          };
+          reader.readAsText(file);
+        }
       </script>
     </head>
     <body class="bg-gray-100">
@@ -3197,9 +3674,17 @@ app.get('/leads', async (c) => {
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-users mr-2"></i>リード一覧
           </h1>
-          <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-            <i class="fas fa-plus mr-2"></i>新規リード作成
-          </button>
+          <div class="flex space-x-2">
+            <button id="csv-export-button" onclick="exportLeadsCSV()" class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700" style="display:none;">
+              <i class="fas fa-file-download mr-2"></i>CSVエクスポート
+            </button>
+            <button id="csv-import-button" onclick="openImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" style="display:none;">
+              <i class="fas fa-file-upload mr-2"></i>CSVインポート
+            </button>
+            <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <i class="fas fa-plus mr-2"></i>新規リード作成
+            </button>
+          </div>
         </div>
 
         <!-- データテーブル -->
@@ -3341,6 +3826,34 @@ app.get('/leads', async (c) => {
           }
         }
       </script>
+
+      <!-- CSVインポートモーダル -->
+      <div id="import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">CSVインポート</h3>
+            <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 会社名,部署名,担当者,メールアドレス,電話番号,ステータス</p>
+            <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
+          </div>
+          
+          <div id="import-preview" class="mb-4 max-h-60 overflow-y-auto"></div>
+          
+          <div class="flex justify-end space-x-2">
+            <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              キャンセル
+            </button>
+            <button id="import-button" onclick="importLeadsCSV()" disabled class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
+              インポート実行
+            </button>
+          </div>
+        </div>
+      </div>
     </body>
     </html>
   `)
