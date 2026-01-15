@@ -7342,6 +7342,11 @@ app.get('/members', async (c) => {
             if (adminMenu && user.role === 'admin') {
               adminMenu.style.display = '';
             }
+            // CSVインポートボタンを管理者のみ表示
+            const csvImportButton = document.getElementById('csv-import-button');
+            if (csvImportButton && user.role === 'admin') {
+              csvImportButton.style.display = '';
+            }
           }
         });
       </script>
@@ -7397,9 +7402,14 @@ app.get('/members', async (c) => {
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-user-friends mr-2"></i>メンバー管理
           </h1>
-          <button onclick="openAddMemberModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-            <i class="fas fa-user-plus mr-2"></i>メンバーを追加
-          </button>
+          <div class="flex space-x-3">
+            <button onclick="openCsvImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" id="csv-import-button" style="display: none;">
+              <i class="fas fa-file-csv mr-2"></i>CSVインポート
+            </button>
+            <button onclick="openAddMemberModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <i class="fas fa-user-plus mr-2"></i>メンバーを追加
+            </button>
+          </div>
         </div>
 
         <!-- メンバー稼働状況ダッシュボード -->
@@ -7574,6 +7584,70 @@ app.get('/members', async (c) => {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <!-- CSVインポートモーダル -->
+      <div id="csv-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">
+              <i class="fas fa-file-csv mr-2 text-green-600"></i>CSVインポート
+            </h3>
+            <button onclick="closeCsvImportModal()" class="text-gray-400 hover:text-gray-500">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4 p-4 bg-blue-50 border-l-4 border-blue-400 text-sm">
+            <p class="font-medium text-blue-900 mb-2"><i class="fas fa-info-circle mr-2"></i>CSVフォーマット</p>
+            <p class="text-blue-800 mb-2">以下の列を含むCSVファイルをアップロードしてください：</p>
+            <code class="block bg-white p-2 rounded text-xs">名前,役職,単価,メールアドレス,メモ</code>
+            <p class="text-blue-800 mt-2 text-xs">
+              ※ 名前、単価、メールアドレスは必須です<br>
+              ※ 役職は「パートナー」「マネージャー」「シニアコンサルタント」「コンサルタント」「アナリスト」のいずれか<br>
+              ※ 1行目はヘッダー行として無視されます
+            </p>
+          </div>
+
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              CSVファイルを選択
+            </label>
+            <input type="file" id="csv-file-input" accept=".csv" 
+              class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          <div id="csv-preview" class="mb-4 hidden">
+            <h4 class="text-sm font-medium text-gray-700 mb-2">プレビュー（最初の5行）</h4>
+            <div class="overflow-x-auto max-h-64 border border-gray-300 rounded">
+              <table class="min-w-full divide-y divide-gray-200 text-xs" id="csv-preview-table">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-3 py-2 text-left">名前</th>
+                    <th class="px-3 py-2 text-left">役職</th>
+                    <th class="px-3 py-2 text-left">単価</th>
+                    <th class="px-3 py-2 text-left">メールアドレス</th>
+                    <th class="px-3 py-2 text-left">メモ</th>
+                  </tr>
+                </thead>
+                <tbody id="csv-preview-body" class="bg-white divide-y divide-gray-200">
+                </tbody>
+              </table>
+            </div>
+            <p class="text-sm text-gray-600 mt-2">
+              合計: <span id="csv-total-count" class="font-semibold">0</span> 件
+            </p>
+          </div>
+
+          <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeCsvImportModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+              キャンセル
+            </button>
+            <button type="button" onclick="importCsv()" id="import-csv-button" disabled class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
+              <i class="fas fa-upload mr-2"></i>インポート実行
+            </button>
+          </div>
         </div>
       </div>
 
@@ -7839,6 +7913,118 @@ app.get('/members', async (c) => {
             alert(message);
             
             if (success_count > 0) {
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSV インポート関数
+        let csvData = [];
+
+        function openCsvImportModal() {
+          document.getElementById('csv-import-modal').classList.remove('hidden');
+          csvData = [];
+          document.getElementById('csv-file-input').value = '';
+          document.getElementById('csv-preview').classList.add('hidden');
+          document.getElementById('import-csv-button').disabled = true;
+        }
+
+        function closeCsvImportModal() {
+          document.getElementById('csv-import-modal').classList.add('hidden');
+        }
+
+        document.getElementById('csv-file-input').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const text = event.target.result;
+            parseCsv(text);
+          };
+          reader.readAsText(file, 'UTF-8');
+        });
+
+        function parseCsv(text) {
+          const lines = text.split('\\n').filter(line => line.trim());
+          if (lines.length < 2) {
+            alert('CSVファイルが空か、ヘッダー行のみです');
+            return;
+          }
+
+          csvData = [];
+          // 1行目はヘッダーとしてスキップ
+          for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            if (values.length >= 4) {
+              csvData.push({
+                name: values[0] || '',
+                position: values[1] || null,
+                default_unit_price: parseInt(values[2]) || 0,
+                email: values[3] || '',
+                memo: values[4] || null
+              });
+            }
+          }
+
+          if (csvData.length === 0) {
+            alert('有効なデータが見つかりませんでした');
+            return;
+          }
+
+          displayCsvPreview();
+        }
+
+        function displayCsvPreview() {
+          const tbody = document.getElementById('csv-preview-body');
+          tbody.innerHTML = '';
+
+          const previewData = csvData.slice(0, 5);
+          previewData.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="px-3 py-2">' + item.name + '</td>' +
+              '<td class="px-3 py-2">' + (item.position || '-') + '</td>' +
+              '<td class="px-3 py-2">' + item.default_unit_price.toLocaleString() + '</td>' +
+              '<td class="px-3 py-2">' + item.email + '</td>' +
+              '<td class="px-3 py-2">' + (item.memo || '-') + '</td>';
+            tbody.appendChild(tr);
+          });
+
+          document.getElementById('csv-total-count').textContent = csvData.length;
+          document.getElementById('csv-preview').classList.remove('hidden');
+          document.getElementById('import-csv-button').disabled = false;
+        }
+
+        async function importCsv() {
+          if (csvData.length === 0) {
+            alert('インポートするデータがありません');
+            return;
+          }
+
+          if (!confirm(csvData.length + '件のメンバーをインポートしますか？')) {
+            return;
+          }
+
+          try {
+            const response = await axios.post('/api/members/create', csvData);
+            const { success_count, error_count, errors } = response.data;
+
+            let message = success_count + '人のメンバーをインポートしました';
+            if (error_count > 0) {
+              message += '\\n\\n' + error_count + '件のエラー:\\n';
+              errors.forEach(err => {
+                message += '行' + err.index + ': ' + err.error;
+                if (err.email) message += ' (' + err.email + ')';
+                message += '\\n';
+              });
+            }
+
+            alert(message);
+
+            if (success_count > 0) {
+              closeCsvImportModal();
               location.reload();
             }
           } catch (error) {
