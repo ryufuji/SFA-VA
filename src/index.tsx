@@ -2182,6 +2182,38 @@ app.get('/api/members', authMiddleware, async (c) => {
   return c.json({ success: true, data: results })
 })
 
+// メンバーCSVエクスポートAPI（管理者のみ）
+app.get('/api/members/export/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  
+  // 全メンバー取得（アクティブのみ）
+  const { results } = await DB.prepare(
+    'SELECT name, position, default_unit_price, email, memo FROM members WHERE status = ? ORDER BY name ASC'
+  ).bind('active').all()
+
+  // CSVヘッダー
+  let csv = '名前,役職,単価,メールアドレス,メモ\n'
+
+  // データ行を追加
+  for (const member of results) {
+    const name = (member.name || '').replace(/"/g, '""')
+    const position = (member.position || '').replace(/"/g, '""')
+    const unit_price = member.default_unit_price || 0
+    const email = (member.email || '').replace(/"/g, '""')
+    const memo = (member.memo || '').replace(/"/g, '""')
+    
+    csv += '"' + name + '","' + position + '",' + unit_price + ',"' + email + '","' + memo + '"\n'
+  }
+
+  // CSVとして返す
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="members.csv"'
+    }
+  })
+})
+
 // --- 契約 API ---
 
 // API: 契約作成（contract_manage権限が必要）
@@ -2770,6 +2802,28 @@ app.put('/api/members/:id/status', authMiddleware, requireAdmin, async (c) => {
   `).bind(status, id).run()
 
   return c.json({ success: true })
+})
+
+// メンバー削除API（管理者のみ、無効なメンバーのみ削除可能）
+app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
+  const id = c.req.param('id')
+
+  // メンバーが存在するか確認
+  const member = await c.env.DB.prepare('SELECT status FROM members WHERE id = ?').bind(id).first()
+  
+  if (!member) {
+    return c.json({ success: false, error: 'メンバーが見つかりません' }, 404)
+  }
+
+  // 無効なメンバーのみ削除可能
+  if (member.status !== 'inactive') {
+    return c.json({ success: false, error: '無効なメンバーのみ削除できます' }, 400)
+  }
+
+  // メンバーを削除
+  await c.env.DB.prepare('DELETE FROM members WHERE id = ?').bind(id).run()
+
+  return c.json({ success: true, message: 'メンバーを削除しました' })
 })
 
 // --- ダッシュボード API ---
@@ -7352,10 +7406,14 @@ app.get('/members', async (c) => {
             if (adminMenu && user.role === 'admin') {
               adminMenu.style.display = '';
             }
-            // CSVインポートボタンを管理者のみ表示
+            // CSVインポート・エクスポートボタンを管理者のみ表示
             const csvImportButton = document.getElementById('csv-import-button');
             if (csvImportButton && user.role === 'admin') {
               csvImportButton.style.display = '';
+            }
+            const csvExportButton = document.getElementById('csv-export-button');
+            if (csvExportButton && user.role === 'admin') {
+              csvExportButton.style.display = '';
             }
           }
         });
@@ -7413,6 +7471,9 @@ app.get('/members', async (c) => {
             <i class="fas fa-user-friends mr-2"></i>メンバー管理
           </h1>
           <div class="flex space-x-3">
+            <button onclick="exportCsv()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700" id="csv-export-button" style="display: none;">
+              <i class="fas fa-download mr-2"></i>CSVエクスポート
+            </button>
             <button onclick="openCsvImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" id="csv-import-button" style="display: none;">
               <i class="fas fa-file-csv mr-2"></i>CSVインポート
             </button>
@@ -7522,9 +7583,15 @@ app.get('/members', async (c) => {
                       <i class="fas fa-edit mr-1"></i>編集
                     </button>
                     <button onclick="toggleMemberStatus(${member.id}, '${member.status}')" 
-                            class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800">
+                            class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800 mr-3">
                       <i class="fas fa-${member.status === 'active' ? 'ban' : 'check'} mr-1"></i>${member.status === 'active' ? '無効化' : '有効化'}
                     </button>
+                    ${member.status === 'inactive' ? `
+                    <button onclick="deleteMember(${member.id}, '${member.name}')" 
+                            class="text-red-600 hover:text-red-800">
+                      <i class="fas fa-trash mr-1"></i>削除
+                    </button>
+                    ` : ''}
                   </td>
                 </tr>
               `).join('')}
@@ -8264,6 +8331,87 @@ app.get('/members', async (c) => {
             location.reload();
           } catch (error) {
             alert('エラーが発生しました: ' + error.message);
+          }
+        }
+
+        // CSVエクスポート機能
+        function exportCsv() {
+          const tbody = document.getElementById('members-tbody');
+          const rows = Array.from(tbody.querySelectorAll('tr'));
+          
+          // CSVヘッダー
+          const headers = ['名前', '役職', '単価', 'メールアドレス', 'メモ', 'ステータス'];
+          const csvContent = [headers.join(',')];
+          
+          // データ行
+          rows.forEach(row => {
+            const name = row.getAttribute('data-name') || '';
+            const position = row.getAttribute('data-position') || '';
+            const unitPrice = row.getAttribute('data-default_unit_price') || '';
+            const email = row.getAttribute('data-email') || '';
+            const status = row.getAttribute('data-status') || '';
+            
+            // メモは表示されているテキストから取得
+            const memoCell = row.cells[4];
+            const memo = memoCell ? memoCell.getAttribute('title') || memoCell.textContent.trim() : '';
+            
+            // CSVフォーマット（カンマやダブルクォートをエスケープ）
+            const rowData = [
+              escapeCsvField(name),
+              escapeCsvField(position),
+              unitPrice,
+              escapeCsvField(email),
+              escapeCsvField(memo),
+              status === 'active' ? 'アクティブ' : '無効'
+            ];
+            
+            csvContent.push(rowData.join(','));
+          });
+          
+          // BOM付きUTF-8でダウンロード
+          const bom = '\\uFEFF';
+          const blob = new Blob([bom + csvContent.join('\\n')], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          const url = URL.createObjectURL(blob);
+          
+          const now = new Date();
+          const filename = 'members_' + now.getFullYear() + 
+            String(now.getMonth() + 1).padStart(2, '0') + 
+            String(now.getDate()).padStart(2, '0') + '_' +
+            String(now.getHours()).padStart(2, '0') + 
+            String(now.getMinutes()).padStart(2, '0') + 
+            '.csv';
+          
+          link.setAttribute('href', url);
+          link.setAttribute('download', filename);
+          link.style.visibility = 'hidden';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+
+        function escapeCsvField(field) {
+          if (!field) return '';
+          field = String(field);
+          // ダブルクォート、カンマ、改行が含まれる場合はダブルクォートで囲む
+          if (field.includes('"') || field.includes(',') || field.includes('\\n')) {
+            return '"' + field.replace(/"/g, '""') + '"';
+          }
+          return field;
+        }
+
+        // メンバー削除機能
+        async function deleteMember(id, name) {
+          if (!confirm('「' + name + '」を完全に削除しますか？\\n\\nこの操作は取り消せません。')) {
+            return;
+          }
+          
+          try {
+            await axios.delete('/api/members/' + id);
+            alert('メンバーを削除しました');
+            location.reload();
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
           }
         }
       </script>
