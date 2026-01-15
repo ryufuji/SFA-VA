@@ -2809,7 +2809,7 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
   const id = c.req.param('id')
 
   // メンバーが存在するか確認
-  const member = await c.env.DB.prepare('SELECT status FROM members WHERE id = ?').bind(id).first()
+  const member = await c.env.DB.prepare('SELECT status, name FROM members WHERE id = ?').bind(id).first()
   
   if (!member) {
     return c.json({ success: false, error: 'メンバーが見つかりません' }, 404)
@@ -2820,10 +2820,25 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
     return c.json({ success: false, error: '無効なメンバーのみ削除できます' }, 400)
   }
 
-  // メンバーを削除
-  await c.env.DB.prepare('DELETE FROM members WHERE id = ?').bind(id).run()
+  // ユーザーアカウントが紐付けられているか確認
+  const userCheck = await c.env.DB.prepare('SELECT id FROM users WHERE member_id = ?').bind(id).first()
+  if (userCheck) {
+    return c.json({ success: false, error: 'このメンバーにはユーザーアカウントが紐付けられているため削除できません。先にユーザーアカウントを削除してください。' }, 400)
+  }
 
-  return c.json({ success: true, message: 'メンバーを削除しました' })
+  // 月次アサインがあるか確認
+  const assignmentCheck = await c.env.DB.prepare('SELECT id FROM monthly_member_assignments WHERE member_id = ?').bind(id).first()
+  if (assignmentCheck) {
+    return c.json({ success: false, error: 'このメンバーには月次アサイン履歴があるため削除できません。データの整合性を保つため、無効化のみ可能です。' }, 400)
+  }
+
+  // メンバーを削除
+  try {
+    await c.env.DB.prepare('DELETE FROM members WHERE id = ?').bind(id).run()
+    return c.json({ success: true, message: 'メンバーを削除しました' })
+  } catch (error) {
+    return c.json({ success: false, error: '削除に失敗しました。このメンバーは他のデータから参照されている可能性があります。' }, 500)
+  }
 })
 
 // --- ダッシュボード API ---
