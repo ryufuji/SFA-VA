@@ -7845,10 +7845,6 @@ app.get('/members', async (c) => {
             alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
           }
         }
-          } catch (error) {
-            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
-          }
-        }
 
         function openEditMemberModal() {
           document.getElementById('edit-member-modal').classList.remove('hidden');
