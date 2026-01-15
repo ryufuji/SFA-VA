@@ -1427,6 +1427,33 @@ app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), asyn
   return c.json({ success: true })
 })
 
+// リードステータス変更API（lead_manage権限が必要）
+app.put('/api/leads/:id/status', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  const { status } = await c.req.json()
+
+  // バリデーション
+  if (!status || !['active', 'archived'].includes(status)) {
+    return c.json({ success: false, error: 'Invalid status. Must be "active" or "archived"' }, 400)
+  }
+
+  // リードの存在確認
+  const lead = await DB.prepare('SELECT id, status FROM leads WHERE id = ?').bind(id).first()
+  if (!lead) {
+    return c.json({ success: false, error: 'Lead not found' }, 404)
+  }
+
+  // ステータス更新
+  await DB.prepare(`
+    UPDATE leads 
+    SET status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(status, id).run()
+
+  return c.json({ success: true, message: 'ステータスを更新しました' })
+})
+
 // リードCSVエクスポートAPI（管理者のみ）
 app.get('/api/leads/export/csv', authMiddleware, requireAdmin, async (c) => {
   const { DB } = c.env
@@ -3999,11 +4026,17 @@ app.get('/leads/:id', async (c) => {
             </div>
             <div>
               <dt class="text-sm font-medium text-gray-500">ステータス</dt>
-              <dd class="mt-1">
-                ${lead.status === 'active' 
-                  ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
-                  : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
-                }
+              <dd class="mt-1 flex items-center space-x-2">
+                <span id="status-badge">
+                  ${lead.status === 'active' 
+                    ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
+                    : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
+                  }
+                </span>
+                <button id="toggle-status-button" onclick="toggleLeadStatus()" class="px-3 py-1 text-xs font-medium rounded ${lead.status === 'active' ? 'bg-gray-600 hover:bg-gray-700' : 'bg-green-600 hover:bg-green-700'} text-white">
+                  <i class="fas ${lead.status === 'active' ? 'fa-archive' : 'fa-check-circle'} mr-1"></i>
+                  ${lead.status === 'active' ? 'アーカイブ' : 'アクティブに戻す'}
+                </button>
               </dd>
             </div>
             <div>
@@ -4193,6 +4226,50 @@ app.get('/leads/:id', async (c) => {
             }
           } catch (error) {
             alert('エラーが発生しました: ' + error.message);
+          }
+        }
+
+        // リードステータス変更
+        let currentStatus = '${lead.status}';
+        
+        async function toggleLeadStatus() {
+          const newStatus = currentStatus === 'active' ? 'archived' : 'active';
+          const confirmMessage = newStatus === 'archived' 
+            ? 'このリードをアーカイブしますか？' 
+            : 'このリードをアクティブに戻しますか？';
+          
+          if (!confirm(confirmMessage)) return;
+
+          try {
+            const token = localStorage.getItem('jwt_token');
+            const response = await axios.put('/api/leads/${lead.id}/status', 
+              { status: newStatus },
+              { headers: { 'Authorization': 'Bearer ' + token } }
+            );
+
+            if (response.data.success) {
+              currentStatus = newStatus;
+              
+              // ステータスバッジを更新
+              const badge = newStatus === 'active'
+                ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
+                : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>';
+              document.getElementById('status-badge').innerHTML = badge;
+              
+              // ボタンを更新
+              const button = document.getElementById('toggle-status-button');
+              if (newStatus === 'active') {
+                button.className = 'px-3 py-1 text-xs font-medium rounded bg-gray-600 hover:bg-gray-700 text-white';
+                button.innerHTML = '<i class="fas fa-archive mr-1"></i>アーカイブ';
+              } else {
+                button.className = 'px-3 py-1 text-xs font-medium rounded bg-green-600 hover:bg-green-700 text-white';
+                button.innerHTML = '<i class="fas fa-check-circle mr-1"></i>アクティブに戻す';
+              }
+              
+              alert('ステータスを更新しました');
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
           }
         }
       </script>
