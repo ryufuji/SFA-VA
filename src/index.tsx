@@ -3568,42 +3568,44 @@ app.get('/leads', async (c) => {
           document.getElementById('import-button').disabled = true;
         }
 
-        // CSVファイル読み込み
-        const csvFileInput = document.getElementById('csv-file');
-        if (csvFileInput) {
-          csvFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        // CSVファイル読み込み（DOMロード後に実行）
+        document.addEventListener('DOMContentLoaded', function() {
+          const csvFileInput = document.getElementById('csv-file');
+          if (csvFileInput) {
+            csvFileInput.addEventListener('change', function(e) {
+              const file = e.target.files[0];
+              if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = function(event) {
-              const csv = event.target.result;
-              const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
-              
-              if (lines.length < 2) {
-                alert('CSVファイルが空です');
+              const reader = new FileReader();
+              reader.onload = function(event) {
+                const csv = event.target.result;
+                const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                  alert('CSVファイルが空です');
+                  const importBtn = document.getElementById('import-button');
+                  if (importBtn) importBtn.disabled = true;
+                  return;
+                }
+
+                // プレビュー表示
+                const preview = lines.slice(0, 6).map((line, idx) => {
+                  if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+                  return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+                }).join('');
+                
+                const importPreview = document.getElementById('import-preview');
+                if (importPreview) {
+                  importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+                }
+                
                 const importBtn = document.getElementById('import-button');
-                if (importBtn) importBtn.disabled = true;
-                return;
-              }
-
-              // プレビュー表示
-              const preview = lines.slice(0, 6).map((line, idx) => {
-                if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
-                return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
-              }).join('');
-              
-              const importPreview = document.getElementById('import-preview');
-              if (importPreview) {
-                importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
-              }
-              
-              const importBtn = document.getElementById('import-button');
-              if (importBtn) importBtn.disabled = false;
-            };
-            reader.readAsText(file);
-          });
-        }
+                if (importBtn) importBtn.disabled = false;
+              };
+              reader.readAsText(file);
+            });
+          }
+        });
 
         // CSVインポート実行
         async function importLeadsCSV() {
@@ -7920,42 +7922,44 @@ app.get('/projects', async (c) => {
           document.getElementById('import-button').disabled = true;
         }
 
-        // CSVファイル読み込み
-        const csvFileInput = document.getElementById('csv-file');
-        if (csvFileInput) {
-          csvFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        // CSVファイル読み込み（DOMロード後に実行）
+        document.addEventListener('DOMContentLoaded', function() {
+          const csvFileInput = document.getElementById('csv-file');
+          if (csvFileInput) {
+            csvFileInput.addEventListener('change', function(e) {
+              const file = e.target.files[0];
+              if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = function(event) {
-              const csv = event.target.result;
-              const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
-              
-              if (lines.length < 2) {
-                alert('CSVファイルが空です');
+              const reader = new FileReader();
+              reader.onload = function(event) {
+                const csv = event.target.result;
+                const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                  alert('CSVファイルが空です');
+                  const importBtn = document.getElementById('import-button');
+                  if (importBtn) importBtn.disabled = true;
+                  return;
+                }
+
+                // プレビュー表示
+                const preview = lines.slice(0, 6).map((line, idx) => {
+                  if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+                  return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+                }).join('');
+                
+                const importPreview = document.getElementById('import-preview');
+                if (importPreview) {
+                  importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+                }
+                
                 const importBtn = document.getElementById('import-button');
-                if (importBtn) importBtn.disabled = true;
-                return;
-              }
-
-              // プレビュー表示
-              const preview = lines.slice(0, 6).map((line, idx) => {
-                if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
-                return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
-              }).join('');
-              
-              const importPreview = document.getElementById('import-preview');
-              if (importPreview) {
-                importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
-              }
-              
-              const importBtn = document.getElementById('import-button');
-              if (importBtn) importBtn.disabled = false;
-            };
-            reader.readAsText(file);
-          });
-        }
+                if (importBtn) importBtn.disabled = false;
+              };
+              reader.readAsText(file);
+            });
+          }
+        });
 
         // CSVインポート実行
         async function importProjectsCSV() {
@@ -8287,42 +8291,44 @@ app.get('/contracts', async (c) => {
           document.getElementById('import-button').disabled = true;
         }
 
-        // CSVファイル読み込み
-        const csvFileInput = document.getElementById('csv-file');
-        if (csvFileInput) {
-          csvFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        // CSVファイル読み込み（DOMロード後に実行）
+        document.addEventListener('DOMContentLoaded', function() {
+          const csvFileInput = document.getElementById('csv-file');
+          if (csvFileInput) {
+            csvFileInput.addEventListener('change', function(e) {
+              const file = e.target.files[0];
+              if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = function(event) {
-              const csv = event.target.result;
-              const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
-              
-              if (lines.length < 2) {
-                alert('CSVファイルが空です');
+              const reader = new FileReader();
+              reader.onload = function(event) {
+                const csv = event.target.result;
+                const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                  alert('CSVファイルが空です');
+                  const importBtn = document.getElementById('import-button');
+                  if (importBtn) importBtn.disabled = true;
+                  return;
+                }
+
+                // プレビュー表示
+                const preview = lines.slice(0, 6).map((line, idx) => {
+                  if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+                  return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+                }).join('');
+                
+                const importPreview = document.getElementById('import-preview');
+                if (importPreview) {
+                  importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+                }
+                
                 const importBtn = document.getElementById('import-button');
-                if (importBtn) importBtn.disabled = true;
-                return;
-              }
-
-              // プレビュー表示
-              const preview = lines.slice(0, 6).map((line, idx) => {
-                if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
-                return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
-              }).join('');
-              
-              const importPreview = document.getElementById('import-preview');
-              if (importPreview) {
-                importPreview.innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
-              }
-              
-              const importBtn = document.getElementById('import-button');
-              if (importBtn) importBtn.disabled = false;
-            };
-            reader.readAsText(file);
-          });
-        }
+                if (importBtn) importBtn.disabled = false;
+              };
+              reader.readAsText(file);
+            });
+          }
+        });
 
         // CSVインポート実行
         async function importContractsCSV() {
