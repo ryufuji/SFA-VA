@@ -1394,15 +1394,15 @@ app.get('/api/leads/:id', authMiddleware, async (c) => {
 app.post('/api/leads', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
-  const { company_name, contact_person, department, email, phone } = body
+  const { company_name, contact_person, department, email, phone, memo } = body
   
   if (!company_name) {
     return c.json({ success: false, error: 'Company name is required' }, 400)
   }
   
   const result = await DB.prepare(
-    'INSERT INTO leads (company_name, contact_person, department, email, phone, status) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(company_name, contact_person || null, department || null, email || null, phone || null, 'active').run()
+    'INSERT INTO leads (company_name, contact_person, department, email, phone, memo, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(company_name, contact_person || null, department || null, email || null, phone || null, memo || null, 'active').run()
   
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
@@ -1412,7 +1412,7 @@ app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), asyn
   const { DB } = c.env
   const id = c.req.param('id')
   const body = await c.req.json()
-  const { company_name, contact_person, department, email, phone } = body
+  const { company_name, contact_person, department, email, phone, memo } = body
   
   if (!company_name) {
     return c.json({ success: false, error: 'Company name is required' }, 400)
@@ -1420,9 +1420,9 @@ app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), asyn
   
   await DB.prepare(`
     UPDATE leads 
-    SET company_name = ?, contact_person = ?, department = ?, email = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+    SET company_name = ?, contact_person = ?, department = ?, email = ?, phone = ?, memo = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(company_name, contact_person || null, department || null, email || null, phone || null, id).run()
+  `).bind(company_name, contact_person || null, department || null, email || null, phone || null, memo || null, id).run()
   
   return c.json({ success: true })
 })
@@ -1462,7 +1462,7 @@ app.get('/api/leads/export/csv', authMiddleware, requireAdmin, async (c) => {
   const { results } = await DB.prepare('SELECT * FROM leads ORDER BY created_at DESC').all()
 
   // CSVヘッダー
-  let csv = '会社名,部署名,担当者,メールアドレス,電話番号,ステータス\n'
+  let csv = '会社名,部署名,担当者,メールアドレス,電話番号,ステータス,メモ\n'
 
   // データ行を追加
   for (const lead of results) {
@@ -1472,8 +1472,9 @@ app.get('/api/leads/export/csv', authMiddleware, requireAdmin, async (c) => {
     const email = (lead.email || '').replace(/"/g, '""')
     const phone = (lead.phone || '').replace(/"/g, '""')
     const status = lead.status || 'active'
+    const memo = (lead.memo || '').replace(/"/g, '""')
     
-    csv += '"' + company_name + '","' + department + '","' + contact_person + '","' + email + '","' + phone + '","' + status + '"\n'
+    csv += '"' + company_name + '","' + department + '","' + contact_person + '","' + email + '","' + phone + '","' + status + '","' + memo + '"\n'
   }
 
   // CSVとして返す
@@ -1500,7 +1501,7 @@ app.post('/api/leads/import/csv', authMiddleware, requireAdmin, async (c) => {
 
   for (let i = 0; i < leads.length; i++) {
     const lead = leads[i]
-    const { company_name, department, contact_person, email, phone, status } = lead
+    const { company_name, department, contact_person, email, phone, status, memo } = lead
 
     // バリデーション
     if (!company_name) {
@@ -1523,15 +1524,16 @@ app.post('/api/leads/import/csv', authMiddleware, requireAdmin, async (c) => {
 
       // 挿入
       await DB.prepare(`
-        INSERT INTO leads (company_name, department, contact_person, email, phone, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO leads (company_name, department, contact_person, email, phone, status, memo)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).bind(
         company_name,
         department || null,
         contact_person || null,
         email || null,
         phone || null,
-        status || 'active'
+        status || 'active',
+        memo || null
       ).run()
 
       success_count++
@@ -3619,7 +3621,8 @@ app.get('/leads', async (c) => {
                 contact_person: values[2] || '',
                 email: values[3] || '',
                 phone: values[4] || '',
-                status: values[5] || 'active'
+                status: values[5] || 'active',
+                memo: values[6] || ''
               };
             });
 
@@ -3813,6 +3816,14 @@ app.get('/leads', async (c) => {
                 class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-sticky-note mr-1"></i>メモ
+              </label>
+              <textarea name="memo" rows="3"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+            </div>
+            
             <div class="flex justify-end space-x-3">
               <button type="button" onclick="closeCreateModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
                 キャンセル
@@ -3865,7 +3876,7 @@ app.get('/leads', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 会社名,部署名,担当者,メールアドレス,電話番号,ステータス</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 会社名,部署名,担当者,メールアドレス,電話番号,ステータス,メモ</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
@@ -4044,6 +4055,14 @@ app.get('/leads/:id', async (c) => {
               <dd class="mt-1 text-sm text-gray-900">${lead.created_at}</dd>
             </div>
           </dl>
+          ${lead.memo ? `
+            <div class="mt-4 pt-4 border-t border-gray-200">
+              <dt class="text-sm font-medium text-gray-500 mb-2">
+                <i class="fas fa-sticky-note mr-1"></i>メモ
+              </dt>
+              <dd class="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 p-3 rounded">${lead.memo}</dd>
+            </div>
+          ` : ''}
         </div>
 
         <!-- 案件一覧 -->
@@ -4325,6 +4344,14 @@ app.get('/leads/:id', async (c) => {
               </label>
               <input type="tel" name="phone" value="${lead.phone || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-sticky-note mr-1"></i>メモ
+              </label>
+              <textarea name="memo" rows="3"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">${lead.memo || ''}</textarea>
             </div>
             
             <div class="flex justify-end space-x-3">
