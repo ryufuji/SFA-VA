@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { hashPassword, verifyPassword, getUserPermissions, logAction, ADMIN_PERMISSIONS } from './auth'
+import { generateJWT, authMiddleware, requirePermission, requireAdmin } from './middleware/auth'
 
 type Bindings = {
   DB: D1Database;
@@ -1858,8 +1860,6 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
 })
 
 // --- 認証 API ---
-import { hashPassword, verifyPassword, getUserPermissions, logAction, ADMIN_PERMISSIONS } from './auth'
-import { generateJWT, authMiddleware, requirePermission, requireAdmin } from './middleware/auth'
 
 // ログインAPI
 app.post('/api/auth/login', async (c) => {
