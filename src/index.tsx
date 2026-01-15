@@ -1129,9 +1129,9 @@ app.get('/admin/import', (c) => {
             example: 'name,email,default_unit_price,position,memo,status\\n山田太郎,yamada@example.com,500000,シニアコンサルタント,備考,active\\n佐藤花子,sato@example.com,600000,マネージャー,,active'
           },
           leads: {
-            columns: ['company_name', 'contact_person', 'email', 'phone', 'status'],
-            description: '会社名（必須）,担当者名,メールアドレス,電話番号,ステータス',
-            example: 'company_name,contact_person,email,phone,status\\n株式会社サンプル,山田太郎,yamada@example.com,03-1234-5678,active\\n株式会社テスト,佐藤花子,sato@test.com,03-2345-6789,active'
+            columns: ['company_name', 'department', 'contact_person', 'email', 'phone', 'status'],
+            description: '会社名（必須）,部署名,担当者名,メールアドレス,電話番号,ステータス',
+            example: 'company_name,department,contact_person,email,phone,status\\n株式会社サンプル,営業部,山田太郎,yamada@example.com,03-1234-5678,active\\n株式会社テスト,開発部,佐藤花子,sato@test.com,03-2345-6789,active'
           },
           projects: {
             columns: ['project_name', 'company_name', 'sales_rep_email', 'status'],
@@ -7855,6 +7855,7 @@ async function transformRecord(db: D1Database, type: string, record: any, autoMa
     case 'leads':
       return {
         company_name: record.company_name || record['会社名'] || record['Company Name'] || '',
+        department: record.department || record['部署名'] || record['Department'] || null,
         contact_person: record.contact_person || record['担当者名'] || record['Contact Person'] || '',
         email: record.email || record['メールアドレス'] || record['Email'] || '',
         phone: record.phone || record['電話番号'] || record['Phone'] || '',
@@ -8043,12 +8044,11 @@ async function checkDuplicate(db: D1Database, type: string, record: any): Promis
   try {
     switch (type) {
       case 'leads':
-        if (record.email) {
-          const lead = await db.prepare('SELECT id FROM leads WHERE email = ?').bind(record.email).first()
-          if (lead) return true
-        }
-        const leadByName = await db.prepare('SELECT id FROM leads WHERE company_name = ?').bind(record.company_name).first()
-        return !!leadByName
+        // 会社名と部署名の組み合わせでチェック
+        const lead = await db.prepare(
+          'SELECT id FROM leads WHERE company_name = ? AND COALESCE(department, \'\') = ?'
+        ).bind(record.company_name, record.department || '').first()
+        return !!lead
         
       case 'members':
         const member = await db.prepare('SELECT id FROM members WHERE email = ?').bind(record.email).first()
@@ -8077,10 +8077,11 @@ async function insertRecord(db: D1Database, type: string, record: any): Promise<
   switch (type) {
     case 'leads':
       await db.prepare(`
-        INSERT INTO leads (company_name, contact_person, email, phone, status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO leads (company_name, department, contact_person, email, phone, status)
+        VALUES (?, ?, ?, ?, ?, ?)
       `).bind(
         record.company_name,
+        record.department,
         record.contact_person,
         record.email,
         record.phone,
