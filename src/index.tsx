@@ -3642,9 +3642,9 @@ app.get('/leads', async (c) => {
               
               let message = success_count + '件のリードをインポートしました';
               if (error_count > 0) {
-                message += '\n\nエラー: ' + error_count + '件';
+                message += '\\n\\nエラー: ' + error_count + '件';
                 errors.slice(0, 5).forEach(err => {
-                  message += '\n行' + err.line + ': ' + err.error + ' (' + err.email + ')';
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.email + ')';
                 });
               }
               
@@ -7992,9 +7992,9 @@ app.get('/projects', async (c) => {
               
               let message = success_count + '件の案件をインポートしました';
               if (error_count > 0) {
-                message += '\n\nエラー: ' + error_count + '件';
+                message += '\\n\\nエラー: ' + error_count + '件';
                 errors.slice(0, 5).forEach(err => {
-                  message += '\n行' + err.line + ': ' + err.error + ' (' + err.project_name + ')';
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.project_name + ')';
                 });
               }
               
@@ -8363,9 +8363,9 @@ app.get('/contracts', async (c) => {
               
               let message = success_count + '件の契約をインポートしました（月次明細も自動生成）';
               if (error_count > 0) {
-                message += '\n\nエラー: ' + error_count + '件';
+                message += '\\n\\nエラー: ' + error_count + '件';
                 errors.slice(0, 5).forEach(err => {
-                  message += '\n行' + err.line + ': ' + err.error + ' (' + err.contract_name + ')';
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.contract_name + ')';
                 });
               }
               
