@@ -2675,18 +2675,63 @@ app.get('/api/members', async (c) => {
 // API: メンバー作成
 // メンバー作成（管理者のみ）
 app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
-  const { name, email, default_unit_price, position, memo } = await c.req.json()
-
-  if (!name || !email || !default_unit_price) {
-    return c.json({ success: false, error: 'Name, email, and default unit price are required' }, 400)
+  const body = await c.req.json()
+  
+  // 配列または単一オブジェクトを受け取る
+  const members = Array.isArray(body) ? body : [body]
+  
+  if (members.length === 0) {
+    return c.json({ success: false, error: 'No members provided' }, 400)
   }
 
-  const result = await c.env.DB.prepare(`
-    INSERT INTO members (name, email, default_unit_price, position, memo, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(name, email, default_unit_price, position || null, memo || null, 'active').run()
+  const results = []
+  const errors = []
 
-  return c.json({ success: true, id: result.meta.last_row_id })
+  for (let i = 0; i < members.length; i++) {
+    const { name, email, default_unit_price, position, memo } = members[i]
+    
+    // バリデーション
+    if (!name || !email || !default_unit_price) {
+      errors.push({ index: i + 1, error: 'Name, email, and default unit price are required' })
+      continue
+    }
+
+    try {
+      // メールアドレスの重複チェック
+      const existing = await c.env.DB.prepare(`
+        SELECT id FROM members WHERE email = ?
+      `).bind(email).first()
+
+      if (existing) {
+        errors.push({ index: i + 1, email, error: 'Email address already exists' })
+        continue
+      }
+
+      // 挿入
+      const result = await c.env.DB.prepare(`
+        INSERT INTO members (name, email, default_unit_price, position, memo, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(name, email, default_unit_price, position || null, memo || null, 'active').run()
+
+      results.push({ 
+        index: i + 1, 
+        id: result.meta.last_row_id, 
+        name, 
+        email 
+      })
+    } catch (error: any) {
+      errors.push({ index: i + 1, email, error: error.message })
+    }
+  }
+
+  return c.json({ 
+    success: true, 
+    total: members.length,
+    success_count: results.length,
+    error_count: errors.length,
+    results, 
+    errors 
+  })
 })
 
 // API: メンバー更新
@@ -7427,7 +7472,7 @@ app.get('/members', async (c) => {
 
       <!-- メンバー追加モーダル -->
       <div id="add-member-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
-        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white my-8">
           <div class="flex justify-between items-center mb-4">
             <h3 class="text-lg font-semibold text-gray-900">
               <i class="fas fa-user-plus mr-2"></i>新規メンバー追加
@@ -7437,65 +7482,23 @@ app.get('/members', async (c) => {
             </button>
           </div>
           
-          <form id="add-member-form">
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                名前 <span class="text-red-500">*</span>
-              </label>
-              <input type="text" name="name" required
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                メールアドレス <span class="text-red-500">*</span>
-              </label>
-              <input type="email" name="email" required
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                デフォルト単価 <span class="text-red-500">*</span>
-              </label>
-              <input type="number" name="default_unit_price" required min="0"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="500000">
-            </div>
-            
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                役職
-              </label>
-              <select name="position"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">未設定</option>
-                <option value="パートナー">パートナー</option>
-                <option value="マネージャー">マネージャー</option>
-                <option value="シニアコンサルタント">シニアコンサルタント</option>
-                <option value="コンサルタント">コンサルタント</option>
-                <option value="アナリスト">アナリスト</option>
-              </select>
-            </div>
-            
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                メモ
-              </label>
-              <textarea name="memo" rows="3"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="備考や特記事項"></textarea>
-            </div>
-            
-            <div class="flex justify-end space-x-3">
-              <button type="button" onclick="closeAddMemberModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
-                キャンセル
-              </button>
-              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                <i class="fas fa-plus mr-2"></i>追加
-              </button>
-            </div>
-          </form>
+          <!-- メンバー一覧 -->
+          <div id="members-container" class="mb-4 space-y-4 max-h-96 overflow-y-auto"></div>
+          
+          <!-- メンバー追加ボタン -->
+          <button type="button" onclick="addMemberRow()" class="mb-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+            <i class="fas fa-plus mr-2"></i>メンバーを追加
+          </button>
+          
+          <!-- 操作ボタン -->
+          <div class="flex justify-end space-x-3 border-t pt-4">
+            <button type="button" onclick="closeAddMemberModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+              キャンセル
+            </button>
+            <button type="button" onclick="submitAllMembers()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              <i class="fas fa-save mr-2"></i>一括登録
+            </button>
+          </div>
         </div>
       </div>
 
@@ -7702,11 +7705,149 @@ app.get('/members', async (c) => {
 
         function openAddMemberModal() {
           document.getElementById('add-member-modal').classList.remove('hidden');
+          initializeMembersContainer();
         }
 
         function closeAddMemberModal() {
           document.getElementById('add-member-modal').classList.add('hidden');
-          document.getElementById('add-member-form').reset();
+        }
+
+        function initializeMembersContainer() {
+          const container = document.getElementById('members-container');
+          container.innerHTML = ''; // 既存の行をクリア
+          addMemberRow(); // 最初の行を追加
+        }
+
+        function addMemberRow() {
+          const container = document.getElementById('members-container');
+          const rowCount = container.children.length + 1;
+          
+          const row = document.createElement('div');
+          row.className = 'member-row p-4 border border-gray-200 rounded-lg bg-gray-50 relative';
+          
+          const deleteButton = rowCount > 1 
+            ? '<button type="button" onclick="removeMemberRow(this)" class="text-red-600 hover:text-red-800 text-sm"><i class="fas fa-times"></i> 削除</button>' 
+            : '';
+          
+          row.innerHTML = '<div class="flex justify-between items-center mb-3">' +
+            '<h4 class="text-sm font-semibold text-gray-700">メンバー ' + rowCount + '</h4>' +
+            deleteButton +
+            '</div>' +
+            '<div class="grid grid-cols-2 gap-4">' +
+            '<div>' +
+            '<label class="block text-sm font-medium text-gray-700 mb-1">名前 <span class="text-red-500">*</span></label>' +
+            '<input type="text" name="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">' +
+            '</div>' +
+            '<div>' +
+            '<label class="block text-sm font-medium text-gray-700 mb-1">メールアドレス <span class="text-red-500">*</span></label>' +
+            '<input type="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">' +
+            '</div>' +
+            '<div>' +
+            '<label class="block text-sm font-medium text-gray-700 mb-1">デフォルト単価（月額） <span class="text-red-500">*</span></label>' +
+            '<input type="number" name="default_unit_price" min="0" required placeholder="500000" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">' +
+            '</div>' +
+            '<div>' +
+            '<label class="block text-sm font-medium text-gray-700 mb-1">役職</label>' +
+            '<select name="position" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">' +
+            '<option value="">未設定</option>' +
+            '<option value="パートナー">パートナー</option>' +
+            '<option value="マネージャー">マネージャー</option>' +
+            '<option value="シニアコンサルタント">シニアコンサルタント</option>' +
+            '<option value="コンサルタント">コンサルタント</option>' +
+            '<option value="アナリスト">アナリスト</option>' +
+            '</select>' +
+            '</div>' +
+            '<div class="col-span-2">' +
+            '<label class="block text-sm font-medium text-gray-700 mb-1">メモ</label>' +
+            '<textarea name="memo" rows="2" placeholder="備考や特記事項" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"></textarea>' +
+            '</div>' +
+            '</div>';
+          
+          container.appendChild(row);
+          updateMemberRowNumbers();
+        }
+
+        function removeMemberRow(button) {
+          const row = button.closest('.member-row');
+          row.remove();
+          updateMemberRowNumbers();
+        }
+
+        function updateMemberRowNumbers() {
+          const rows = document.querySelectorAll('#members-container .member-row');
+          rows.forEach((row, index) => {
+            const header = row.querySelector('h4');
+            header.textContent = 'メンバー ' + (index + 1);
+            
+            // 最初の行の削除ボタンを隠す
+            const deleteBtn = row.querySelector('button[onclick*="removeMemberRow"]');
+            if (deleteBtn) {
+              if (index === 0 && rows.length === 1) {
+                deleteBtn.style.display = 'none';
+              } else {
+                deleteBtn.style.display = 'inline-block';
+              }
+            }
+          });
+        }
+
+        async function submitAllMembers() {
+          const rows = document.querySelectorAll('#members-container .member-row');
+          const members = [];
+          
+          for (let row of rows) {
+            const name = row.querySelector('input[name="name"]').value.trim();
+            const email = row.querySelector('input[name="email"]').value.trim();
+            const default_unit_price = parseInt(row.querySelector('input[name="default_unit_price"]').value);
+            const position = row.querySelector('select[name="position"]').value;
+            const memo = row.querySelector('textarea[name="memo"]').value.trim();
+            
+            // 必須項目チェック
+            if (!name || !email || !default_unit_price) {
+              alert('すべてのメンバーの名前、メールアドレス、デフォルト単価を入力してください');
+              return;
+            }
+            
+            members.push({
+              name,
+              email,
+              default_unit_price,
+              position: position || null,
+              memo: memo || null
+            });
+          }
+          
+          if (members.length === 0) {
+            alert('少なくとも1人のメンバーを入力してください');
+            return;
+          }
+          
+          try {
+            const response = await axios.post('/api/members/create', members);
+            const { success_count, error_count, errors } = response.data;
+            
+            let message = success_count + '人のメンバーを追加しました';
+            if (error_count > 0) {
+              message += '\\n\\n' + error_count + '件のエラー:\\n';
+              errors.forEach(err => {
+                message += '行' + err.index + ': ' + err.error;
+                if (err.email) message += ' (' + err.email + ')';
+                message += '\\n';
+              });
+            }
+            
+            alert(message);
+            
+            if (success_count > 0) {
+              location.reload();
+            }
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+          } catch (error) {
+            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+          }
         }
 
         function openEditMemberModal() {
@@ -7717,26 +7858,6 @@ app.get('/members', async (c) => {
           document.getElementById('edit-member-modal').classList.add('hidden');
           document.getElementById('edit-member-form').reset();
         }
-
-        document.getElementById('add-member-form').addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target);
-          const data = {
-            name: formData.get('name'),
-            email: formData.get('email') || null,
-            default_unit_price: parseInt(formData.get('default_unit_price')),
-            position: formData.get('position') || null,
-            memo: formData.get('memo') || null
-          };
-          
-          try {
-            await axios.post('/api/members/create', data);
-            alert('メンバーを追加しました');
-            location.reload();
-          } catch (error) {
-            alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
-          }
-        });
 
         function editMember(id, name, email, price, status, position, memo) {
           document.getElementById('edit_member_id').value = id;
