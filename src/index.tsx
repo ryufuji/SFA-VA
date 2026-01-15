@@ -8265,6 +8265,9 @@ app.get('/contracts', async (c) => {
                 <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-users mr-2"></i>リード
                 </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
                 <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
