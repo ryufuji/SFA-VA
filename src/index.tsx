@@ -7770,9 +7770,120 @@ app.get('/projects', async (c) => {
             const adminMenu = document.getElementById('admin-menu');
             if (adminMenu && user.role === 'admin') {
               adminMenu.style.display = '';
+              const csvExportButton = document.getElementById('csv-export-button');
+              const csvImportButton = document.getElementById('csv-import-button');
+              if (csvExportButton) csvExportButton.style.display = '';
+              if (csvImportButton) csvImportButton.style.display = '';
             }
           }
         });
+
+        // CSVエクスポート機能
+        async function exportProjectsCSV() {
+          try {
+            const response = await axios.get('/api/projects/export/csv', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'projects.csv');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } catch (error) {
+            alert('CSVエクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSVインポートモーダル
+        function openImportModal() {
+          document.getElementById('import-modal').style.display = 'block';
+        }
+
+        function closeImportModal() {
+          document.getElementById('import-modal').style.display = 'none';
+          document.getElementById('csv-file').value = '';
+          document.getElementById('import-preview').innerHTML = '';
+          document.getElementById('import-button').disabled = true;
+        }
+
+        // CSVファイル読み込み
+        document.getElementById('csv-file').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+              alert('CSVファイルが空です');
+              return;
+            }
+
+            // プレビュー表示
+            const preview = lines.slice(0, 6).map((line, idx) => {
+              if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+              return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+            }).join('');
+            
+            document.getElementById('import-preview').innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+            document.getElementById('import-button').disabled = false;
+          };
+          reader.readAsText(file);
+        });
+
+        // CSVインポート実行
+        async function importProjectsCSV() {
+          const file = document.getElementById('csv-file').files[0];
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+
+          if (!confirm('CSVファイルをインポートしますか？')) return;
+
+          const reader = new FileReader();
+          reader.onload = async function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            // ヘッダーをスキップ
+            const dataLines = lines.slice(1);
+            
+            const projects = dataLines.map(line => {
+              const values = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+              return {
+                project_name: values[0] || '',
+                company_name: values[1] || '',
+                department: values[2] || '',
+                sales_rep_name: values[3] || '',
+                status: values[4] || 'active'
+              };
+            });
+
+            try {
+              const response = await axios.post('/api/projects/import/csv', { projects });
+              const { success_count, error_count, errors } = response.data;
+              
+              let message = success_count + '件の案件をインポートしました';
+              if (error_count > 0) {
+                message += '\\n\\nエラー: ' + error_count + '件';
+                errors.slice(0, 5).forEach(err => {
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.project_name + ')';
+                });
+              }
+              
+              alert(message);
+              if (success_count > 0) {
+                location.reload();
+              }
+            } catch (error) {
+              alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+            }
+          };
+          reader.readAsText(file);
+        }
       </script>
     </head>
     <body class="bg-gray-100">
@@ -7829,6 +7940,14 @@ app.get('/projects', async (c) => {
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-briefcase mr-2"></i>案件一覧
           </h1>
+          <div class="flex space-x-2">
+            <button id="csv-export-button" onclick="exportProjectsCSV()" class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700" style="display:none;">
+              <i class="fas fa-file-download mr-2"></i>CSVエクスポート
+            </button>
+            <button id="csv-import-button" onclick="openImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" style="display:none;">
+              <i class="fas fa-file-upload mr-2"></i>CSVインポート
+            </button>
+          </div>
         </div>
 
         <!-- 案件一覧テーブル -->
@@ -7885,6 +8004,34 @@ app.get('/projects', async (c) => {
                 ` : ''}
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- CSVインポートモーダル -->
+      <div id="import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">CSVインポート</h3>
+            <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 案件名,会社名,部署名,営業担当,ステータス</p>
+            <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
+          </div>
+          
+          <div id="import-preview" class="mb-4 max-h-60 overflow-y-auto"></div>
+          
+          <div class="flex justify-end space-x-2">
+            <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              キャンセル
+            </button>
+            <button id="import-button" onclick="importProjectsCSV()" disabled class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
+              インポート実行
+            </button>
           </div>
         </div>
       </div>
@@ -7980,9 +8127,124 @@ app.get('/contracts', async (c) => {
             const adminMenu = document.getElementById('admin-menu');
             if (adminMenu && user.role === 'admin') {
               adminMenu.style.display = '';
+              const csvExportButton = document.getElementById('csv-export-button');
+              const csvImportButton = document.getElementById('csv-import-button');
+              if (csvExportButton) csvExportButton.style.display = '';
+              if (csvImportButton) csvImportButton.style.display = '';
             }
           }
         });
+
+        // CSVエクスポート機能
+        async function exportContractsCSV() {
+          try {
+            const response = await axios.get('/api/contracts/export/csv', { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'contracts.csv');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } catch (error) {
+            alert('CSVエクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSVインポートモーダル
+        function openImportModal() {
+          document.getElementById('import-modal').style.display = 'block';
+        }
+
+        function closeImportModal() {
+          document.getElementById('import-modal').style.display = 'none';
+          document.getElementById('csv-file').value = '';
+          document.getElementById('import-preview').innerHTML = '';
+          document.getElementById('import-button').disabled = true;
+        }
+
+        // CSVファイル読み込み
+        document.getElementById('csv-file').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+              alert('CSVファイルが空です');
+              return;
+            }
+
+            // プレビュー表示
+            const preview = lines.slice(0, 6).map((line, idx) => {
+              if (idx === 0) return '<tr class="bg-gray-100"><td colspan="6" class="px-4 py-2 font-bold">ヘッダー: ' + line + '</td></tr>';
+              return '<tr><td colspan="6" class="px-4 py-2 text-sm">' + line + '</td></tr>';
+            }).join('');
+            
+            document.getElementById('import-preview').innerHTML = '<table class="w-full border">' + preview + '</table><p class="mt-2 text-sm">総件数: ' + (lines.length - 1) + '件</p>';
+            document.getElementById('import-button').disabled = false;
+          };
+          reader.readAsText(file);
+        });
+
+        // CSVインポート実行
+        async function importContractsCSV() {
+          const file = document.getElementById('csv-file').files[0];
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+
+          if (!confirm('CSVファイルをインポートしますか？\\n契約期間から月次明細が自動生成されます。')) return;
+
+          const reader = new FileReader();
+          reader.onload = async function(event) {
+            const csv = event.target.result;
+            const lines = csv.split('\\n').filter(line => line.trim());
+            
+            // ヘッダーをスキップ
+            const dataLines = lines.slice(1);
+            
+            const contracts = dataLines.map(line => {
+              const values = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+              return {
+                contract_name: values[0] || '',
+                project_name: values[1] || '',
+                company_name: values[2] || '',
+                contract_type: values[3] || '準委任',
+                contract_start_date: values[4] || '',
+                contract_end_date: values[5] || '',
+                contract_amount: parseInt(values[6]) || 0,
+                payment_type: values[7] || '毎月支払',
+                status: values[9] || 'active'
+              };
+            });
+
+            try {
+              const response = await axios.post('/api/contracts/import/csv', { contracts });
+              const { success_count, error_count, errors } = response.data;
+              
+              let message = success_count + '件の契約をインポートしました（月次明細も自動生成）';
+              if (error_count > 0) {
+                message += '\\n\\nエラー: ' + error_count + '件';
+                errors.slice(0, 5).forEach(err => {
+                  message += '\\n行' + err.line + ': ' + err.error + ' (' + err.contract_name + ')';
+                });
+              }
+              
+              alert(message);
+              if (success_count > 0) {
+                location.reload();
+              }
+            } catch (error) {
+              alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+            }
+          };
+          reader.readAsText(file);
+        }
       </script>
     </head>
     <body class="bg-gray-100">
@@ -8036,6 +8298,14 @@ app.get('/contracts', async (c) => {
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-file-contract mr-2"></i>契約一覧
           </h1>
+          <div class="flex space-x-2">
+            <button id="csv-export-button" onclick="exportContractsCSV()" class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700" style="display:none;">
+              <i class="fas fa-file-download mr-2"></i>CSVエクスポート
+            </button>
+            <button id="csv-import-button" onclick="openImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" style="display:none;">
+              <i class="fas fa-file-upload mr-2"></i>CSVインポート
+            </button>
+          </div>
         </div>
 
         <!-- 契約一覧 -->
@@ -8102,6 +8372,35 @@ app.get('/contracts', async (c) => {
             <p>契約がまだありません</p>
           </div>
           `}
+        </div>
+      </div>
+
+      <!-- CSVインポートモーダル -->
+      <div id="import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">CSVインポート</h3>
+            <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,月次明細数,ステータス</p>
+            <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成されます</p>
+            <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
+          </div>
+          
+          <div id="import-preview" class="mb-4 max-h-60 overflow-y-auto"></div>
+          
+          <div class="flex justify-end space-x-2">
+            <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              キャンセル
+            </button>
+            <button id="import-button" onclick="importContractsCSV()" disabled class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
+              インポート実行
+            </button>
+          </div>
         </div>
       </div>
     </body>
