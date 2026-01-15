@@ -7437,22 +7437,64 @@ app.get('/members', async (c) => {
 
         <!-- メンバー一覧 -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
-          <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200">
+          <div class="overflow-x-scroll" style="overflow-x: scroll;">
+          <table id="members-table" class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名前</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">役職</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メール</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">デフォルト単価</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メモ</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative resize-col" 
+                    onclick="sortTable('name')" style="min-width: 150px;">
+                  <div class="flex items-center">
+                    名前 
+                    <i class="fas fa-sort ml-2 text-gray-400" id="sort-icon-name"></i>
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative resize-col" 
+                    onclick="sortTable('position')" style="min-width: 120px;">
+                  <div class="flex items-center">
+                    役職 
+                    <i class="fas fa-sort ml-2 text-gray-400" id="sort-icon-position"></i>
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative resize-col" 
+                    onclick="sortTable('email')" style="min-width: 200px;">
+                  <div class="flex items-center">
+                    メール 
+                    <i class="fas fa-sort ml-2 text-gray-400" id="sort-icon-email"></i>
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative resize-col" 
+                    onclick="sortTable('default_unit_price')" style="min-width: 150px;">
+                  <div class="flex items-center">
+                    デフォルト単価 
+                    <i class="fas fa-sort ml-2 text-gray-400" id="sort-icon-default_unit_price"></i>
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider relative resize-col" style="min-width: 200px;">
+                  <div class="flex items-center">
+                    メモ
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative resize-col" 
+                    onclick="sortTable('status')" style="min-width: 120px;">
+                  <div class="flex items-center">
+                    ステータス 
+                    <i class="fas fa-sort ml-2 text-gray-400" id="sort-icon-status"></i>
+                  </div>
+                  <div class="resize-handle"></div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="min-width: 150px;">
+                  操作
+                </th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody id="members-tbody" class="bg-white divide-y divide-gray-200">
               ${members.map((member: any) => `
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-gray-50" data-name="${member.name}" data-position="${member.position || ''}" data-email="${member.email || ''}" data-default_unit_price="${member.default_unit_price || 0}" data-status="${member.status}">
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div class="font-medium text-gray-900">${member.name}</div>
                   </td>
@@ -7465,7 +7507,7 @@ app.get('/members', async (c) => {
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     ¥${(member.default_unit_price || 0).toLocaleString()}/月
                   </td>
-                  <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title="${member.memo || ''}">
+                  <td class="px-6 py-4 text-sm text-gray-500" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${member.memo || ''}">
                     ${member.memo || '<span class="text-gray-400">-</span>'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
@@ -7491,6 +7533,132 @@ app.get('/members', async (c) => {
           </div>
         </div>
       </div>
+
+      <style>
+        /* リサイズハンドルのスタイル */
+        .resize-col {
+          position: relative;
+        }
+        .resize-handle {
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 5px;
+          height: 100%;
+          cursor: col-resize;
+          user-select: none;
+        }
+        .resize-handle:hover {
+          background-color: rgba(59, 130, 246, 0.5);
+        }
+        /* 常にスクロールバーを表示 */
+        .overflow-x-scroll::-webkit-scrollbar {
+          height: 12px;
+        }
+        .overflow-x-scroll::-webkit-scrollbar-track {
+          background: #f1f1f1;
+        }
+        .overflow-x-scroll::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 6px;
+        }
+        .overflow-x-scroll::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+      </style>
+
+      <script>
+        // ソート機能
+        let currentSortColumn = '';
+        let currentSortDirection = 'asc';
+
+        function sortTable(column) {
+          const tbody = document.getElementById('members-tbody');
+          const rows = Array.from(tbody.querySelectorAll('tr'));
+          
+          // ソート方向を決定
+          if (currentSortColumn === column) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSortColumn = column;
+            currentSortDirection = 'asc';
+          }
+          
+          // アイコンをリセット
+          document.querySelectorAll('[id^="sort-icon-"]').forEach(icon => {
+            icon.className = 'fas fa-sort ml-2 text-gray-400';
+          });
+          
+          // 現在のソートアイコンを更新
+          const icon = document.getElementById('sort-icon-' + column);
+          if (icon) {
+            icon.className = 'fas fa-sort-' + (currentSortDirection === 'asc' ? 'up' : 'down') + ' ml-2 text-blue-600';
+          }
+          
+          // ソート実行
+          rows.sort((a, b) => {
+            let aVal = a.getAttribute('data-' + column) || '';
+            let bVal = b.getAttribute('data-' + column) || '';
+            
+            // 数値の場合
+            if (column === 'default_unit_price') {
+              aVal = parseFloat(aVal) || 0;
+              bVal = parseFloat(bVal) || 0;
+              return currentSortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+            }
+            
+            // 文字列の場合
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+            
+            if (currentSortDirection === 'asc') {
+              return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+            } else {
+              return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+            }
+          });
+          
+          // テーブルを更新
+          rows.forEach(row => tbody.appendChild(row));
+        }
+        
+        // 列幅リサイズ機能
+        document.addEventListener('DOMContentLoaded', function() {
+          const table = document.getElementById('members-table');
+          if (!table) return;
+          
+          const cols = table.querySelectorAll('.resize-col');
+          
+          cols.forEach(col => {
+            const handle = col.querySelector('.resize-handle');
+            if (!handle) return;
+            
+            let startX, startWidth;
+            
+            handle.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              startX = e.pageX;
+              startWidth = col.offsetWidth;
+              
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            });
+            
+            function handleMouseMove(e) {
+              const diff = e.pageX - startX;
+              const newWidth = Math.max(50, startWidth + diff);
+              col.style.width = newWidth + 'px';
+              col.style.minWidth = newWidth + 'px';
+            }
+            
+            function handleMouseUp() {
+              document.removeEventListener('mousemove', handleMouseMove);
+              document.removeEventListener('mouseup', handleMouseUp);
+            }
+          });
+        });
+      </script>
 
       <!-- メンバー追加モーダル -->
       <div id="add-member-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
