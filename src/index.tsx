@@ -1428,6 +1428,27 @@ app.put('/api/leads/:id', authMiddleware, requirePermission('lead_manage'), asyn
 })
 
 // --- 案件 API ---
+// 案件一覧取得（認証必須、閲覧のみ）
+app.get('/api/projects', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  // 案件一覧を取得（リード情報と営業担当者情報を結合）
+  const { results } = await DB.prepare(`
+    SELECT 
+      p.*,
+      l.company_name,
+      l.department,
+      m.name as sales_rep_name
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    LEFT JOIN members m ON p.sales_rep_id = m.id
+    WHERE p.status = 'active'
+    ORDER BY p.created_at DESC
+  `).all()
+  
+  return c.json({ success: true, data: results })
+})
+
 // 案件詳細取得（認証必須、閲覧のみ）
 app.get('/api/projects/:id', authMiddleware, async (c) => {
   const { DB } = c.env
@@ -3140,6 +3161,9 @@ app.get('/leads', async (c) => {
                 <a href="/leads" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-users mr-2"></i>リード
                 </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
@@ -3373,6 +3397,9 @@ app.get('/leads/:id', async (c) => {
                 </a>
                 <a href="/leads" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
                 </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
@@ -3888,6 +3915,9 @@ app.get('/', async (c) => {
                 <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-users mr-2"></i>リード
                 </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
@@ -4328,6 +4358,9 @@ app.get('/projects/:id', async (c) => {
                   </a>
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
                   </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
@@ -5270,6 +5303,9 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
                   </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
+                  </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
@@ -5960,6 +5996,9 @@ app.get('/monthly/:id', async (c) => {
                   </a>
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
                   </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
@@ -7015,6 +7054,9 @@ app.get('/monthly-list', async (c) => {
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
                   </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
+                  </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
@@ -7122,6 +7164,217 @@ app.get('/monthly-list', async (c) => {
                 `}
             </div>
         </div>
+    </body>
+    </html>
+  `)
+})
+
+// 契約一覧画面
+// 案件一覧画面
+app.get('/projects', async (c) => {
+  const { DB } = c.env
+  
+  // 全案件を取得（リード情報と契約数を含む）
+  const { results: projects } = await DB.prepare(`
+    SELECT 
+      p.*,
+      l.company_name,
+      l.department,
+      m.name as sales_rep_name,
+      (SELECT COUNT(*) FROM contracts WHERE project_id = p.id) as contract_count
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    LEFT JOIN members m ON p.sales_rep_id = m.id
+    WHERE p.status = 'active'
+    ORDER BY p.created_at DESC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>案件一覧 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        const AUTH_UTILS = {
+          getToken: function() { return localStorage.getItem('jwt_token'); },
+          checkAuth: function() {
+            const token = this.getToken();
+            if (!token) { window.location.href = '/login'; return false; }
+            return true;
+          },
+          getCurrentUser: async function() {
+            const token = this.getToken();
+            if (!token) return null;
+            try {
+              const response = await axios.get('/api/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + token }
+              });
+              return response.data.user;
+            } catch (error) {
+              if (error.response?.status === 401) {
+                localStorage.removeItem('jwt_token');
+                window.location.href = '/login';
+              }
+              return null;
+            }
+          },
+          logout: async function() {
+            const token = this.getToken();
+            if (token) {
+              try {
+                await axios.post('/api/auth/logout', {}, {
+                  headers: { 'Authorization': 'Bearer ' + token }
+                });
+              } catch (error) {
+                console.error('ログアウトエラー:', error);
+              }
+            }
+            localStorage.removeItem('jwt_token');
+            window.location.href = '/login';
+          },
+          setupAxios: function() {
+            const token = this.getToken();
+            if (token) {
+              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+            }
+          }
+        };
+        
+        document.addEventListener('DOMContentLoaded', async function() {
+          AUTH_UTILS.checkAuth();
+          AUTH_UTILS.setupAxios();
+          const user = await AUTH_UTILS.getCurrentUser();
+          if (user) {
+            const navUserName = document.getElementById('nav-user-name');
+            if (navUserName) {
+              navUserName.textContent = user.name;
+            }
+            const adminMenu = document.getElementById('admin-menu');
+            if (adminMenu && user.role === 'admin') {
+              adminMenu.style.display = '';
+            }
+          }
+        });
+      </script>
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-sm text-gray-700">
+                <i class="fas fa-user-circle mr-1"></i>
+                <span id="nav-user-name">読込中...</span>
+              </span>
+              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-user-cog mr-1"></i>プロフィール
+              </a>
+              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
+                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              </a>
+              <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="px-4 py-6 sm:px-0">
+          <h1 class="text-3xl font-bold text-gray-900">
+            <i class="fas fa-briefcase mr-2"></i>案件一覧
+          </h1>
+        </div>
+
+        <!-- 案件一覧テーブル -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件名</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">顧客</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">部署</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">営業担当</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約数</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">作成日</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                ${projects.map(project => `
+                  <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/projects/${project.id}'">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm font-medium text-gray-900">${project.project_name}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-900">${project.company_name || '-'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-500">${project.department || '-'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-900">${project.sales_rep_name || '-'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                        ${project.contract_count || 0}件
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                        ${project.status === 'active' ? 'アクティブ' : 'アーカイブ'}
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      ${new Date(project.created_at).toLocaleDateString('ja-JP')}
+                    </td>
+                  </tr>
+                `).join('')}
+                ${projects.length === 0 ? `
+                  <tr>
+                    <td colspan="7" class="px-6 py-4 text-center text-gray-500">
+                      案件がありません
+                    </td>
+                  </tr>
+                ` : ''}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </body>
     </html>
   `)
@@ -7451,6 +7704,9 @@ app.get('/members', async (c) => {
                 </a>
                 <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
                 </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
