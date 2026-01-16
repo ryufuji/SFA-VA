@@ -1971,7 +1971,7 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
 
   for (let i = 0; i < contracts.length; i++) {
     const contract = contracts[i]
-    const { contract_name, project_name, company_name, contract_type, contract_date, contract_start_date, contract_end_date, contract_amount, payment_type, member_emails, status } = contract
+    const { contract_name, project_name, company_name, department, contract_type, contract_date, contract_start_date, contract_end_date, contract_amount, payment_type, member_emails, status } = contract
 
     // バリデーション
     if (!contract_name || !contract_start_date || !contract_end_date || !contract_amount) {
@@ -1984,11 +1984,20 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
       // 案件IDを検索
       let project_id = null
       if (project_name && company_name) {
-        const project = await DB.prepare(`
+        let query = `
           SELECT p.id FROM projects p
           LEFT JOIN leads l ON p.lead_id = l.id
           WHERE p.project_name = ? AND l.company_name = ?
-        `).bind(project_name, company_name).first()
+        `
+        const params = [project_name, company_name]
+        
+        // 部署名が指定されている場合は検索条件に追加
+        if (department) {
+          query += ` AND l.department = ?`
+          params.push(department)
+        }
+        
+        const project = await DB.prepare(query).bind(...params).first()
         
         if (project) {
           project_id = project.id
@@ -8386,14 +8395,15 @@ app.get('/contracts', async (c) => {
                 contract_name: values[0] || '',
                 project_name: values[1] || '',
                 company_name: values[2] || '',
-                contract_type: values[3] || '準委任',
-                contract_date: values[4] || '',
-                contract_start_date: values[5] || '',
-                contract_end_date: values[6] || '',
-                contract_amount: parseInt(values[7]) || 0,
-                payment_type: values[8] || '毎月支払',
-                member_emails: values[9] || '',
-                status: values[10] || 'active'
+                department: values[3] || '',
+                contract_type: values[4] || '準委任',
+                contract_date: values[5] || '',
+                contract_start_date: values[6] || '',
+                contract_end_date: values[7] || '',
+                contract_amount: parseInt(values[8]) || 0,
+                payment_type: values[9] || '毎月支払',
+                member_emails: values[10] || '',
+                status: values[11] || 'active'
               };
             });
 
@@ -8563,9 +8573,9 @@ app.get('/contracts', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約日,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メール:単価:稼働率;で区切る),ステータス</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,部署名,契約種別,契約日,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メール:単価:稼働率;で区切る),ステータス</p>
             <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成され、指定したメンバーが単価・稼働率込みで全月にアサインされます</p>
-            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2025-12-20,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active</p>
+            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,営業部,準委任,2025-12-20,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
