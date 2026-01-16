@@ -8708,7 +8708,147 @@ app.get('/monthly-details', async (c) => {
             document.getElementById('nav-user-name').textContent = user.email;
             if (user.role === 'admin') {
               document.getElementById('admin-menu').style.display = 'inline-block';
+              document.getElementById('admin-csv-buttons').style.display = 'flex';
             }
+
+        // CSVエクスポート
+        async function exportCSV() {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/monthly-details/export/csv', {
+              headers: { 'Authorization': 'Bearer ' + token },
+              responseType: 'blob'
+            });
+            
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'monthly_details.csv');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } catch (error) {
+            alert('エクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSVインポートモーダル
+        function openImportModal() {
+          document.getElementById('import-modal').classList.remove('hidden');
+        }
+
+        function closeImportModal() {
+          document.getElementById('import-modal').classList.add('hidden');
+          document.getElementById('csv-file').value = '';
+          document.getElementById('import-preview').innerHTML = '';
+          document.getElementById('import-button').disabled = true;
+        }
+
+        // CSVファイル読み込み
+        document.addEventListener('DOMContentLoaded', function() {
+          const csvFileInput = document.getElementById('csv-file');
+          if (csvFileInput) {
+            csvFileInput.addEventListener('change', function(event) {
+              const file = event.target.files[0];
+              if (!file) return;
+
+              const reader = new FileReader();
+              reader.onload = function(e) {
+                const csv = e.target.result;
+                const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                  alert('CSVファイルが空です');
+                  document.getElementById('import-button').disabled = true;
+                  return;
+                }
+
+                // プレビュー表示（最初の6行）
+                const previewLines = lines.slice(0, 6);
+                let previewHTML = '<table class="min-w-full text-xs"><tbody>';
+                previewLines.forEach((line, index) => {
+                  if (index === 0) {
+                    previewHTML += '<tr class="bg-gray-100 font-bold"><td class="px-2 py-1" colspan="100">ヘッダー: ' + line + '</td></tr>';
+                  } else {
+                    previewHTML += '<tr><td class="px-2 py-1">' + line + '</td></tr>';
+                  }
+                });
+                previewHTML += '</tbody></table>';
+                previewHTML += '<p class="mt-2 text-sm text-gray-600">総件数: ' + (lines.length - 1) + '件</p>';
+                
+                document.getElementById('import-preview').innerHTML = previewHTML;
+                document.getElementById('import-button').disabled = false;
+              };
+              reader.readAsText(file);
+            });
+          }
+        });
+
+        // CSVインポート実行
+        async function importMonthlyDetailsCSV() {
+          const file = document.getElementById('csv-file').files[0];
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+
+          if (!confirm('CSVファイルをインポートしますか？\\n既存の月次明細データが更新されます（新規追加はできません）。')) return;
+
+          const reader = new FileReader();
+          reader.onload = async function(event) {
+            const csv = event.target.result;
+            const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+            
+            // ヘッダーをスキップ
+            const dataLines = lines.slice(1);
+            
+            const monthly_details = dataLines.map(line => {
+              const values = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+              return {
+                id: parseInt(values[0]) || 0,
+                target_month: values[1] || '',
+                contract_name: values[2] || '',
+                project_name: values[3] || '',
+                company_name: values[4] || '',
+                amount: parseInt(values[5]) || 0,
+                inspection_status: values[6] || '未検収',
+                inspection_date: values[7] || '',
+                billing_status: values[8] || '未請求',
+                billing_date: values[9] || '',
+                invoice_number: values[10] || '',
+                expected_payment_date: values[11] || '',
+                assign_members: values[12] || ''
+              };
+            });
+
+            try {
+              const token = AUTH_UTILS.getToken();
+              const response = await axios.post('/api/monthly-details/import/csv', 
+                { monthly_details },
+                { headers: { 'Authorization': 'Bearer ' + token } }
+              );
+              
+              const { success_count, error_count, errors } = response.data;
+              
+              let message = success_count + '件の月次明細を更新しました';
+              if (error_count > 0) {
+                message += '\\n\\nエラー: ' + error_count + '件';
+                errors.slice(0, 5).forEach(err => {
+                  message += '\\n行' + err.line + ': ' + err.error + ' (ID: ' + err.id + ')';
+                });
+              }
+              
+              alert(message);
+              
+              if (success_count > 0) {
+                location.reload();
+              }
+            } catch (error) {
+              alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+            }
+          };
+          reader.readAsText(file);
+        }
           }
         });
       </script>
@@ -8763,6 +8903,14 @@ app.get('/monthly-details', async (c) => {
           <h1 class="text-3xl font-bold text-gray-800">
             <i class="fas fa-calendar-alt mr-2"></i>月次明細一覧
           </h1>
+          <div id="admin-csv-buttons" class="flex space-x-2" style="display:none;">
+            <button onclick="exportCSV()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+              <i class="fas fa-download mr-2"></i>CSVエクスポート
+            </button>
+            <button onclick="openImportModal()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+              <i class="fas fa-upload mr-2"></i>CSVインポート
+            </button>
+          </div>
         </div>
 
         ${monthlyDetails.length > 0 ? `
@@ -8837,9 +8985,240 @@ app.get('/monthly-details', async (c) => {
         </div>
         `}
       </div>
+
+      <!-- CSVインポートモーダル -->
+      <div id="import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">CSVインポート</h3>
+            <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: ID,対象月,契約名,案件名,会社名,金額,検収ステータス,検収日,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)</p>
+            <p class="text-sm text-red-600 mb-2">※既存データの更新のみ可能です（新規追加はできません）</p>
+            <p class="text-sm text-gray-500 mb-2">例: 1,2026-01,Q1契約,開発案件,株式会社テスト,1000000,検収済,2026-01-31,請求済,2026-02-01,INV-001,2026-02-28,yamada@example.com:800000:0.8;sato@example.com:700000:1.0</p>
+            <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
+          </div>
+          
+          <div id="import-preview" class="mb-4 max-h-60 overflow-y-auto"></div>
+          
+          <div class="flex justify-end space-x-2">
+            <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              キャンセル
+            </button>
+            <button id="import-button" onclick="importMonthlyDetailsCSV()" disabled class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
+              インポート実行
+            </button>
+          </div>
+        </div>
+      </div>
     </body>
     </html>
   `)
+})
+
+
+// 月次明細CSVエクスポートAPI（管理者のみ）
+app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+
+  // 月次明細とアサインメンバーを取得
+  const { results: monthlyDetails } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      md.amount,
+      md.inspection_status,
+      md.inspection_date,
+      md.billing_status,
+      md.billing_date,
+      md.invoice_number,
+      md.expected_payment_date,
+      c.contract_name,
+      p.project_name,
+      l.company_name
+    FROM monthly_details md
+    LEFT JOIN contracts c ON md.contract_id = c.id
+    LEFT JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    ORDER BY md.target_month DESC, md.id DESC
+  `).all()
+
+  // 各月次明細のアサインメンバーを取得
+  const csvRows = []
+  for (const detail of monthlyDetails) {
+    const { results: assignments } = await DB.prepare(`
+      SELECT 
+        m.email,
+        mma.unit_price,
+        mma.allocation_ratio
+      FROM monthly_member_assignments mma
+      LEFT JOIN members m ON mma.member_id = m.id
+      WHERE mma.monthly_detail_id = ?
+      ORDER BY m.email ASC
+    `).bind(detail.id).all()
+
+    // アサインメンバーを文字列に変換（メール:単価:稼働率;メール:単価:稼働率）
+    const memberString = assignments.map(a => 
+      `${a.email}:${a.unit_price}:${a.allocation_ratio}`
+    ).join(';')
+
+    csvRows.push({
+      id: detail.id,
+      target_month: detail.target_month,
+      contract_name: detail.contract_name || '',
+      project_name: detail.project_name || '',
+      company_name: detail.company_name || '',
+      amount: detail.amount,
+      inspection_status: detail.inspection_status,
+      inspection_date: detail.inspection_date || '',
+      billing_status: detail.billing_status,
+      billing_date: detail.billing_date || '',
+      invoice_number: detail.invoice_number || '',
+      expected_payment_date: detail.expected_payment_date || '',
+      assign_members: memberString
+    })
+  }
+
+  // CSVヘッダー
+  const header = 'ID,対象月,契約名,案件名,会社名,金額,検収ステータス,検収日,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)'
+  
+  // CSVボディ
+  const body = csvRows.map(row => 
+    [
+      row.id,
+      row.target_month,
+      `"${row.contract_name}"`,
+      `"${row.project_name}"`,
+      `"${row.company_name}"`,
+      row.amount,
+      row.inspection_status,
+      row.inspection_date,
+      row.billing_status,
+      row.billing_date,
+      `"${row.invoice_number}"`,
+      row.expected_payment_date,
+      `"${row.assign_members}"`
+    ].join(',')
+  ).join('\n')
+
+  const csv = header + '\n' + body
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="monthly_details.csv"'
+    }
+  })
+})
+
+// 月次明細CSVインポートAPI（管理者のみ、既存データの更新のみ）
+app.post('/api/monthly-details/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const { monthly_details } = await c.req.json()
+
+  if (!Array.isArray(monthly_details) || monthly_details.length === 0) {
+    return c.json({ success: false, error: '月次明細データが必要です' }, 400)
+  }
+
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+
+  for (let i = 0; i < monthly_details.length; i++) {
+    const detail = monthly_details[i]
+    const { 
+      id, 
+      inspection_status, 
+      inspection_date, 
+      billing_status, 
+      billing_date, 
+      invoice_number, 
+      expected_payment_date,
+      assign_members 
+    } = detail
+
+    // IDが必須
+    if (!id) {
+      errors.push({ line: i + 2, id: '', error: 'IDは必須です' })
+      error_count++
+      continue
+    }
+
+    try {
+      // 月次明細が存在するか確認
+      const existing = await DB.prepare('SELECT id FROM monthly_details WHERE id = ?').bind(id).first()
+      
+      if (!existing) {
+        errors.push({ line: i + 2, id: id, error: '該当する月次明細が見つかりません（新規追加はできません）' })
+        error_count++
+        continue
+      }
+
+      // 月次明細を更新
+      await DB.prepare(`
+        UPDATE monthly_details 
+        SET 
+          inspection_status = ?,
+          inspection_date = ?,
+          billing_status = ?,
+          billing_date = ?,
+          invoice_number = ?,
+          expected_payment_date = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(
+        inspection_status || '未検収',
+        inspection_date || null,
+        billing_status || '未請求',
+        billing_date || null,
+        invoice_number || null,
+        expected_payment_date || null,
+        id
+      ).run()
+
+      // アサインメンバーの更新
+      if (assign_members) {
+        // 既存のアサインメンバーを削除
+        await DB.prepare('DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?').bind(id).run()
+
+        // 新しいアサインメンバーを追加
+        const memberList = assign_members.split(';').map((m: string) => m.trim()).filter((m: string) => m)
+        for (const memberStr of memberList) {
+          const parts = memberStr.split(':').map((p: string) => p.trim())
+          const email = parts[0]
+          const unit_price = parts[1] ? parseInt(parts[1]) : 0
+          const allocation_ratio = parts[2] ? parseFloat(parts[2]) : 1.0
+
+          // メンバーIDを取得
+          const member = await DB.prepare('SELECT id FROM members WHERE email = ?').bind(email).first()
+          
+          if (member) {
+            await DB.prepare(`
+              INSERT INTO monthly_member_assignments (monthly_detail_id, member_id, unit_price, allocation_ratio)
+              VALUES (?, ?, ?, ?)
+            `).bind(id, member.id, unit_price, allocation_ratio).run()
+          }
+        }
+      }
+
+      success_count++
+    } catch (error) {
+      errors.push({ line: i + 2, id: id, error: error.message || '不明なエラー' })
+      error_count++
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: monthly_details.length,
+    success_count,
+    error_count,
+    errors
+  })
 })
 
 // メンバー管理画面
