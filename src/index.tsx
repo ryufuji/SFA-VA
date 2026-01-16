@@ -3216,9 +3216,9 @@ app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
         const hashedPassword = await hashPassword(defaultPassword)
         
         await c.env.DB.prepare(`
-          INSERT INTO users (email, password_hash, role, password_change_required)
-          VALUES (?, ?, ?, ?)
-        `).bind(email, hashedPassword, 'none', 1).run()
+          INSERT INTO users (email, password_hash, role, member_id, password_change_required)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(email, hashedPassword, 'none', result.meta.last_row_id, 1).run()
       }
 
       results.push({ 
@@ -3309,9 +3309,9 @@ app.post('/api/members/sync-users', authMiddleware, requireAdmin, async (c) => {
         const hashedPassword = await hashPassword(defaultPassword)
         
         await c.env.DB.prepare(`
-          INSERT INTO users (email, password_hash, role, password_change_required)
-          VALUES (?, ?, ?, ?)
-        `).bind(member.email, hashedPassword, 'none', 1).run()
+          INSERT INTO users (email, password_hash, role, member_id, password_change_required)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(member.email, hashedPassword, 'none', member.id, 1).run()
 
         addedCount++
       } catch (error: any) {
