@@ -3216,9 +3216,9 @@ app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
         const hashedPassword = await hashPassword(defaultPassword)
         
         await c.env.DB.prepare(`
-          INSERT INTO users (name, email, password, role, password_change_required)
-          VALUES (?, ?, ?, ?, ?)
-        `).bind(name, email, hashedPassword, 'none', 1).run()
+          INSERT INTO users (email, password_hash, role, password_change_required)
+          VALUES (?, ?, ?, ?)
+        `).bind(email, hashedPassword, 'none', 1).run()
       }
 
       results.push({ 
@@ -3309,13 +3309,13 @@ app.post('/api/members/sync-users', authMiddleware, requireAdmin, async (c) => {
         const hashedPassword = await hashPassword(defaultPassword)
         
         await c.env.DB.prepare(`
-          INSERT INTO users (name, email, password, role, password_change_required)
-          VALUES (?, ?, ?, ?, ?)
-        `).bind(member.name, member.email, hashedPassword, 'none', 1).run()
+          INSERT INTO users (email, password_hash, role, password_change_required)
+          VALUES (?, ?, ?, ?)
+        `).bind(member.email, hashedPassword, 'none', 1).run()
 
         addedCount++
       } catch (error: any) {
-        errors.push({ email: member.email, error: error.message })
+        errors.push({ email: member.email, name: member.name, error: error.message })
       }
     }
 
@@ -3324,7 +3324,7 @@ app.post('/api/members/sync-users', authMiddleware, requireAdmin, async (c) => {
       total_members: members.results.length,
       synced_count: addedCount,
       skipped_count: skippedCount,
-      errors: errors.map(e => ({ member_name: e.email, error: e.error }))
+      errors: errors.map(e => ({ member_name: e.name || e.email, error: e.error }))
     })
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500)
