@@ -3785,6 +3785,7 @@ app.get('/leads', async (c) => {
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">メール</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">電話</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
+                  <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none;">操作</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -3810,6 +3811,12 @@ app.get('/leads', async (c) => {
                       ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>アクティブ</span>'
                       : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
                     }
+                  </td>
+                </tr>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 admin-only-column" style="display: none;">
+                    <button onclick="confirmDeleteLead(${lead.id}, '${lead.company_name}')" class="text-red-600 hover:text-red-900">
+                      <i class="fas fa-trash-alt"></i> 削除
+                    </button>
                   </td>
                 </tr>
               `).join('')}
@@ -3903,6 +3910,228 @@ app.get('/leads', async (c) => {
           document.getElementById('create-form').reset();
         }
 
+
+        // 管理者専用列の表示
+        document.addEventListener('DOMContentLoaded', async function() {
+          const user = await AUTH_UTILS.getCurrentUser();
+          if (user && user.role === 'admin') {
+            // 管理者専用列を表示
+            document.querySelectorAll('.admin-only-column').forEach(el => {
+              el.style.display = '';
+            });
+          }
+        });
+
+        // リード削除確認
+        async function confirmDeleteLead(leadId, companyName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/leads/' + leadId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ リード: ' + companyName + '\\n';
+            
+            if (impact.projects.length > 0) {
+              message += '\\n■ 案件 (' + impact.projects.length + '件):\\n';
+              impact.projects.forEach(p => {
+                message += '  - ' + p.project_name + '\\n';
+              });
+            }
+            
+            if (impact.contracts.length > 0) {
+              message += '\\n■ 契約 (' + impact.contracts.length + '件):\\n';
+              impact.contracts.forEach(c => {
+                message += '  - ' + c.contract_name + '\\n';
+              });
+            }
+            
+            if (impact.monthly_details_count > 0) {
+              message += '\\n■ 月次明細: ' + impact.monthly_details_count + '件\\n';
+            }
+            
+            if (impact.member_assignments_count > 0) {
+              message += '\\n■ メンバーアサイン: ' + impact.member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/leads/' + leadId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // 案件削除確認
+        async function confirmDeleteProject(projectId, projectName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/projects/' + projectId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 案件: ' + projectName + '\\n';
+            
+            if (impact.contracts.length > 0) {
+              message += '\\n■ 契約 (' + impact.contracts.length + '件):\\n';
+              impact.contracts.forEach(c => {
+                message += '  - ' + c.contract_name + '\\n';
+              });
+            }
+            
+            if (impact.monthly_details_count > 0) {
+              message += '\\n■ 月次明細: ' + impact.monthly_details_count + '件\\n';
+            }
+            
+            if (impact.member_assignments_count > 0) {
+              message += '\\n■ メンバーアサイン: ' + impact.member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/projects/' + projectId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // 契約削除確認
+        async function confirmDeleteContract(contractId, contractName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/contracts/' + contractId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 契約: ' + contractName + '\\n';
+            
+            if (impact.monthly_details_count > 0) {
+              message += '\\n■ 月次明細: ' + impact.monthly_details_count + '件\\n';
+            }
+            
+            if (impact.contract_member_assignments_count > 0) {
+              message += '■ 契約メンバーアサイン: ' + impact.contract_member_assignments_count + '件\\n';
+            }
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/contracts/' + contractId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // 月次明細削除確認
+        async function confirmDeleteMonthlyDetail(monthlyDetailId, targetMonth, contractName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/monthly-details/' + monthlyDetailId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 月次明細: ' + targetMonth + ' - ' + contractName + '\\n';
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '\\n■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/monthly-details/' + monthlyDetailId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // メンバー削除確認
+        async function confirmDeleteMember(memberId, memberName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/members/' + memberId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ メンバー: ' + memberName + '\\n';
+            
+            if (impact.contract_member_assignments_count > 0) {
+              message += '\\n■ 契約メンバーアサイン: ' + impact.contract_member_assignments_count + '件\\n';
+            }
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/members/' + memberId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
         async function createLead(event) {
           event.preventDefault();
           const form = event.target;
@@ -8027,6 +8256,52 @@ app.get('/projects', async (c) => {
         });
 
         // CSVインポート実行
+
+        // 案件削除確認
+        async function confirmDeleteProject(projectId, projectName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/projects/' + projectId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 案件: ' + projectName + '\\n';
+            
+            if (impact.contracts.length > 0) {
+              message += '\\n■ 契約 (' + impact.contracts.length + '件):\\n';
+              impact.contracts.forEach(c => {
+                message += '  - ' + c.contract_name + '\\n';
+              });
+            }
+            
+            if (impact.monthly_details_count > 0) {
+              message += '\\n■ 月次明細: ' + impact.monthly_details_count + '件\\n';
+            }
+            
+            if (impact.member_assignments_count > 0) {
+              message += '\\n■ メンバーアサイン: ' + impact.member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/projects/' + projectId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
         async function importProjectsCSV() {
           const file = document.getElementById('csv-file').files[0];
           if (!file) {
@@ -8538,6 +8813,7 @@ app.get('/contracts', async (c) => {
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約金額</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">進捗</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+                  <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none;">操作</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -9218,6 +9494,522 @@ app.post('/api/monthly-details/import/csv', authMiddleware, requireAdmin, async 
     errors
   })
 })
+
+// ========================================
+// データ削除API（管理者のみ）
+// ========================================
+
+// リード削除API（関連する案件、契約、明細も含む）
+app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const leadId = parseInt(c.req.param('id'));
+
+  if (!leadId) {
+    return c.json({ success: false, error: 'リードIDが必要です' }, 400);
+  }
+
+  try {
+    // 関連データの確認
+    const projects = await DB.prepare(`
+      SELECT id, project_name FROM projects WHERE lead_id = ?
+    `).bind(leadId).all();
+
+    if (projects.results.length > 0) {
+      const projectIds = projects.results.map(p => p.id);
+      
+      // 契約と明細の確認
+      const contracts = await DB.prepare(`
+        SELECT id, contract_name FROM contracts WHERE project_id IN (${projectIds.join(',')})
+      `).all();
+
+      const contractIds = contracts.results.map(c => c.id);
+      
+      let monthlyDetailsCount = 0;
+      let memberAssignmentsCount = 0;
+      
+      if (contractIds.length > 0) {
+        const monthlyDetails = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        `).first();
+        monthlyDetailsCount = monthlyDetails.count;
+
+        const contractMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+        `).first();
+        memberAssignmentsCount = contractMembers.count;
+
+        // 月次メンバーアサインの確認
+        const monthlyMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_member_assignments 
+          WHERE monthly_detail_id IN (
+            SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+          )
+        `).first();
+        memberAssignmentsCount += monthlyMembers.count;
+      }
+
+      // 関連データも削除
+      if (contractIds.length > 0) {
+        // 月次メンバーアサインを削除
+        await DB.prepare(`
+          DELETE FROM monthly_member_assignments 
+          WHERE monthly_detail_id IN (
+            SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+          )
+        `).run();
+
+        // 月次明細を削除
+        await DB.prepare(`
+          DELETE FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        `).run();
+
+        // 契約メンバーアサインを削除
+        await DB.prepare(`
+          DELETE FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+        `).run();
+
+        // 契約を削除
+        await DB.prepare(`
+          DELETE FROM contracts WHERE project_id IN (${projectIds.join(',')})
+        `).run();
+      }
+
+      // 案件を削除
+      await DB.prepare(`
+        DELETE FROM projects WHERE lead_id = ?
+      `).bind(leadId).run();
+    }
+
+    // リードを削除
+    await DB.prepare(`
+      DELETE FROM leads WHERE id = ?
+    `).bind(leadId).run();
+
+    return c.json({
+      success: true,
+      deleted: {
+        leads: 1,
+        projects: projects.results.length,
+        contracts: contracts ? contracts.results.length : 0,
+        monthly_details: monthlyDetailsCount,
+        member_assignments: memberAssignmentsCount
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 案件削除API（関連する契約、明細も含む）
+app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const projectId = parseInt(c.req.param('id'));
+
+  if (!projectId) {
+    return c.json({ success: false, error: '案件IDが必要です' }, 400);
+  }
+
+  try {
+    // 関連データの確認
+    const contracts = await DB.prepare(`
+      SELECT id, contract_name FROM contracts WHERE project_id = ?
+    `).bind(projectId).all();
+
+    const contractIds = contracts.results.map(c => c.id);
+    
+    let monthlyDetailsCount = 0;
+    let memberAssignmentsCount = 0;
+    
+    if (contractIds.length > 0) {
+      const monthlyDetails = await DB.prepare(`
+        SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+      `).first();
+      monthlyDetailsCount = monthlyDetails.count;
+
+      const contractMembers = await DB.prepare(`
+        SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+      `).first();
+      memberAssignmentsCount = contractMembers.count;
+
+      const monthlyMembers = await DB.prepare(`
+        SELECT COUNT(*) as count FROM monthly_member_assignments 
+        WHERE monthly_detail_id IN (
+          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        )
+      `).first();
+      memberAssignmentsCount += monthlyMembers.count;
+
+      // 関連データを削除
+      await DB.prepare(`
+        DELETE FROM monthly_member_assignments 
+        WHERE monthly_detail_id IN (
+          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        )
+      `).run();
+
+      await DB.prepare(`
+        DELETE FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+      `).run();
+
+      await DB.prepare(`
+        DELETE FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+      `).run();
+
+      await DB.prepare(`
+        DELETE FROM contracts WHERE project_id = ?
+      `).bind(projectId).run();
+    }
+
+    // 案件を削除
+    await DB.prepare(`
+      DELETE FROM projects WHERE id = ?
+    `).bind(projectId).run();
+
+    return c.json({
+      success: true,
+      deleted: {
+        projects: 1,
+        contracts: contracts.results.length,
+        monthly_details: monthlyDetailsCount,
+        member_assignments: memberAssignmentsCount
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 契約削除API（関連する明細も含む）
+app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const contractId = parseInt(c.req.param('id'));
+
+  if (!contractId) {
+    return c.json({ success: false, error: '契約IDが必要です' }, 400);
+  }
+
+  try {
+    // 関連データの確認
+    const monthlyDetails = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_details WHERE contract_id = ?
+    `).bind(contractId).first();
+
+    const contractMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
+    `).bind(contractId).first();
+
+    const monthlyMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments 
+      WHERE monthly_detail_id IN (
+        SELECT id FROM monthly_details WHERE contract_id = ?
+      )
+    `).bind(contractId).first();
+
+    // 関連データを削除
+    await DB.prepare(`
+      DELETE FROM monthly_member_assignments 
+      WHERE monthly_detail_id IN (
+        SELECT id FROM monthly_details WHERE contract_id = ?
+      )
+    `).bind(contractId).run();
+
+    await DB.prepare(`
+      DELETE FROM monthly_details WHERE contract_id = ?
+    `).bind(contractId).run();
+
+    await DB.prepare(`
+      DELETE FROM contract_member_assignments WHERE contract_id = ?
+    `).bind(contractId).run();
+
+    await DB.prepare(`
+      DELETE FROM contracts WHERE id = ?
+    `).bind(contractId).run();
+
+    return c.json({
+      success: true,
+      deleted: {
+        contracts: 1,
+        monthly_details: monthlyDetails.count,
+        contract_member_assignments: contractMembers.count,
+        monthly_member_assignments: monthlyMembers.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 月次明細削除API（関連するメンバーアサインも含む）
+app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const monthlyDetailId = parseInt(c.req.param('id'));
+
+  if (!monthlyDetailId) {
+    return c.json({ success: false, error: '月次明細IDが必要です' }, 400);
+  }
+
+  try {
+    // 関連データの確認
+    const monthlyMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).first();
+
+    // 関連データを削除
+    await DB.prepare(`
+      DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).run();
+
+    await DB.prepare(`
+      DELETE FROM monthly_details WHERE id = ?
+    `).bind(monthlyDetailId).run();
+
+    return c.json({
+      success: true,
+      deleted: {
+        monthly_details: 1,
+        monthly_member_assignments: monthlyMembers.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// メンバー削除API（関連するアサインも含む）
+app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const memberId = parseInt(c.req.param('id'));
+
+  if (!memberId) {
+    return c.json({ success: false, error: 'メンバーIDが必要です' }, 400);
+  }
+
+  try {
+    // 関連データの確認
+    const contractAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
+
+    const monthlyAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
+
+    // 関連データを削除
+    await DB.prepare(`
+      DELETE FROM contract_member_assignments WHERE member_id = ?
+    `).bind(memberId).run();
+
+    await DB.prepare(`
+      DELETE FROM monthly_member_assignments WHERE member_id = ?
+    `).bind(memberId).run();
+
+    await DB.prepare(`
+      DELETE FROM members WHERE id = ?
+    `).bind(memberId).run();
+
+    return c.json({
+      success: true,
+      deleted: {
+        members: 1,
+        contract_member_assignments: contractAssignments.count,
+        monthly_member_assignments: monthlyAssignments.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 削除前の影響確認API
+app.get('/api/leads/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const leadId = parseInt(c.req.param('id'));
+
+  try {
+    const projects = await DB.prepare(`
+      SELECT id, project_name FROM projects WHERE lead_id = ?
+    `).bind(leadId).all();
+
+    const projectIds = projects.results.map(p => p.id);
+    let contracts = { results: [] };
+    let monthlyDetailsCount = 0;
+    let memberAssignmentsCount = 0;
+
+    if (projectIds.length > 0) {
+      contracts = await DB.prepare(`
+        SELECT id, contract_name FROM contracts WHERE project_id IN (${projectIds.join(',')})
+      `).all();
+
+      const contractIds = contracts.results.map(c => c.id);
+      
+      if (contractIds.length > 0) {
+        const monthlyDetails = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        `).first();
+        monthlyDetailsCount = monthlyDetails.count;
+
+        const allAssignments = await DB.prepare(`
+          SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+        `).first();
+        memberAssignmentsCount = allAssignments.count;
+
+        const monthlyAssignments = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_member_assignments 
+          WHERE monthly_detail_id IN (
+            SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+          )
+        `).first();
+        memberAssignmentsCount += monthlyAssignments.count;
+      }
+    }
+
+    return c.json({
+      success: true,
+      impact: {
+        projects: projects.results,
+        contracts: contracts.results,
+        monthly_details_count: monthlyDetailsCount,
+        member_assignments_count: memberAssignmentsCount
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.get('/api/projects/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const projectId = parseInt(c.req.param('id'));
+
+  try {
+    const contracts = await DB.prepare(`
+      SELECT id, contract_name FROM contracts WHERE project_id = ?
+    `).bind(projectId).all();
+
+    const contractIds = contracts.results.map(c => c.id);
+    let monthlyDetailsCount = 0;
+    let memberAssignmentsCount = 0;
+
+    if (contractIds.length > 0) {
+      const monthlyDetails = await DB.prepare(`
+        SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+      `).first();
+      monthlyDetailsCount = monthlyDetails.count;
+
+      const allAssignments = await DB.prepare(`
+        SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
+      `).first();
+      memberAssignmentsCount = allAssignments.count;
+
+      const monthlyAssignments = await DB.prepare(`
+        SELECT COUNT(*) as count FROM monthly_member_assignments 
+        WHERE monthly_detail_id IN (
+          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        )
+      `).first();
+      memberAssignmentsCount += monthlyAssignments.count;
+    }
+
+    return c.json({
+      success: true,
+      impact: {
+        contracts: contracts.results,
+        monthly_details_count: monthlyDetailsCount,
+        member_assignments_count: memberAssignmentsCount
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.get('/api/contracts/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const contractId = parseInt(c.req.param('id'));
+
+  try {
+    const monthlyDetails = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_details WHERE contract_id = ?
+    `).bind(contractId).first();
+
+    const contractMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
+    `).bind(contractId).first();
+
+    const monthlyMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments 
+      WHERE monthly_detail_id IN (
+        SELECT id FROM monthly_details WHERE contract_id = ?
+      )
+    `).bind(contractId).first();
+
+    return c.json({
+      success: true,
+      impact: {
+        monthly_details_count: monthlyDetails.count,
+        contract_member_assignments_count: contractMembers.count,
+        monthly_member_assignments_count: monthlyMembers.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.get('/api/monthly-details/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const monthlyDetailId = parseInt(c.req.param('id'));
+
+  try {
+    const monthlyMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).first();
+
+    return c.json({
+      success: true,
+      impact: {
+        monthly_member_assignments_count: monthlyMembers.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.get('/api/members/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const memberId = parseInt(c.req.param('id'));
+
+  try {
+    const contractAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
+
+    const monthlyAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
+
+    return c.json({
+      success: true,
+      impact: {
+        contract_member_assignments_count: contractAssignments.count,
+        monthly_member_assignments_count: monthlyAssignments.count
+      }
+    });
+
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
 
 // メンバー管理画面
 app.get('/members', async (c) => {
