@@ -1971,7 +1971,7 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
 
   for (let i = 0; i < contracts.length; i++) {
     const contract = contracts[i]
-    const { contract_name, project_name, company_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, member_emails, status } = contract
+    const { contract_name, project_name, company_name, contract_type, contract_date, contract_start_date, contract_end_date, contract_amount, payment_type, member_emails, status } = contract
 
     // バリデーション
     if (!contract_name || !contract_start_date || !contract_end_date || !contract_amount) {
@@ -2034,8 +2034,8 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
 
       // 契約を挿入
       const result = await DB.prepare(`
-        INSERT INTO contracts (project_id, contract_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO contracts (project_id, contract_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         project_id,
         contract_name,
@@ -2044,7 +2044,8 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
         contract_end_date,
         contract_amount,
         payment_type || '毎月支払',
-        status || 'active'
+        status || 'active',
+        contract_date || new Date().toISOString()
       ).run()
 
       const contract_id = result.meta.last_row_id
@@ -8386,12 +8387,13 @@ app.get('/contracts', async (c) => {
                 project_name: values[1] || '',
                 company_name: values[2] || '',
                 contract_type: values[3] || '準委任',
-                contract_start_date: values[4] || '',
-                contract_end_date: values[5] || '',
-                contract_amount: parseInt(values[6]) || 0,
-                payment_type: values[7] || '毎月支払',
-                member_emails: values[8] || '',
-                status: values[9] || 'active'
+                contract_date: values[4] || '',
+                contract_start_date: values[5] || '',
+                contract_end_date: values[6] || '',
+                contract_amount: parseInt(values[7]) || 0,
+                payment_type: values[8] || '毎月支払',
+                member_emails: values[9] || '',
+                status: values[10] || 'active'
               };
             });
 
@@ -8561,9 +8563,9 @@ app.get('/contracts', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メール:単価:稼働率;で区切る),ステータス</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約日,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メール:単価:稼働率;で区切る),ステータス</p>
             <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成され、指定したメンバーが単価・稼働率込みで全月にアサインされます</p>
-            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active</p>
+            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2025-12-20,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
