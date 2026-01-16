@@ -9587,75 +9587,80 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    let deletedProjects = 0;
+    let deletedContracts = 0;
+    let deletedMonthlyDetails = 0;
+    let deletedMemberAssignments = 0;
+
     // 関連データの確認
     const projects = await DB.prepare(`
       SELECT id, project_name FROM projects WHERE lead_id = ?
     `).bind(leadId).all();
 
     if (projects.results.length > 0) {
-      const projectIds = projects.results.map(p => p.id);
+      deletedProjects = projects.results.length;
       
-      // 契約と明細の確認
-      const contracts = await DB.prepare(`
-        SELECT id, contract_name FROM contracts WHERE project_id IN (${projectIds.join(',')})
-      `).all();
+      // 各案件に対して処理
+      for (const project of projects.results) {
+        const contracts = await DB.prepare(`
+          SELECT id, contract_name FROM contracts WHERE project_id = ?
+        `).bind(project.id).all();
 
-      const contractIds = contracts.results.map(c => c.id);
-      
-      let monthlyDetailsCount = 0;
-      let memberAssignmentsCount = 0;
-      
-      if (contractIds.length > 0) {
-        const monthlyDetails = await DB.prepare(`
-          SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-        `).first();
-        monthlyDetailsCount = monthlyDetails.count;
+        if (contracts.results.length > 0) {
+          deletedContracts += contracts.results.length;
+          
+          // 各契約に対して処理
+          for (const contract of contracts.results) {
+            // 月次明細のIDを取得
+            const monthlyDetails = await DB.prepare(`
+              SELECT id FROM monthly_details WHERE contract_id = ?
+            `).bind(contract.id).all();
 
-        const contractMembers = await DB.prepare(`
-          SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
-        `).first();
-        memberAssignmentsCount = contractMembers.count;
+            if (monthlyDetails.results.length > 0) {
+              deletedMonthlyDetails += monthlyDetails.results.length;
+              
+              // 各月次明細に対して月次メンバーアサインを削除
+              for (const md of monthlyDetails.results) {
+                const monthlyMembers = await DB.prepare(`
+                  SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+                `).bind(md.id).first();
+                
+                deletedMemberAssignments += monthlyMembers.count;
+                
+                await DB.prepare(`
+                  DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
+                `).bind(md.id).run();
+              }
+              
+              // 月次明細を削除
+              await DB.prepare(`
+                DELETE FROM monthly_details WHERE contract_id = ?
+              `).bind(contract.id).run();
+            }
 
-        // 月次メンバーアサインの確認
-        const monthlyMembers = await DB.prepare(`
-          SELECT COUNT(*) as count FROM monthly_member_assignments 
-          WHERE monthly_detail_id IN (
-            SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-          )
-        `).first();
-        memberAssignmentsCount += monthlyMembers.count;
+            // 契約メンバーアサインを削除
+            const contractMembers = await DB.prepare(`
+              SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
+            `).bind(contract.id).first();
+            
+            deletedMemberAssignments += contractMembers.count;
+            
+            await DB.prepare(`
+              DELETE FROM contract_member_assignments WHERE contract_id = ?
+            `).bind(contract.id).run();
+
+            // 契約を削除
+            await DB.prepare(`
+              DELETE FROM contracts WHERE id = ?
+            `).bind(contract.id).run();
+          }
+        }
+
+        // 案件を削除
+        await DB.prepare(`
+          DELETE FROM projects WHERE id = ?
+        `).bind(project.id).run();
       }
-
-      // 関連データも削除
-      if (contractIds.length > 0) {
-        // 月次メンバーアサインを削除
-        await DB.prepare(`
-          DELETE FROM monthly_member_assignments 
-          WHERE monthly_detail_id IN (
-            SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-          )
-        `).run();
-
-        // 月次明細を削除
-        await DB.prepare(`
-          DELETE FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-        `).run();
-
-        // 契約メンバーアサインを削除
-        await DB.prepare(`
-          DELETE FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
-        `).run();
-
-        // 契約を削除
-        await DB.prepare(`
-          DELETE FROM contracts WHERE project_id IN (${projectIds.join(',')})
-        `).run();
-      }
-
-      // 案件を削除
-      await DB.prepare(`
-        DELETE FROM projects WHERE lead_id = ?
-      `).bind(leadId).run();
     }
 
     // リードを削除
@@ -9667,10 +9672,10 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
       success: true,
       deleted: {
         leads: 1,
-        projects: projects.results.length,
-        contracts: contracts ? contracts.results.length : 0,
-        monthly_details: monthlyDetailsCount,
-        member_assignments: memberAssignmentsCount
+        projects: deletedProjects,
+        contracts: deletedContracts,
+        monthly_details: deletedMonthlyDetails,
+        member_assignments: deletedMemberAssignments
       }
     });
 
@@ -9689,54 +9694,63 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    let deletedContracts = 0;
+    let deletedMonthlyDetails = 0;
+    let deletedMemberAssignments = 0;
+
     // 関連データの確認
     const contracts = await DB.prepare(`
       SELECT id, contract_name FROM contracts WHERE project_id = ?
     `).bind(projectId).all();
 
-    const contractIds = contracts.results.map(c => c.id);
-    
-    let monthlyDetailsCount = 0;
-    let memberAssignmentsCount = 0;
-    
-    if (contractIds.length > 0) {
-      const monthlyDetails = await DB.prepare(`
-        SELECT COUNT(*) as count FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-      `).first();
-      monthlyDetailsCount = monthlyDetails.count;
+    if (contracts.results.length > 0) {
+      deletedContracts = contracts.results.length;
+      
+      // 各契約に対して処理
+      for (const contract of contracts.results) {
+        // 月次明細のIDを取得
+        const monthlyDetails = await DB.prepare(`
+          SELECT id FROM monthly_details WHERE contract_id = ?
+        `).bind(contract.id).all();
 
-      const contractMembers = await DB.prepare(`
-        SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
-      `).first();
-      memberAssignmentsCount = contractMembers.count;
+        if (monthlyDetails.results.length > 0) {
+          deletedMonthlyDetails += monthlyDetails.results.length;
+          
+          // 各月次明細に対して月次メンバーアサインを削除
+          for (const md of monthlyDetails.results) {
+            const monthlyMembers = await DB.prepare(`
+              SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+            `).bind(md.id).first();
+            
+            deletedMemberAssignments += monthlyMembers.count;
+            
+            await DB.prepare(`
+              DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
+            `).bind(md.id).run();
+          }
+          
+          // 月次明細を削除
+          await DB.prepare(`
+            DELETE FROM monthly_details WHERE contract_id = ?
+          `).bind(contract.id).run();
+        }
 
-      const monthlyMembers = await DB.prepare(`
-        SELECT COUNT(*) as count FROM monthly_member_assignments 
-        WHERE monthly_detail_id IN (
-          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-        )
-      `).first();
-      memberAssignmentsCount += monthlyMembers.count;
+        // 契約メンバーアサインを削除
+        const contractMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
+        `).bind(contract.id).first();
+        
+        deletedMemberAssignments += contractMembers.count;
+        
+        await DB.prepare(`
+          DELETE FROM contract_member_assignments WHERE contract_id = ?
+        `).bind(contract.id).run();
 
-      // 関連データを削除
-      await DB.prepare(`
-        DELETE FROM monthly_member_assignments 
-        WHERE monthly_detail_id IN (
-          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-        )
-      `).run();
-
-      await DB.prepare(`
-        DELETE FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
-      `).run();
-
-      await DB.prepare(`
-        DELETE FROM contract_member_assignments WHERE contract_id IN (${contractIds.join(',')})
-      `).run();
-
-      await DB.prepare(`
-        DELETE FROM contracts WHERE project_id = ?
-      `).bind(projectId).run();
+        // 契約を削除
+        await DB.prepare(`
+          DELETE FROM contracts WHERE id = ?
+        `).bind(contract.id).run();
+      }
     }
 
     // 案件を削除
@@ -9748,9 +9762,9 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
       success: true,
       deleted: {
         projects: 1,
-        contracts: contracts.results.length,
-        monthly_details: monthlyDetailsCount,
-        member_assignments: memberAssignmentsCount
+        contracts: deletedContracts,
+        monthly_details: deletedMonthlyDetails,
+        member_assignments: deletedMemberAssignments
       }
     });
 
@@ -9769,38 +9783,49 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
-    // 関連データの確認
-    const monthlyDetails = await DB.prepare(`
-      SELECT COUNT(*) as count FROM monthly_details WHERE contract_id = ?
-    `).bind(contractId).first();
+    let deletedMonthlyDetails = 0;
+    let deletedContractMembers = 0;
+    let deletedMonthlyMembers = 0;
 
+    // 月次明細を取得
+    const monthlyDetails = await DB.prepare(`
+      SELECT id FROM monthly_details WHERE contract_id = ?
+    `).bind(contractId).all();
+
+    if (monthlyDetails.results.length > 0) {
+      deletedMonthlyDetails = monthlyDetails.results.length;
+      
+      // 各月次明細の月次メンバーアサインを削除
+      for (const md of monthlyDetails.results) {
+        const monthlyMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+        `).bind(md.id).first();
+        
+        deletedMonthlyMembers += monthlyMembers.count;
+        
+        await DB.prepare(`
+          DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
+        `).bind(md.id).run();
+      }
+      
+      // 月次明細を削除
+      await DB.prepare(`
+        DELETE FROM monthly_details WHERE contract_id = ?
+      `).bind(contractId).run();
+    }
+
+    // 契約メンバーアサインを削除
     const contractMembers = await DB.prepare(`
       SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
     `).bind(contractId).first();
-
-    const monthlyMembers = await DB.prepare(`
-      SELECT COUNT(*) as count FROM monthly_member_assignments 
-      WHERE monthly_detail_id IN (
-        SELECT id FROM monthly_details WHERE contract_id = ?
-      )
-    `).bind(contractId).first();
-
-    // 関連データを削除
-    await DB.prepare(`
-      DELETE FROM monthly_member_assignments 
-      WHERE monthly_detail_id IN (
-        SELECT id FROM monthly_details WHERE contract_id = ?
-      )
-    `).bind(contractId).run();
-
-    await DB.prepare(`
-      DELETE FROM monthly_details WHERE contract_id = ?
-    `).bind(contractId).run();
-
+    
+    deletedContractMembers = contractMembers.count;
+    
     await DB.prepare(`
       DELETE FROM contract_member_assignments WHERE contract_id = ?
     `).bind(contractId).run();
 
+    // 契約を削除
     await DB.prepare(`
       DELETE FROM contracts WHERE id = ?
     `).bind(contractId).run();
@@ -9809,9 +9834,9 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
       success: true,
       deleted: {
         contracts: 1,
-        monthly_details: monthlyDetails.count,
-        contract_member_assignments: contractMembers.count,
-        monthly_member_assignments: monthlyMembers.count
+        monthly_details: deletedMonthlyDetails,
+        contract_member_assignments: deletedContractMembers,
+        monthly_member_assignments: deletedMonthlyMembers
       }
     });
 
