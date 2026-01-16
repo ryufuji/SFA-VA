@@ -1971,7 +1971,7 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
 
   for (let i = 0; i < contracts.length; i++) {
     const contract = contracts[i]
-    const { contract_name, project_name, company_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status } = contract
+    const { contract_name, project_name, company_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, member_emails, status } = contract
 
     // バリデーション
     if (!contract_name || !contract_start_date || !contract_end_date || !contract_amount) {
@@ -2011,6 +2011,18 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
         continue
       }
 
+      // メンバーIDリストを取得
+      const memberIds = []
+      if (member_emails) {
+        const emailList = member_emails.split(';').map((e: string) => e.trim()).filter((e: string) => e)
+        for (const email of emailList) {
+          const member = await DB.prepare('SELECT id FROM members WHERE email = ?').bind(email).first()
+          if (member) {
+            memberIds.push(member.id)
+          }
+        }
+      }
+
       // 契約を挿入
       const result = await DB.prepare(`
         INSERT INTO contracts (project_id, contract_name, contract_type, contract_start_date, contract_end_date, contract_amount, payment_type, status)
@@ -2043,6 +2055,16 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
           INSERT INTO monthly_details (contract_id, target_month, amount, inspection_status, billing_status, payment_status)
           VALUES (?, ?, ?, ?, ?, ?)
         `).bind(contract_id, month, monthlyAmount, '未検収', '未請求', '未入金').run()
+      }
+
+      // メンバーアサインを登録（全月次明細に対して）
+      if (memberIds.length > 0) {
+        for (const memberId of memberIds) {
+          await DB.prepare(`
+            INSERT INTO contract_member_assignments (contract_id, member_id)
+            VALUES (?, ?)
+          `).bind(contract_id, memberId).run()
+        }
       }
 
       success_count++
@@ -8359,6 +8381,7 @@ app.get('/contracts', async (c) => {
                 contract_end_date: values[5] || '',
                 contract_amount: parseInt(values[6]) || 0,
                 payment_type: values[7] || '毎月支払',
+                member_emails: values[8] || '',
                 status: values[9] || 'active'
               };
             });
@@ -8367,7 +8390,7 @@ app.get('/contracts', async (c) => {
               const response = await axios.post('/api/contracts/import/csv', { contracts });
               const { success_count, error_count, errors } = response.data;
               
-              let message = success_count + '件の契約をインポートしました（月次明細も自動生成）';
+              let message = success_count + '件の契約をインポートしました（月次明細とメンバーアサインも自動生成）';
               if (error_count > 0) {
                 message += '\\n\\nエラー: ' + error_count + '件';
                 errors.slice(0, 5).forEach(err => {
@@ -8529,8 +8552,9 @@ app.get('/contracts', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,月次明細数,ステータス</p>
-            <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成されます</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メールアドレス;で区切る),ステータス</p>
+            <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成され、指定したメンバーが全月にアサインされます</p>
+            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com;sato@example.com,active</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
