@@ -8710,6 +8710,8 @@ app.get('/monthly-details', async (c) => {
               document.getElementById('admin-menu').style.display = 'inline-block';
               document.getElementById('admin-csv-buttons').style.display = 'flex';
             }
+          }
+        });
 
         // CSVエクスポート
         async function exportCSV() {
@@ -10048,7 +10050,7 @@ app.get('/members', async (c) => {
             
             let message = success_count + '人のメンバーを追加しました';
             if (error_count > 0) {
-              message += '\n\n' + error_count + '件のエラー:\\n';
+              message += '\\n\\n' + error_count + '件のエラー:\\n';
               errors.forEach(err => {
                 message += '行' + err.index + ': ' + err.error;
                 if (err.email) message += ' (' + err.email + ')';
@@ -10159,7 +10161,7 @@ app.get('/members', async (c) => {
 
             let message = success_count + '人のメンバーをインポートしました';
             if (error_count > 0) {
-              message += '\n\n' + error_count + '件のエラー:\\n';
+              message += '\\n\\n' + error_count + '件のエラー:\\n';
               errors.forEach(err => {
                 message += '行' + err.index + ': ' + err.error;
                 if (err.email) message += ' (' + err.email + ')';
