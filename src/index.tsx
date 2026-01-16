@@ -10275,6 +10275,11 @@ app.get('/members', async (c) => {
             if (csvExportButton && user.role === 'admin') {
               csvExportButton.style.display = '';
             }
+            // 削除ボタンを管理者のみ表示
+            if (user.role === 'admin') {
+              const deleteButtons = document.querySelectorAll('.admin-only-column');
+              deleteButtons.forEach(btn => btn.style.display = '');
+            }
           }
         });
       </script>
@@ -10447,6 +10452,11 @@ app.get('/members', async (c) => {
                     <button onclick="editMember(${member.id}, '${member.name}', '${member.email || ''}', ${member.default_unit_price}, '${member.status}', '${member.position || ''}', '${(member.memo || '').replace(/'/g, "\\'")}');" 
                             class="text-blue-600 hover:text-blue-800 mr-3">
                       <i class="fas fa-edit mr-1"></i>編集
+                    </button>
+                    <button onclick="confirmDeleteMember(${member.id}, '${member.name.replace(/'/g, "\\'")}');" 
+                            class="text-red-600 hover:text-red-800 admin-only-column" style="display: none;">
+                      <i class="fas fa-trash mr-1"></i>削除
+                    </button>
                     </button>
                     <button onclick="toggleMemberStatus(${member.id}, '${member.status}')" 
                             class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800 mr-3">
