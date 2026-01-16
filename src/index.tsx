@@ -3727,6 +3727,9 @@ app.get('/leads', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
                 <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
                 </a>
@@ -4007,6 +4010,9 @@ app.get('/leads/:id', async (c) => {
                 </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
                 </a>
                 <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
@@ -4591,6 +4597,9 @@ app.get('/', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
                 <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
                 </a>
@@ -5035,7 +5044,10 @@ app.get('/projects/:id', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-user-friends mr-2"></i>メンバー
                   </a>
                 </div>
@@ -5539,7 +5551,10 @@ app.get('/contracts/:id', async (c) => {
                   <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-user-friends mr-2"></i>メンバー
                   </a>
                 </div>
@@ -5979,7 +5994,10 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-user-friends mr-2"></i>メンバー
                   </a>
                 </div>
@@ -6673,7 +6691,10 @@ app.get('/monthly/:id', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-user-friends mr-2"></i>メンバー
                   </a>
                 </div>
@@ -7730,7 +7751,10 @@ app.get('/monthly-list', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-user-friends mr-2"></i>メンバー
                   </a>
                 </div>
@@ -8078,6 +8102,9 @@ app.get('/projects', async (c) => {
                 </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
                 </a>
                 <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
@@ -8455,6 +8482,9 @@ app.get('/contracts', async (c) => {
                 <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
                 <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
                 </a>
@@ -8596,6 +8626,222 @@ app.get('/contracts', async (c) => {
   `)
 })
 
+
+// 月次明細一覧画面
+app.get('/monthly-details', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  // 全ての月次明細を取得（契約情報と案件情報を含む）
+  const { results: monthlyDetails } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      md.amount,
+      md.inspection_status,
+      md.billing_status,
+      md.payment_status,
+      c.contract_name,
+      c.contract_start_date,
+      c.contract_end_date,
+      p.project_name,
+      l.company_name
+    FROM monthly_details md
+    LEFT JOIN contracts c ON md.contract_id = c.id
+    LEFT JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    ORDER BY md.target_month DESC, md.id DESC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>月次明細一覧 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        const AUTH_UTILS = {
+          getToken: function() { return localStorage.getItem('jwt_token'); },
+          checkAuth: function() {
+            const token = this.getToken();
+            if (!token) { window.location.href = '/login'; return false; }
+            return true;
+          },
+          getCurrentUser: async function() {
+            const token = this.getToken();
+            if (!token) return null;
+            try {
+              const response = await axios.get('/api/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + token }
+              });
+              return response.data.user;
+            } catch (error) {
+              if (error.response?.status === 401) {
+                localStorage.removeItem('jwt_token');
+                window.location.href = '/login';
+              }
+              return null;
+            }
+          },
+          logout: async function() {
+            const token = this.getToken();
+            if (token) {
+              try {
+                await axios.post('/api/auth/logout', {}, {
+                  headers: { 'Authorization': 'Bearer ' + token }
+                });
+              } catch (error) {}
+              localStorage.removeItem('jwt_token');
+            }
+            window.location.href = '/login';
+          }
+        };
+
+        document.addEventListener('DOMContentLoaded', async function() {
+          if (!AUTH_UTILS.checkAuth()) return;
+          
+          const user = await AUTH_UTILS.getCurrentUser();
+          if (user) {
+            document.getElementById('nav-user-name').textContent = user.email;
+            if (user.role === 'admin') {
+              document.getElementById('admin-menu').style.display = 'inline-block';
+            }
+          }
+        });
+      </script>
+    </head>
+    <body class="bg-gray-100">
+      <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+          <div class="flex justify-between h-16">
+            <div class="flex space-x-8">
+              <div class="flex items-center space-x-4">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/monthly-details" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
+                </a>
+                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-sm text-gray-700">
+                <i class="fas fa-user-circle mr-1"></i>
+                <span id="nav-user-name">読込中...</span>
+              </span>
+              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-user-cog mr-1"></i>プロフィール
+              </a>
+              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
+                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              </a>
+              <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-8 px-4">
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold text-gray-800">
+            <i class="fas fa-calendar-alt mr-2"></i>月次明細一覧
+          </h1>
+        </div>
+
+        ${monthlyDetails.length > 0 ? `
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">対象月</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約名</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件名</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">会社名</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">金額</th>
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">検収</th>
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">請求</th>
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">入金</th>
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              ${monthlyDetails.map(detail => `
+                <tr class="hover:bg-gray-50">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    ${detail.target_month}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ${detail.contract_name || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ${detail.project_name || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ${detail.company_name || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                    ¥${detail.amount?.toLocaleString() || '0'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      detail.inspection_status === '検収済' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                    }">
+                      ${detail.inspection_status || '未検収'}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      detail.billing_status === '請求済' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                    }">
+                      ${detail.billing_status || '未請求'}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      detail.payment_status === '入金済' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
+                    }">
+                      ${detail.payment_status || '未入金'}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                    <a href="/monthly/${detail.id}" class="text-blue-600 hover:text-blue-900">
+                      <i class="fas fa-eye mr-1"></i>詳細
+                    </a>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : `
+        <div class="text-center py-12 text-gray-500">
+          <i class="fas fa-inbox text-4xl mb-2"></i>
+          <p>月次明細がまだありません</p>
+        </div>
+        `}
+      </div>
+    </body>
+    </html>
+  `)
+})
+
 // メンバー管理画面
 app.get('/members', async (c) => {
   const { DB } = c.env
@@ -8710,6 +8956,9 @@ app.get('/members', async (c) => {
                 </a>
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-calendar-alt mr-2"></i>明細
                 </a>
                 <a href="/members" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-user-friends mr-2"></i>メンバー
