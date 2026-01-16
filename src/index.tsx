@@ -2011,14 +2011,23 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
         continue
       }
 
-      // メンバーIDリストを取得
-      const memberIds = []
+      // メンバー情報リストを取得（メール:単価:稼働率）
+      const memberAssignments = []
       if (member_emails) {
         const emailList = member_emails.split(';').map((e: string) => e.trim()).filter((e: string) => e)
-        for (const email of emailList) {
-          const member = await DB.prepare('SELECT id FROM members WHERE email = ?').bind(email).first()
+        for (const emailStr of emailList) {
+          const parts = emailStr.split(':').map((p: string) => p.trim())
+          const email = parts[0]
+          const unit_price = parts[1] ? parseInt(parts[1]) : null
+          const allocation_ratio = parts[2] ? parseFloat(parts[2]) : null
+          
+          const member = await DB.prepare('SELECT id, default_unit_price FROM members WHERE email = ?').bind(email).first()
           if (member) {
-            memberIds.push(member.id)
+            memberAssignments.push({
+              member_id: member.id,
+              unit_price: unit_price || member.default_unit_price || 0,
+              allocation_ratio: allocation_ratio !== null ? allocation_ratio : 1.0
+            })
           }
         }
       }
@@ -2057,13 +2066,13 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
         `).bind(contract_id, month, monthlyAmount, '未検収', '未請求', '未入金').run()
       }
 
-      // メンバーアサインを登録（全月次明細に対して）
-      if (memberIds.length > 0) {
-        for (const memberId of memberIds) {
+      // メンバーアサインを登録（単価と稼働率込み）
+      if (memberAssignments.length > 0) {
+        for (const assignment of memberAssignments) {
           await DB.prepare(`
-            INSERT INTO contract_member_assignments (contract_id, member_id)
-            VALUES (?, ?)
-          `).bind(contract_id, memberId).run()
+            INSERT INTO contract_member_assignments (contract_id, member_id, unit_price, allocation_ratio)
+            VALUES (?, ?, ?, ?)
+          `).bind(contract_id, assignment.member_id, assignment.unit_price, assignment.allocation_ratio).run()
         }
       }
 
@@ -8360,7 +8369,7 @@ app.get('/contracts', async (c) => {
             return;
           }
 
-          if (!confirm('CSVファイルをインポートしますか？\\n契約期間から月次明細が自動生成されます。')) return;
+          if (!confirm('CSVファイルをインポートしますか？\\n契約期間から月次明細が自動生成され、メンバーアサイン（単価・稼働率込み）も登録されます。')) return;
 
           const reader = new FileReader();
           reader.onload = async function(event) {
@@ -8390,7 +8399,7 @@ app.get('/contracts', async (c) => {
               const response = await axios.post('/api/contracts/import/csv', { contracts });
               const { success_count, error_count, errors } = response.data;
               
-              let message = success_count + '件の契約をインポートしました（月次明細とメンバーアサインも自動生成）';
+              let message = success_count + '件の契約をインポートしました（月次明細とメンバーアサイン（単価・稼働率込み）も自動生成）';
               if (error_count > 0) {
                 message += '\\n\\nエラー: ' + error_count + '件';
                 errors.slice(0, 5).forEach(err => {
@@ -8552,9 +8561,9 @@ app.get('/contracts', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メールアドレス;で区切る),ステータス</p>
-            <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成され、指定したメンバーが全月にアサインされます</p>
-            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com;sato@example.com,active</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 契約名,案件名,会社名,契約種別,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー(メール:単価:稼働率;で区切る),ステータス</p>
+            <p class="text-sm text-red-600 mb-2">※契約期間から月次明細が自動生成され、指定したメンバーが単価・稼働率込みで全月にアサインされます</p>
+            <p class="text-sm text-gray-500 mb-2">例: Q1契約,案件A,株式会社テスト,準委任,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
