@@ -9674,14 +9674,16 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
 
     console.log(`[DELETE] Executing ${allStatements.length} delete statements`);
     
-    // バッチで全削除を実行（外部キー制約を一時的に無効化）
-    const batchStatements = [
-      DB.prepare('PRAGMA foreign_keys = OFF'),
-      ...allStatements,
-      DB.prepare('PRAGMA foreign_keys = ON')
-    ];
-    
-    await DB.batch(batchStatements);
+    // 個別に削除を実行（順序を保証）
+    for (let i = 0; i < allStatements.length; i++) {
+      try {
+        await allStatements[i].run();
+        console.log(`[DELETE] Statement ${i+1}/${allStatements.length} executed successfully`);
+      } catch (err) {
+        console.error(`[DELETE] Statement ${i+1}/${allStatements.length} failed:`, err);
+        throw err;
+      }
+    }
 
     return c.json({
       success: true,
