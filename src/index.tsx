@@ -8628,7 +8628,7 @@ app.get('/contracts', async (c) => {
 
 
 // 月次明細一覧画面
-app.get('/monthly-details', authMiddleware, async (c) => {
+app.get('/monthly-details', async (c) => {
   const { DB } = c.env
   
   // 全ての月次明細を取得（契約情報と案件情報を含む）
