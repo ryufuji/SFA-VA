@@ -8711,43 +8711,8 @@ app.get('/monthly-details', async (c) => {
               document.getElementById('admin-csv-buttons').style.display = 'flex';
             }
           }
-        });
 
-        // CSVエクスポート
-        async function exportCSV() {
-          try {
-            const token = AUTH_UTILS.getToken();
-            const response = await axios.get('/api/monthly-details/export/csv', {
-              headers: { 'Authorization': 'Bearer ' + token },
-              responseType: 'blob'
-            });
-            
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', 'monthly_details.csv');
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-          } catch (error) {
-            alert('エクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
-          }
-        }
-
-        // CSVインポートモーダル
-        function openImportModal() {
-          document.getElementById('import-modal').classList.remove('hidden');
-        }
-
-        function closeImportModal() {
-          document.getElementById('import-modal').classList.add('hidden');
-          document.getElementById('csv-file').value = '';
-          document.getElementById('import-preview').innerHTML = '';
-          document.getElementById('import-button').disabled = true;
-        }
-
-        // CSVファイル読み込み
-        document.addEventListener('DOMContentLoaded', function() {
+          // CSVファイル読み込みイベント
           const csvFileInput = document.getElementById('csv-file');
           if (csvFileInput) {
             csvFileInput.addEventListener('change', function(event) {
@@ -8785,6 +8750,39 @@ app.get('/monthly-details', async (c) => {
             });
           }
         });
+
+        // CSVエクスポート
+        async function exportCSV() {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/monthly-details/export/csv', {
+              headers: { 'Authorization': 'Bearer ' + token },
+              responseType: 'blob'
+            });
+            
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'monthly_details.csv');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } catch (error) {
+            alert('エクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // CSVインポートモーダル
+        function openImportModal() {
+          document.getElementById('import-modal').classList.remove('hidden');
+        }
+
+        function closeImportModal() {
+          document.getElementById('import-modal').classList.add('hidden');
+          document.getElementById('csv-file').value = '';
+          document.getElementById('import-preview').innerHTML = '';
+          document.getElementById('import-button').disabled = true;
+        }
 
         // CSVインポート実行
         async function importMonthlyDetailsCSV() {
@@ -8851,8 +8849,6 @@ app.get('/monthly-details', async (c) => {
           };
           reader.readAsText(file);
         }
-          }
-        });
       </script>
     </head>
     <body class="bg-gray-100">
