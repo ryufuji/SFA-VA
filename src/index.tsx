@@ -8673,6 +8673,49 @@ app.get('/contracts', async (c) => {
           }
         });
 
+
+        // 契約削除確認
+        async function confirmDeleteContract(contractId, contractName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/contracts/' + contractId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 契約: ' + contractName + '\\n';
+            
+            if (impact.monthly_details_count > 0) {
+              message += '\\n■ 月次明細: ' + impact.monthly_details_count + '件\\n';
+            }
+            
+            if (impact.contract_member_assignments_count > 0) {
+              message += '■ 契約メンバーアサイン: ' + impact.contract_member_assignments_count + '件\\n';
+            }
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/contracts/' + contractId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
         // CSVインポート実行
         async function importContractsCSV() {
           const file = document.getElementById('csv-file').files[0];
@@ -9026,6 +9069,41 @@ app.get('/monthly-details', async (c) => {
             });
           }
         });
+
+
+        // 月次明細削除確認
+        async function confirmDeleteMonthlyDetail(monthlyDetailId, targetMonth, contractName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/monthly-details/' + monthlyDetailId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ 月次明細: ' + targetMonth + ' - ' + contractName + '\\n';
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '\\n■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/monthly-details/' + monthlyDetailId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
 
         // CSVエクスポート
         async function exportCSV() {
@@ -10712,6 +10790,45 @@ app.get('/members', async (c) => {
             </div>
           \`;
         });
+
+
+        // メンバー削除確認
+        async function confirmDeleteMember(memberId, memberName) {
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.get('/api/members/' + memberId + '/delete-impact', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            const impact = response.data.impact;
+            
+            let message = '以下のデータを完全に削除します：\\n\\n';
+            message += '■ メンバー: ' + memberName + '\\n';
+            
+            if (impact.contract_member_assignments_count > 0) {
+              message += '\\n■ 契約メンバーアサイン: ' + impact.contract_member_assignments_count + '件\\n';
+            }
+            
+            if (impact.monthly_member_assignments_count > 0) {
+              message += '■ 月次メンバーアサイン: ' + impact.monthly_member_assignments_count + '件\\n';
+            }
+            
+            message += '\\nこの操作は取り消せません。本当に削除しますか？';
+            
+            if (!confirm(message)) return;
+            
+            const deleteResponse = await axios.delete('/api/members/' + memberId, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            if (deleteResponse.data.success) {
+              alert('削除しました');
+              location.reload();
+            }
+          } catch (error) {
+            alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
 
         function openAddMemberModal() {
           document.getElementById('add-member-modal').classList.remove('hidden');
