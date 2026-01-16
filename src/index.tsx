@@ -9587,6 +9587,9 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    // 外部キー制約を一時的に無効化
+    await DB.exec(`PRAGMA foreign_keys = OFF;`);
+
     let deletedProjects = 0;
     let deletedContracts = 0;
     let deletedMonthlyDetails = 0;
@@ -9668,6 +9671,9 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
       DELETE FROM leads WHERE id = ?
     `).bind(leadId).run();
 
+    // 外部キー制約を再度有効化
+    await DB.exec(`PRAGMA foreign_keys = ON;`);
+
     return c.json({
       success: true,
       deleted: {
@@ -9680,6 +9686,12 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    // エラーが発生しても外部キー制約を有効化
+    try {
+      await DB.exec(`PRAGMA foreign_keys = ON;`);
+    } catch (e) {
+      console.error('Failed to re-enable foreign keys:', e);
+    }
     console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -9695,6 +9707,9 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    // 外部キー制約を一時的に無効化
+    await DB.exec(`PRAGMA foreign_keys = OFF;`);
+
     let deletedContracts = 0;
     let deletedMonthlyDetails = 0;
     let deletedMemberAssignments = 0;
@@ -9760,6 +9775,9 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
       DELETE FROM projects WHERE id = ?
     `).bind(projectId).run();
 
+    // 外部キー制約を再度有効化
+    await DB.exec(`PRAGMA foreign_keys = ON;`);
+
     return c.json({
       success: true,
       deleted: {
@@ -9771,6 +9789,12 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    // エラーが発生しても外部キー制約を有効化
+    try {
+      await DB.exec(`PRAGMA foreign_keys = ON;`);
+    } catch (e) {
+      console.error('Failed to re-enable foreign keys:', e);
+    }
     console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -9786,6 +9810,9 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    // 外部キー制約を一時的に無効化
+    await DB.exec(`PRAGMA foreign_keys = OFF;`);
+
     let deletedMonthlyDetails = 0;
     let deletedContractMembers = 0;
     let deletedMonthlyMembers = 0;
@@ -9834,6 +9861,9 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
       DELETE FROM contracts WHERE id = ?
     `).bind(contractId).run();
 
+    // 外部キー制約を再度有効化
+    await DB.exec(`PRAGMA foreign_keys = ON;`);
+
     return c.json({
       success: true,
       deleted: {
@@ -9845,6 +9875,12 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    // エラーが発生しても外部キー制約を有効化
+    try {
+      await DB.exec(`PRAGMA foreign_keys = ON;`);
+    } catch (e) {
+      console.error('Failed to re-enable foreign keys:', e);
+    }
     console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -9860,6 +9896,9 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
   }
 
   try {
+    // 外部キー制約を一時的に無効化
+    await DB.exec(`PRAGMA foreign_keys = OFF;`);
+
     // 関連データの確認
     const monthlyMembers = await DB.prepare(`
       SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
@@ -9875,6 +9914,9 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
       DELETE FROM monthly_details WHERE id = ?
     `).bind(monthlyDetailId).run();
 
+    // 外部キー制約を再度有効化
+    await DB.exec(`PRAGMA foreign_keys = ON;`);
+
     return c.json({
       success: true,
       deleted: {
@@ -9884,6 +9926,12 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
     });
 
   } catch (error) {
+    // エラーが発生しても外部キー制約を有効化
+    try {
+      await DB.exec(`PRAGMA foreign_keys = ON;`);
+    } catch (e) {
+      console.error('Failed to re-enable foreign keys:', e);
+    }
     console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -9899,6 +9947,9 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    // 外部キー制約を一時的に無効化
+    await DB.exec(`PRAGMA foreign_keys = OFF;`);
+
     // 関連データの確認
     const contractAssignments = await DB.prepare(`
       SELECT COUNT(*) as count FROM contract_member_assignments WHERE member_id = ?
@@ -9928,6 +9979,9 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
       DELETE FROM members WHERE id = ?
     `).bind(memberId).run();
 
+    // 外部キー制約を再度有効化
+    await DB.exec(`PRAGMA foreign_keys = ON;`);
+
     return c.json({
       success: true,
       deleted: {
@@ -9938,6 +9992,12 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    // エラーが発生しても外部キー制約を有効化
+    try {
+      await DB.exec(`PRAGMA foreign_keys = ON;`);
+    } catch (e) {
+      console.error('Failed to re-enable foreign keys:', e);
+    }
     console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
