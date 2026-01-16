@@ -9587,29 +9587,31 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
+    console.log(`[DELETE] Starting lead deletion for leadId=${leadId}`);
     let deletedProjects = 0;
     let deletedContracts = 0;
     let deletedMonthlyDetails = 0;
     let deletedMemberAssignments = 0;
 
-    // 1. まず、全ての関連IDを収集
+    // まず、削除対象のIDをすべて収集
     const projects = await DB.prepare(`
       SELECT id FROM projects WHERE lead_id = ?
     `).bind(leadId).all();
+    console.log(`[DELETE] Found ${projects.results.length} projects`);
 
+    const allStatements = [];
+    
     if (projects.results.length > 0) {
       deletedProjects = projects.results.length;
       
-      // 2. 各案件について処理
       for (const project of projects.results) {
         const contracts = await DB.prepare(`
           SELECT id FROM contracts WHERE project_id = ?
         `).bind(project.id).all();
-
+        
         if (contracts.results.length > 0) {
           deletedContracts += contracts.results.length;
           
-          // 3. 各契約について処理
           for (const contract of contracts.results) {
             const monthlyDetails = await DB.prepare(`
               SELECT id FROM monthly_details WHERE contract_id = ?
@@ -9618,27 +9620,24 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
             if (monthlyDetails.results.length > 0) {
               deletedMonthlyDetails += monthlyDetails.results.length;
               
-              // 4. 各月次明細について処理
+              // 月次メンバーアサインの削除文を追加
               for (const monthly of monthlyDetails.results) {
-                // 月次メンバーアサインのカウント
                 const monthlyMembers = await DB.prepare(`
                   SELECT COUNT(*) as count FROM monthly_member_assignments 
                   WHERE monthly_detail_id = ?
                 `).bind(monthly.id).first();
                 deletedMemberAssignments += monthlyMembers.count;
                 
-                // 月次メンバーアサインを削除
-                await DB.prepare(`
-                  DELETE FROM monthly_member_assignments 
-                  WHERE monthly_detail_id = ?
-                `).bind(monthly.id).run();
+                allStatements.push(
+                  DB.prepare(`DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?`).bind(monthly.id)
+                );
               }
               
-              // 月次明細を削除
+              // 月次明細の削除文を追加
               for (const monthly of monthlyDetails.results) {
-                await DB.prepare(`
-                  DELETE FROM monthly_details WHERE id = ?
-                `).bind(monthly.id).run();
+                allStatements.push(
+                  DB.prepare(`DELETE FROM monthly_details WHERE id = ?`).bind(monthly.id)
+                );
               }
             }
 
@@ -9649,30 +9648,34 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
             `).bind(contract.id).first();
             deletedMemberAssignments += contractMembers.count;
             
-            // 契約メンバーアサインを削除
-            await DB.prepare(`
-              DELETE FROM contract_member_assignments 
-              WHERE contract_id = ?
-            `).bind(contract.id).run();
+            // 契約メンバーアサインの削除文を追加
+            allStatements.push(
+              DB.prepare(`DELETE FROM contract_member_assignments WHERE contract_id = ?`).bind(contract.id)
+            );
             
-            // 契約を削除
-            await DB.prepare(`
-              DELETE FROM contracts WHERE id = ?
-            `).bind(contract.id).run();
+            // 契約の削除文を追加
+            allStatements.push(
+              DB.prepare(`DELETE FROM contracts WHERE id = ?`).bind(contract.id)
+            );
           }
         }
 
-        // 案件を削除
-        await DB.prepare(`
-          DELETE FROM projects WHERE id = ?
-        `).bind(project.id).run();
+        // 案件の削除文を追加
+        allStatements.push(
+          DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(project.id)
+        );
       }
     }
 
-    // リードを削除
-    await DB.prepare(`
-      DELETE FROM leads WHERE id = ?
-    `).bind(leadId).run();
+    // リードの削除文を追加
+    allStatements.push(
+      DB.prepare(`DELETE FROM leads WHERE id = ?`).bind(leadId)
+    );
+
+    console.log(`[DELETE] Executing ${allStatements.length} delete statements`);
+    
+    // バッチで全削除を実行
+    await DB.batch(allStatements);
 
     return c.json({
       success: true,
