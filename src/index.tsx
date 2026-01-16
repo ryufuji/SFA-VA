@@ -9592,90 +9592,81 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
     let deletedMonthlyDetails = 0;
     let deletedMemberAssignments = 0;
 
-    // 外部キー制約を一時的に無効化
-    await DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+    // まず、全ての関連IDを収集
+    const projects = await DB.prepare(`
+      SELECT id FROM projects WHERE lead_id = ?
+    `).bind(leadId).all();
 
-    try {
-      // 関連データの確認
-      const projects = await DB.prepare(`
-        SELECT id, project_name FROM projects WHERE lead_id = ?
-      `).bind(leadId).all();
+    if (projects.results.length > 0) {
+      deletedProjects = projects.results.length;
+      const projectIds = projects.results.map(p => p.id);
+      
+      // 契約IDを収集
+      const contracts = await DB.prepare(`
+        SELECT id FROM contracts WHERE project_id IN (${projectIds.join(',')})
+      `).all();
 
-      if (projects.results.length > 0) {
-        deletedProjects = projects.results.length;
+      if (contracts.results.length > 0) {
+        deletedContracts = contracts.results.length;
+        const contractIds = contracts.results.map(c => c.id);
         
-        // 各案件に対して処理
-        for (const project of projects.results) {
-          const contracts = await DB.prepare(`
-            SELECT id, contract_name FROM contracts WHERE project_id = ?
-          `).bind(project.id).all();
+        // 月次明細IDを収集
+        const monthlyDetails = await DB.prepare(`
+          SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+        `).all();
 
-          if (contracts.results.length > 0) {
-            deletedContracts += contracts.results.length;
-            
-            // 各契約に対して処理
-            for (const contract of contracts.results) {
-              // 月次明細のIDを取得
-              const monthlyDetails = await DB.prepare(`
-                SELECT id FROM monthly_details WHERE contract_id = ?
-              `).bind(contract.id).all();
-
-              if (monthlyDetails.results.length > 0) {
-                deletedMonthlyDetails += monthlyDetails.results.length;
-                
-                // 各月次明細に対して月次メンバーアサインを削除
-                for (const md of monthlyDetails.results) {
-                  const monthlyMembers = await DB.prepare(`
-                    SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
-                  `).bind(md.id).first();
-                  
-                  deletedMemberAssignments += monthlyMembers.count;
-                  
-                  await DB.prepare(`
-                    DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
-                  `).bind(md.id).run();
-                }
-                
-                // 月次明細を削除
-                await DB.prepare(`
-                  DELETE FROM monthly_details WHERE contract_id = ?
-                `).bind(contract.id).run();
-              }
-
-              // 契約メンバーアサインを削除
-              const contractMembers = await DB.prepare(`
-                SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
-              `).bind(contract.id).first();
-              
-              deletedMemberAssignments += contractMembers.count;
-              
-              await DB.prepare(`
-                DELETE FROM contract_member_assignments WHERE contract_id = ?
-              `).bind(contract.id).run();
-
-              // 契約を削除
-              await DB.prepare(`
-                DELETE FROM contracts WHERE id = ?
-              `).bind(contract.id).run();
-            }
-          }
-
-          // 案件を削除
+        if (monthlyDetails.results.length > 0) {
+          deletedMonthlyDetails = monthlyDetails.results.length;
+          const monthlyDetailIds = monthlyDetails.results.map(md => md.id);
+          
+          // 月次メンバーアサインのカウント
+          const monthlyMembers = await DB.prepare(`
+            SELECT COUNT(*) as count FROM monthly_member_assignments 
+            WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+          `).first();
+          deletedMemberAssignments += monthlyMembers.count;
+          
+          // 月次メンバーアサインを削除
           await DB.prepare(`
-            DELETE FROM projects WHERE id = ?
-          `).bind(project.id).run();
+            DELETE FROM monthly_member_assignments 
+            WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+          `).run();
+          
+          // 月次明細を削除
+          await DB.prepare(`
+            DELETE FROM monthly_details WHERE id IN (${monthlyDetailIds.join(',')})
+          `).run();
         }
+
+        // 契約メンバーアサインのカウント
+        const contractMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM contract_member_assignments 
+          WHERE contract_id IN (${contractIds.join(',')})
+        `).first();
+        deletedMemberAssignments += contractMembers.count;
+        
+        // 契約メンバーアサインを削除
+        await DB.prepare(`
+          DELETE FROM contract_member_assignments 
+          WHERE contract_id IN (${contractIds.join(',')})
+        `).run();
+
+        // 契約を削除
+        await DB.prepare(`
+          DELETE FROM contracts WHERE id IN (${contractIds.join(',')})
+        `).run();
       }
 
-      // リードを削除
+      // 案件を削除
       await DB.prepare(`
-        DELETE FROM leads WHERE id = ?
-      `).bind(leadId).run();
-
-    } finally {
-      // 外部キー制約を再度有効化
-      await DB.prepare(`PRAGMA foreign_keys = ON`).run();
+        DELETE FROM projects WHERE id IN (${projectIds.join(',')})
+      `).run();
     }
+
+    // リードを削除
+    await DB.prepare(`
+      DELETE FROM leads WHERE id = ?
+    `).bind(leadId).run();
 
     return c.json({
       success: true,
@@ -9689,6 +9680,7 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -9707,74 +9699,66 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
     let deletedMonthlyDetails = 0;
     let deletedMemberAssignments = 0;
 
-    // 外部キー制約を一時的に無効化
-    await DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+    // 契約IDを収集
+    const contracts = await DB.prepare(`
+      SELECT id FROM contracts WHERE project_id = ?
+    `).bind(projectId).all();
 
-    try {
-      // 関連データの確認
-      const contracts = await DB.prepare(`
-        SELECT id, contract_name FROM contracts WHERE project_id = ?
-      `).bind(projectId).all();
+    if (contracts.results.length > 0) {
+      deletedContracts = contracts.results.length;
+      const contractIds = contracts.results.map(c => c.id);
+      
+      // 月次明細IDを収集
+      const monthlyDetails = await DB.prepare(`
+        SELECT id FROM monthly_details WHERE contract_id IN (${contractIds.join(',')})
+      `).all();
 
-      if (contracts.results.length > 0) {
-        deletedContracts = contracts.results.length;
+      if (monthlyDetails.results.length > 0) {
+        deletedMonthlyDetails = monthlyDetails.results.length;
+        const monthlyDetailIds = monthlyDetails.results.map(md => md.id);
         
-        // 各契約に対して処理
-        for (const contract of contracts.results) {
-          // 月次明細のIDを取得
-          const monthlyDetails = await DB.prepare(`
-            SELECT id FROM monthly_details WHERE contract_id = ?
-          `).bind(contract.id).all();
-
-          if (monthlyDetails.results.length > 0) {
-            deletedMonthlyDetails += monthlyDetails.results.length;
-            
-            // 各月次明細に対して月次メンバーアサインを削除
-            for (const md of monthlyDetails.results) {
-              const monthlyMembers = await DB.prepare(`
-                SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
-              `).bind(md.id).first();
-              
-              deletedMemberAssignments += monthlyMembers.count;
-              
-              await DB.prepare(`
-                DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
-              `).bind(md.id).run();
-            }
-            
-            // 月次明細を削除
-            await DB.prepare(`
-              DELETE FROM monthly_details WHERE contract_id = ?
-            `).bind(contract.id).run();
-          }
-
-          // 契約メンバーアサインを削除
-          const contractMembers = await DB.prepare(`
-            SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
-          `).bind(contract.id).first();
-          
-          deletedMemberAssignments += contractMembers.count;
-          
-          await DB.prepare(`
-            DELETE FROM contract_member_assignments WHERE contract_id = ?
-          `).bind(contract.id).run();
-
-          // 契約を削除
-          await DB.prepare(`
-            DELETE FROM contracts WHERE id = ?
-          `).bind(contract.id).run();
-        }
+        // 月次メンバーアサインのカウント
+        const monthlyMembers = await DB.prepare(`
+          SELECT COUNT(*) as count FROM monthly_member_assignments 
+          WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+        `).first();
+        deletedMemberAssignments += monthlyMembers.count;
+        
+        // 月次メンバーアサインを削除
+        await DB.prepare(`
+          DELETE FROM monthly_member_assignments 
+          WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+        `).run();
+        
+        // 月次明細を削除
+        await DB.prepare(`
+          DELETE FROM monthly_details WHERE id IN (${monthlyDetailIds.join(',')})
+        `).run();
       }
 
-      // 案件を削除
+      // 契約メンバーアサインのカウント
+      const contractMembers = await DB.prepare(`
+        SELECT COUNT(*) as count FROM contract_member_assignments 
+        WHERE contract_id IN (${contractIds.join(',')})
+      `).first();
+      deletedMemberAssignments += contractMembers.count;
+      
+      // 契約メンバーアサインを削除
       await DB.prepare(`
-        DELETE FROM projects WHERE id = ?
-      `).bind(projectId).run();
+        DELETE FROM contract_member_assignments 
+        WHERE contract_id IN (${contractIds.join(',')})
+      `).run();
 
-    } finally {
-      // 外部キー制約を再度有効化
-      await DB.prepare(`PRAGMA foreign_keys = ON`).run();
+      // 契約を削除
+      await DB.prepare(`
+        DELETE FROM contracts WHERE id IN (${contractIds.join(',')})
+      `).run();
     }
+
+    // 案件を削除
+    await DB.prepare(`
+      DELETE FROM projects WHERE id = ?
+    `).bind(projectId).run();
 
     return c.json({
       success: true,
@@ -9787,6 +9771,7 @@ app.delete('/api/projects/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -9805,57 +9790,49 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
     let deletedContractMembers = 0;
     let deletedMonthlyMembers = 0;
 
-    // 外部キー制約を一時的に無効化
-    await DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+    // 月次明細IDを収集
+    const monthlyDetails = await DB.prepare(`
+      SELECT id FROM monthly_details WHERE contract_id = ?
+    `).bind(contractId).all();
 
-    try {
-      // 月次明細を取得
-      const monthlyDetails = await DB.prepare(`
-        SELECT id FROM monthly_details WHERE contract_id = ?
-      `).bind(contractId).all();
-
-      if (monthlyDetails.results.length > 0) {
-        deletedMonthlyDetails = monthlyDetails.results.length;
-        
-        // 各月次明細の月次メンバーアサインを削除
-        for (const md of monthlyDetails.results) {
-          const monthlyMembers = await DB.prepare(`
-            SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
-          `).bind(md.id).first();
-          
-          deletedMonthlyMembers += monthlyMembers.count;
-          
-          await DB.prepare(`
-            DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
-          `).bind(md.id).run();
-        }
-        
-        // 月次明細を削除
-        await DB.prepare(`
-          DELETE FROM monthly_details WHERE contract_id = ?
-        `).bind(contractId).run();
-      }
-
-      // 契約メンバーアサインを削除
-      const contractMembers = await DB.prepare(`
-        SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
-      `).bind(contractId).first();
+    if (monthlyDetails.results.length > 0) {
+      deletedMonthlyDetails = monthlyDetails.results.length;
+      const monthlyDetailIds = monthlyDetails.results.map(md => md.id);
       
-      deletedContractMembers = contractMembers.count;
+      // 月次メンバーアサインのカウント
+      const monthlyMembers = await DB.prepare(`
+        SELECT COUNT(*) as count FROM monthly_member_assignments 
+        WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+      `).first();
+      deletedMonthlyMembers = monthlyMembers.count;
       
+      // 月次メンバーアサインを削除
       await DB.prepare(`
-        DELETE FROM contract_member_assignments WHERE contract_id = ?
-      `).bind(contractId).run();
-
-      // 契約を削除
+        DELETE FROM monthly_member_assignments 
+        WHERE monthly_detail_id IN (${monthlyDetailIds.join(',')})
+      `).run();
+      
+      // 月次明細を削除
       await DB.prepare(`
-        DELETE FROM contracts WHERE id = ?
-      `).bind(contractId).run();
-
-    } finally {
-      // 外部キー制約を再度有効化
-      await DB.prepare(`PRAGMA foreign_keys = ON`).run();
+        DELETE FROM monthly_details WHERE id IN (${monthlyDetailIds.join(',')})
+      `).run();
     }
+
+    // 契約メンバーアサインのカウント
+    const contractMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE contract_id = ?
+    `).bind(contractId).first();
+    deletedContractMembers = contractMembers.count;
+    
+    // 契約メンバーアサインを削除
+    await DB.prepare(`
+      DELETE FROM contract_member_assignments WHERE contract_id = ?
+    `).bind(contractId).run();
+
+    // 契約を削除
+    await DB.prepare(`
+      DELETE FROM contracts WHERE id = ?
+    `).bind(contractId).run();
 
     return c.json({
       success: true,
@@ -9868,6 +9845,7 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
     });
 
   } catch (error) {
+    console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -9882,37 +9860,31 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
   }
 
   try {
-    // 外部キー制約を一時的に無効化
-    await DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+    // 関連データの確認
+    const monthlyMembers = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).first();
 
-    try {
-      // 関連データの確認
-      const monthlyMembers = await DB.prepare(`
-        SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
-      `).bind(monthlyDetailId).first();
+    // 月次メンバーアサインを削除
+    await DB.prepare(`
+      DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).run();
 
-      // 関連データを削除
-      await DB.prepare(`
-        DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?
-      `).bind(monthlyDetailId).run();
+    // 月次明細を削除
+    await DB.prepare(`
+      DELETE FROM monthly_details WHERE id = ?
+    `).bind(monthlyDetailId).run();
 
-      await DB.prepare(`
-        DELETE FROM monthly_details WHERE id = ?
-      `).bind(monthlyDetailId).run();
-
-      return c.json({
-        success: true,
-        deleted: {
-          monthly_details: 1,
-          monthly_member_assignments: monthlyMembers.count
-        }
-      });
-    } finally {
-      // 外部キー制約を再度有効化
-      await DB.prepare(`PRAGMA foreign_keys = ON`).run();
-    }
+    return c.json({
+      success: true,
+      deleted: {
+        monthly_details: 1,
+        monthly_member_assignments: monthlyMembers.count
+      }
+    });
 
   } catch (error) {
+    console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -9927,51 +9899,46 @@ app.delete('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
   }
 
   try {
-    // 外部キー制約を一時的に無効化
-    await DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+    // 関連データの確認
+    const contractAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM contract_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
 
-    try {
-      // 関連データの確認
-      const contractAssignments = await DB.prepare(`
-        SELECT COUNT(*) as count FROM contract_member_assignments WHERE member_id = ?
-      `).bind(memberId).first();
+    const monthlyAssignments = await DB.prepare(`
+      SELECT COUNT(*) as count FROM monthly_member_assignments WHERE member_id = ?
+    `).bind(memberId).first();
 
-      const monthlyAssignments = await DB.prepare(`
-        SELECT COUNT(*) as count FROM monthly_member_assignments WHERE member_id = ?
-      `).bind(memberId).first();
+    // 契約メンバーアサインを削除
+    await DB.prepare(`
+      DELETE FROM contract_member_assignments WHERE member_id = ?
+    `).bind(memberId).run();
 
-      // 関連データを削除
-      await DB.prepare(`
-        DELETE FROM contract_member_assignments WHERE member_id = ?
-      `).bind(memberId).run();
+    // 月次メンバーアサインを削除
+    await DB.prepare(`
+      DELETE FROM monthly_member_assignments WHERE member_id = ?
+    `).bind(memberId).run();
 
-      await DB.prepare(`
-        DELETE FROM monthly_member_assignments WHERE member_id = ?
-      `).bind(memberId).run();
+    // sales_rep_idをNULLに設定（案件の営業担当者がこのメンバーの場合）
+    await DB.prepare(`
+      UPDATE projects SET sales_rep_id = NULL WHERE sales_rep_id = ?
+    `).bind(memberId).run();
 
-      // sales_rep_idをNULLに設定（案件の営業担当者がこのメンバーの場合）
-      await DB.prepare(`
-        UPDATE projects SET sales_rep_id = NULL WHERE sales_rep_id = ?
-      `).bind(memberId).run();
+    // メンバーを削除
+    await DB.prepare(`
+      DELETE FROM members WHERE id = ?
+    `).bind(memberId).run();
 
-      await DB.prepare(`
-        DELETE FROM members WHERE id = ?
-      `).bind(memberId).run();
-
-      return c.json({
-        success: true,
-        deleted: {
-          members: 1,
-          contract_member_assignments: contractAssignments.count,
-          monthly_member_assignments: monthlyAssignments.count
-        }
-      });
-    } finally {
-      // 外部キー制約を再度有効化
-      await DB.prepare(`PRAGMA foreign_keys = ON`).run();
-    }
+    return c.json({
+      success: true,
+      deleted: {
+        members: 1,
+        contract_member_assignments: contractAssignments.count,
+        monthly_member_assignments: monthlyAssignments.count
+      }
+    });
 
   } catch (error) {
+    console.error('Delete error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
