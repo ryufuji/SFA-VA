@@ -3197,11 +3197,28 @@ app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
         continue
       }
 
-      // 挿入
+      // メンバーを挿入
       const result = await c.env.DB.prepare(`
         INSERT INTO members (name, email, default_unit_price, position, memo, status)
         VALUES (?, ?, ?, ?, ?, ?)
       `).bind(name, email, default_unit_price, position || null, memo || null, 'active').run()
+
+      // ユーザーも自動作成（権限なし）
+      // まず、同じメールアドレスのユーザーが存在するかチェック
+      const existingUser = await c.env.DB.prepare(`
+        SELECT id FROM users WHERE email = ?
+      `).bind(email).first()
+
+      if (!existingUser) {
+        // デフォルトパスワードはメールアドレスの@前の部分 + "1234"
+        const defaultPassword = email.split('@')[0] + '1234'
+        const hashedPassword = await hashPassword(defaultPassword)
+        
+        await c.env.DB.prepare(`
+          INSERT INTO users (name, email, password, role, password_change_required)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(name, email, hashedPassword, 'none', 1).run()
+      }
 
       results.push({ 
         index: i + 1, 
@@ -3260,6 +3277,57 @@ app.put('/api/members/:id/status', authMiddleware, requireAdmin, async (c) => {
   `).bind(status, id).run()
 
   return c.json({ success: true })
+})
+
+// 既存メンバーをユーザー管理に追加（管理者のみ）
+app.post('/api/members/sync-users', authMiddleware, requireAdmin, async (c) => {
+  try {
+    // メールアドレスを持つ全メンバーを取得
+    const members = await c.env.DB.prepare(`
+      SELECT id, name, email FROM members WHERE email IS NOT NULL AND email != ''
+    `).all()
+
+    let addedCount = 0
+    let skippedCount = 0
+    const errors = []
+
+    for (const member of members.results) {
+      try {
+        // 既にユーザーが存在するかチェック
+        const existingUser = await c.env.DB.prepare(`
+          SELECT id FROM users WHERE email = ?
+        `).bind(member.email).first()
+
+        if (existingUser) {
+          skippedCount++
+          continue
+        }
+
+        // ユーザーを作成
+        const defaultPassword = member.email.split('@')[0] + '1234'
+        const hashedPassword = await hashPassword(defaultPassword)
+        
+        await c.env.DB.prepare(`
+          INSERT INTO users (name, email, password, role, password_change_required)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(member.name, member.email, hashedPassword, 'none', 1).run()
+
+        addedCount++
+      } catch (error: any) {
+        errors.push({ email: member.email, error: error.message })
+      }
+    }
+
+    return c.json({
+      success: true,
+      total_members: members.results.length,
+      synced_count: addedCount,
+      skipped_count: skippedCount,
+      errors: errors.map(e => ({ member_name: e.email, error: e.error }))
+    })
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500)
+  }
 })
 
 // メンバー削除API（管理者のみ、無効なメンバーのみ削除可能）
@@ -10275,6 +10343,10 @@ app.get('/members', async (c) => {
             if (csvExportButton && user.role === 'admin') {
               csvExportButton.style.display = '';
             }
+            const syncUsersButton = document.getElementById('sync-users-button');
+            if (syncUsersButton && user.role === 'admin') {
+              syncUsersButton.style.display = '';
+            }
             // 削除ボタンを管理者のみ表示
             if (user.role === 'admin') {
               const deleteButtons = document.querySelectorAll('.admin-only-column');
@@ -10342,6 +10414,9 @@ app.get('/members', async (c) => {
             <i class="fas fa-user-friends mr-2"></i>メンバー管理
           </h1>
           <div class="flex space-x-3">
+            <button onclick="syncMembersToUsers()" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" id="sync-users-button" style="display: none;">
+              <i class="fas fa-sync mr-2"></i>ユーザー管理に同期
+            </button>
             <button onclick="exportCsv()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700" id="csv-export-button" style="display: none;">
               <i class="fas fa-download mr-2"></i>CSVエクスポート
             </button>
@@ -10900,6 +10975,39 @@ app.get('/members', async (c) => {
           \`;
         });
 
+
+        // 既存メンバーをユーザー管理に同期
+        async function syncMembersToUsers() {
+          if (!confirm('既存メンバーをユーザー管理に同期します。\\n\\nメールアドレスを持つメンバーで、まだユーザーが作成されていない場合のみ追加されます。\\n\\nよろしいですか？')) {
+            return;
+          }
+
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.post('/api/members/sync-users', {}, {
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            if (response.data.success) {
+              const { synced_count, skipped_count, errors } = response.data;
+              let message = '同期が完了しました！\\n\\n';
+              message += '✅ ユーザー作成: ' + synced_count + '件\\n';
+              message += '⏭️  スキップ: ' + skipped_count + '件\\n';
+              
+              if (errors && errors.length > 0) {
+                message += '\\n⚠️ エラー: ' + errors.length + '件\\n';
+                errors.forEach(err => {
+                  message += '  - ' + err.member_name + ': ' + err.error + '\\n';
+                });
+              }
+              
+              alert(message);
+            }
+          } catch (error) {
+            console.error('Sync error:', error);
+            alert('同期に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
 
         // メンバー削除確認
         async function confirmDeleteMember(memberId, memberName) {
@@ -11647,6 +11755,23 @@ async function insertRecord(db: D1Database, type: string, record: any): Promise<
         record.memo,
         record.status
       ).run()
+      
+      // ユーザーも自動作成（メールアドレスがある場合のみ）
+      if (record.email) {
+        const existingUser = await db.prepare(`
+          SELECT id FROM users WHERE email = ?
+        `).bind(record.email).first()
+
+        if (!existingUser) {
+          const defaultPassword = record.email.split('@')[0] + '1234'
+          const hashedPassword = await hashPassword(defaultPassword)
+          
+          await db.prepare(`
+            INSERT INTO users (name, email, password, role, password_change_required)
+            VALUES (?, ?, ?, ?, ?)
+          `).bind(record.name, record.email, hashedPassword, 'none', 1).run()
+        }
+      }
       break
       
     case 'projects':
