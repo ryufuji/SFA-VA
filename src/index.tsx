@@ -9600,6 +9600,7 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
     console.log(`[DELETE] Found ${projects.results.length} projects`);
 
     const allStatements = [];
+    const statementDescriptions = [];
     
     if (projects.results.length > 0) {
       deletedProjects = projects.results.length;
@@ -9631,6 +9632,15 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
                 allStatements.push(
                   DB.prepare(`DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?`).bind(monthly.id)
                 );
+                statementDescriptions.push(`DELETE monthly_member_assignments for monthly_detail_id=${monthly.id}`);
+              }
+              
+              // 入金履歴の削除文を追加
+              for (const monthly of monthlyDetails.results) {
+                allStatements.push(
+                  DB.prepare(`DELETE FROM payment_histories WHERE monthly_detail_id = ?`).bind(monthly.id)
+                );
+                statementDescriptions.push(`DELETE payment_histories for monthly_detail_id=${monthly.id}`);
               }
               
               // 月次明細の削除文を追加
@@ -9638,6 +9648,7 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
                 allStatements.push(
                   DB.prepare(`DELETE FROM monthly_details WHERE id = ?`).bind(monthly.id)
                 );
+                statementDescriptions.push(`DELETE monthly_details id=${monthly.id}`);
               }
             }
 
@@ -9652,11 +9663,13 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
             allStatements.push(
               DB.prepare(`DELETE FROM contract_member_assignments WHERE contract_id = ?`).bind(contract.id)
             );
+            statementDescriptions.push(`DELETE contract_member_assignments for contract_id=${contract.id}`);
             
             // 契約の削除文を追加
             allStatements.push(
               DB.prepare(`DELETE FROM contracts WHERE id = ?`).bind(contract.id)
             );
+            statementDescriptions.push(`DELETE contracts id=${contract.id}`);
           }
         }
 
@@ -9664,6 +9677,7 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
         allStatements.push(
           DB.prepare(`DELETE FROM projects WHERE id = ?`).bind(project.id)
         );
+        statementDescriptions.push(`DELETE projects id=${project.id}`);
       }
     }
 
@@ -9671,16 +9685,18 @@ app.delete('/api/leads/:id', authMiddleware, requireAdmin, async (c) => {
     allStatements.push(
       DB.prepare(`DELETE FROM leads WHERE id = ?`).bind(leadId)
     );
+    statementDescriptions.push(`DELETE leads id=${leadId}`);
 
     console.log(`[DELETE] Executing ${allStatements.length} delete statements`);
     
     // 個別に削除を実行（順序を保証）
     for (let i = 0; i < allStatements.length; i++) {
       try {
+        console.log(`[DELETE] Executing ${i+1}/${allStatements.length}: ${statementDescriptions[i]}`);
         await allStatements[i].run();
         console.log(`[DELETE] Statement ${i+1}/${allStatements.length} executed successfully`);
       } catch (err) {
-        console.error(`[DELETE] Statement ${i+1}/${allStatements.length} failed:`, err);
+        console.error(`[DELETE] Statement ${i+1}/${allStatements.length} (${statementDescriptions[i]}) failed:`, err);
         throw err;
       }
     }
@@ -9844,6 +9860,11 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
         allStatements.push(
           DB.prepare(`DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?`).bind(monthly.id)
         );
+        
+        // 入金履歴の削除文を追加
+        allStatements.push(
+          DB.prepare(`DELETE FROM payment_histories WHERE monthly_detail_id = ?`).bind(monthly.id)
+        );
       }
       
       // 月次明細の削除文を追加
@@ -9914,6 +9935,7 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
     const batchStatements = [
       DB.prepare('PRAGMA foreign_keys = OFF'),
       DB.prepare(`DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?`).bind(monthlyDetailId),
+      DB.prepare(`DELETE FROM payment_histories WHERE monthly_detail_id = ?`).bind(monthlyDetailId),
       DB.prepare(`DELETE FROM monthly_details WHERE id = ?`).bind(monthlyDetailId),
       DB.prepare('PRAGMA foreign_keys = ON')
     ];
