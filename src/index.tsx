@@ -5073,6 +5073,11 @@ app.get('/', async (c) => {
     'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(lastMonth, '検収済').all()
   
+  // 当月売上（予定） - 検収ステータスに関係なく当月の全売上
+  const { results: currentMonthPlanned } = await DB.prepare(
+    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ?'
+  ).bind(currentMonth).all()
+  
   // 未検収金額（当月のみ）
   const { results: uninspected } = await DB.prepare(
     'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
@@ -5155,6 +5160,7 @@ app.get('/', async (c) => {
   
   const currentMonthSalesTotal = (currentMonthSales[0] as any)?.total || 0
   const lastMonthSalesTotal = (lastMonthSales[0] as any)?.total || 0
+  const currentMonthPlannedTotal = (currentMonthPlanned[0] as any)?.total || 0
   const uninspectedTotal = (uninspected[0] as any)?.total || 0
   const unbilledTotal = (unbilled[0] as any)?.total || 0
   const unpaidTotal = (unpaid[0] as any)?.total || 0
@@ -5276,7 +5282,8 @@ app.get('/', async (c) => {
         </div>
 
         <!-- KPIカード -->
-        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        <!-- 1行目: 売上関連 -->
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-5">
           <!-- 前月売上 -->
           <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
@@ -5289,7 +5296,7 @@ app.get('/', async (c) => {
             </div>
           </a>
 
-          <!-- 当月売上 -->
+          <!-- 当月売上(確定) -->
           <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
@@ -5301,6 +5308,21 @@ app.get('/', async (c) => {
             </div>
           </a>
 
+          <!-- 当月売上(予定) -->
+          <a href="/monthly-list" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+            <div class="px-4 py-5 sm:p-6">
+              <dt class="text-sm font-medium text-gray-500 truncate">
+                <i class="fas fa-calendar-check mr-1"></i>当月売上(予定)
+              </dt>
+              <dd class="mt-1 text-3xl font-semibold text-blue-700">
+                ¥${currentMonthPlannedTotal.toLocaleString()}
+              </dd>
+            </div>
+          </a>
+        </div>
+
+        <!-- 2行目: 未処理関連 -->
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
           <!-- 未検収 -->
           <a href="/monthly-list?filter=uninspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
