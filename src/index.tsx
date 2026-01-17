@@ -1455,6 +1455,91 @@ app.put('/api/leads/:id/status', authMiddleware, requirePermission('lead_manage'
   return c.json({ success: true, message: 'ステータスを更新しました' })
 })
 
+// --- 商談メモ API ---
+
+// 商談メモ一覧取得API（案件別）
+app.get('/api/projects/:projectId/meeting-notes', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const projectId = c.req.param('projectId')
+  
+  const { results: notes } = await DB.prepare(`
+    SELECT * FROM meeting_notes 
+    WHERE project_id = ? 
+    ORDER BY meeting_date DESC, created_at DESC
+  `).bind(projectId).all()
+  
+  return c.json({ success: true, data: notes })
+})
+
+// 商談メモ作成API
+app.post('/api/meeting-notes', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const { project_id, meeting_date, note } = await c.req.json()
+  
+  // バリデーション
+  if (!project_id || !meeting_date || !note) {
+    return c.json({ error: '必須項目を入力してください' }, 400)
+  }
+  
+  // 案件の存在確認
+  const project = await DB.prepare('SELECT id FROM projects WHERE id = ?').bind(project_id).first()
+  if (!project) {
+    return c.json({ error: '案件が見つかりません' }, 404)
+  }
+  
+  // 商談メモを作成
+  await DB.prepare(`
+    INSERT INTO meeting_notes (project_id, meeting_date, note, created_by)
+    VALUES (?, ?, ?, ?)
+  `).bind(project_id, meeting_date, note, '管理者').run()
+  
+  return c.json({ success: true, message: '商談メモを追加しました' })
+})
+
+// 商談メモ更新API
+app.put('/api/meeting-notes/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  const { meeting_date, note } = await c.req.json()
+  
+  // バリデーション
+  if (!meeting_date || !note) {
+    return c.json({ error: '必須項目を入力してください' }, 400)
+  }
+  
+  // 商談メモの存在確認
+  const meetingNote = await DB.prepare('SELECT id FROM meeting_notes WHERE id = ?').bind(id).first()
+  if (!meetingNote) {
+    return c.json({ error: '商談メモが見つかりません' }, 404)
+  }
+  
+  // 商談メモを更新
+  await DB.prepare(`
+    UPDATE meeting_notes 
+    SET meeting_date = ?, note = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(meeting_date, note, id).run()
+  
+  return c.json({ success: true, message: '商談メモを更新しました' })
+})
+
+// 商談メモ削除API
+app.delete('/api/meeting-notes/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  // 商談メモの存在確認
+  const meetingNote = await DB.prepare('SELECT id FROM meeting_notes WHERE id = ?').bind(id).first()
+  if (!meetingNote) {
+    return c.json({ error: '商談メモが見つかりません' }, 404)
+  }
+  
+  // 商談メモを削除
+  await DB.prepare('DELETE FROM meeting_notes WHERE id = ?').bind(id).run()
+  
+  return c.json({ success: true, message: '商談メモを削除しました' })
+})
+
 // リードCSVエクスポートAPI（管理者のみ）
 app.get('/api/leads/export/csv', authMiddleware, requireAdmin, async (c) => {
   const { DB } = c.env
@@ -2959,18 +3044,145 @@ app.delete('/api/payment-histories/:id', authMiddleware, requirePermission('paym
   // 削除
   await c.env.DB.prepare('DELETE FROM payment_histories WHERE id = ?').bind(id).run()
 
-  // 月次明細の合計入金額を更新
-  const payments = await c.env.DB.prepare(`
-    SELECT SUM(amount) as total FROM payment_histories WHERE monthly_detail_id = ?
-  `).bind(payment.monthly_detail_id).first()
+  // 月次明細の合計入金額を再計算
+  const { results: histories } = await c.env.DB.prepare(`
+    SELECT SUM(payment_amount) as total FROM payment_histories WHERE monthly_detail_id = ?
+  `).bind(payment.monthly_detail_id).all()
 
+  const totalPayment = histories[0]?.total || 0
+
+  // 月次明細の金額を取得
+  const detail = await c.env.DB.prepare('SELECT amount FROM monthly_details WHERE id = ?').bind(payment.monthly_detail_id).first()
+  const monthlyAmount = detail?.amount || 0
+
+  // 入金ステータスの判定
+  let paymentStatus = '未入金'
+  if (totalPayment >= monthlyAmount) {
+    paymentStatus = '入金完了'
+  } else if (totalPayment > 0) {
+    paymentStatus = '部分入金'
+  }
+
+  // 月次明細を更新
   await c.env.DB.prepare(`
     UPDATE monthly_details 
-    SET total_payment_amount = ?, updated_at = CURRENT_TIMESTAMP
+    SET total_payment_amount = ?, 
+        payment_status = ?,
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(payments.total || 0, payment.monthly_detail_id).run()
+  `).bind(totalPayment, paymentStatus, payment.monthly_detail_id).run()
 
   return c.json({ success: true })
+})
+
+// 入金履歴CSVインポートAPI（管理者のみ）
+app.post('/api/payment-histories/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const { payment_histories } = await c.req.json()
+
+  if (!Array.isArray(payment_histories) || payment_histories.length === 0) {
+    return c.json({ success: false, error: '入金履歴データが必要です' }, 400)
+  }
+
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+
+  for (let i = 0; i < payment_histories.length; i++) {
+    const payment = payment_histories[i]
+    const { monthly_detail_id, payment_date, payment_amount, note } = payment
+
+    // バリデーション
+    if (!monthly_detail_id) {
+      errors.push({ line: i + 2, monthly_detail_id: '', error: '月次明細IDは必須です' })
+      error_count++
+      continue
+    }
+
+    if (!payment_date) {
+      errors.push({ line: i + 2, monthly_detail_id: monthly_detail_id, error: '入金日は必須です' })
+      error_count++
+      continue
+    }
+
+    if (payment_amount === undefined || payment_amount === null) {
+      errors.push({ line: i + 2, monthly_detail_id: monthly_detail_id, error: '入金金額は必須です' })
+      error_count++
+      continue
+    }
+
+    if (payment_amount < 0) {
+      errors.push({ line: i + 2, monthly_detail_id: monthly_detail_id, error: '入金金額は0以上である必要があります' })
+      error_count++
+      continue
+    }
+
+    try {
+      // 月次明細が存在するか確認
+      const detail = await DB.prepare('SELECT id, amount FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first()
+      
+      if (!detail) {
+        errors.push({ line: i + 2, monthly_detail_id: monthly_detail_id, error: '該当する月次明細が見つかりません' })
+        error_count++
+        continue
+      }
+
+      // 入金履歴を追加
+      const result = await DB.prepare(`
+        INSERT INTO payment_histories (monthly_detail_id, payment_date, payment_amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(
+        monthly_detail_id,
+        payment_date,
+        payment_amount,
+        note || null,
+        '管理者(CSV)'
+      ).run()
+
+      // 変更履歴を記録
+      await DB.prepare(`
+        INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind('payment_histories', result.meta.last_row_id, 'payment_added', 'null', `¥${payment_amount} (${payment_date})`, '管理者(CSV)').run()
+
+      // 累計入金額を再計算
+      const { results: histories } = await DB.prepare(
+        'SELECT SUM(payment_amount) as total FROM payment_histories WHERE monthly_detail_id = ?'
+      ).bind(monthly_detail_id).all()
+      
+      const totalPayment = (histories[0] as any)?.total || 0
+      
+      // 入金ステータスの判定
+      let paymentStatus = '未入金'
+      if (totalPayment >= (detail.amount || 0)) {
+        paymentStatus = '入金完了'
+      } else if (totalPayment > 0) {
+        paymentStatus = '部分入金'
+      }
+      
+      await DB.prepare(`
+        UPDATE monthly_details 
+        SET total_payment_amount = ?, 
+            payment_status = ?,
+            payment_date = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(totalPayment, paymentStatus, payment_date, monthly_detail_id).run()
+
+      success_count++
+    } catch (error) {
+      errors.push({ line: i + 2, monthly_detail_id: monthly_detail_id, error: error.message || '不明なエラー' })
+      error_count++
+    }
+  }
+
+  return c.json({
+    success: true,
+    total: payment_histories.length,
+    success_count,
+    error_count,
+    errors
+  })
 })
 
 // API: 月次メンバーアサイン追加
@@ -3522,13 +3734,36 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
     LIMIT 10
   `).all()
   
+  // 入金不一致（入金総額が0より大きく、月次明細金額と異なる場合）
+  // payment_historiesから実際の入金額を集計して比較
+  const { results: paymentMismatches } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      c.contract_name,
+      p.project_name,
+      md.amount,
+      COALESCE(SUM(ph.payment_amount), 0) as total_payment_amount,
+      ABS(md.amount - COALESCE(SUM(ph.payment_amount), 0)) as difference
+    FROM monthly_details md
+    JOIN contracts c ON md.contract_id = c.id
+    JOIN projects p ON c.project_id = p.id
+    LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
+    GROUP BY md.id, md.target_month, c.contract_name, p.project_name, md.amount
+    HAVING COALESCE(SUM(ph.payment_amount), 0) > 0 
+      AND md.amount != COALESCE(SUM(ph.payment_amount), 0)
+    ORDER BY difference DESC
+    LIMIT 10
+  `).all()
+  
   return c.json({ 
     success: true, 
     data: {
       overdueInspections,
       overdueBillings,
       overduePayments,
-      amountMismatch
+      amountMismatch,
+      paymentMismatches
     }
   })
 })
@@ -3576,9 +3811,30 @@ app.get('/api/members/workload', async (c) => {
 // リード一覧
 app.get('/leads', async (c) => {
   const { DB } = c.env
-  const { results: leads } = await DB.prepare(
-    'SELECT * FROM leads ORDER BY created_at DESC'
-  ).all()
+  
+  // クエリパラメータからソート情報を取得
+  const sortBy = c.req.query('sortBy') || 'created_at'
+  const sortOrder = c.req.query('sortOrder') || 'DESC'
+  
+  // ソート可能なカラムのホワイトリスト
+  const allowedSortColumns = ['company_name', 'department', 'project_count', 'earliest_contract', 'latest_contract', 'status', 'created_at']
+  const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
+  const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  
+  // リード一覧と関連する案件数、契約情報を取得
+  const { results: leads } = await DB.prepare(`
+    SELECT 
+      l.*,
+      COUNT(DISTINCT p.id) as project_count,
+      MIN(md.target_month) as earliest_contract,
+      MAX(md.target_month) as latest_contract
+    FROM leads l
+    LEFT JOIN projects p ON l.id = p.lead_id
+    LEFT JOIN contracts c ON p.id = c.project_id
+    LEFT JOIN monthly_details md ON c.id = md.contract_id
+    GROUP BY l.id, l.company_name, l.department, l.contact_person, l.email, l.phone, l.status, l.memo, l.created_at, l.updated_at
+    ORDER BY ${sortColumn} ${order}
+  `).all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -3636,6 +3892,20 @@ app.get('/leads', async (c) => {
           }
         };
         
+        // ソート機能
+        function sortTable(column) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const currentSort = urlParams.get('sortBy');
+          const currentOrder = urlParams.get('sortOrder') || 'DESC';
+          
+          let newOrder = 'ASC';
+          if (currentSort === column && currentOrder === 'ASC') {
+            newOrder = 'DESC';
+          }
+          
+          window.location.href = '/leads?sortBy=' + column + '&sortOrder=' + newOrder;
+        }
+
         document.addEventListener('DOMContentLoaded', async function() {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
@@ -3646,6 +3916,20 @@ app.get('/leads', async (c) => {
               document.getElementById('admin-menu').style.display = '';
               document.getElementById('csv-export-button').style.display = '';
               document.getElementById('csv-import-button').style.display = '';
+            }
+          }
+          
+          // ソートアイコンの更新
+          const urlParams = new URLSearchParams(window.location.search);
+          const sortBy = urlParams.get('sortBy');
+          const sortOrder = urlParams.get('sortOrder');
+          if (sortBy) {
+            const header = document.querySelector('[data-sort="' + sortBy + '"]');
+            if (header) {
+              const icon = header.querySelector('.sort-icon');
+              if (icon) {
+                icon.className = 'sort-icon fas fa-sort-' + (sortOrder === 'ASC' ? 'up' : 'down');
+              }
             }
           }
         });
@@ -3845,16 +4129,28 @@ app.get('/leads', async (c) => {
         <!-- データテーブル -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
+            <table class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">会社名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">部署名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">担当者</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">メール</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">電話</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
-                  <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none;">操作</th>
+                <th data-sort="company_name" onclick="sortTable('company_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 150px;">
+                  会社名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="department" onclick="sortTable('department')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  部署名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="project_count" onclick="sortTable('project_count')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                  案件数 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="earliest_contract" onclick="sortTable('earliest_contract')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  契約開始 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="latest_contract" onclick="sortTable('latest_contract')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  最新契約 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="status" onclick="sortTable('status')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                  ステータス <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none; min-width: 80px;">操作</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -3867,13 +4163,15 @@ app.get('/leads', async (c) => {
                     ${lead.department || '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${lead.contact_person || '-'}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${lead.project_count > 0 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}">
+                      <i class="fas fa-briefcase mr-1"></i>${lead.project_count}件
+                    </span>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${lead.email || '-'}
+                    ${lead.earliest_contract ? `<i class="fas fa-calendar mr-1"></i>${lead.earliest_contract}` : '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${lead.phone || '-'}
+                    ${lead.latest_contract ? `<i class="fas fa-calendar mr-1"></i>${lead.latest_contract}` : '-'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                     ${lead.status === 'active' 
@@ -3881,8 +4179,7 @@ app.get('/leads', async (c) => {
                       : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800"><i class="fas fa-archive mr-1"></i>アーカイブ</span>'
                     }
                   </td>
-                </tr>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 admin-only-column" style="display: none;">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 admin-only-column" style="display: none;" onclick="event.stopPropagation();">
                     <button onclick="confirmDeleteLead(${lead.id}, '${lead.company_name}')" class="text-red-600 hover:text-red-900">
                       <i class="fas fa-trash-alt"></i> 削除
                     </button>
@@ -4475,7 +4772,6 @@ app.get('/leads/:id', async (c) => {
             </div>
           `}
         </div>
-      </div>
 
       <!-- 案件作成モーダル -->
       <div id="create-project-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
@@ -4648,6 +4944,8 @@ app.get('/leads/:id', async (c) => {
             alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
           }
         }
+
+        // 商談メモ関連の関数は案件詳細画面に移動しました
       </script>
 
       <!-- リード編集モーダル -->
@@ -4761,10 +5059,19 @@ app.get('/', async (c) => {
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   
+  // 前月を計算
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
+  
   // 当月売上（確定）
   const { results: currentMonthSales } = await DB.prepare(
     'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(currentMonth, '検収済').all()
+  
+  // 前月売上（確定）
+  const { results: lastMonthSales } = await DB.prepare(
+    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
+  ).bind(lastMonth, '検収済').all()
   
   // 未検収金額（当月のみ）
   const { results: uninspected } = await DB.prepare(
@@ -4795,6 +5102,20 @@ app.get('/', async (c) => {
     ORDER BY total_ratio DESC
   `).bind(currentMonth, currentMonth).all()
   
+  // メンバー稼働率（前月）
+  const { results: memberWorkRatioLastMonth } = await DB.prepare(`
+    SELECT 
+      m.name as member_name,
+      COALESCE(SUM(CASE WHEN md.target_month = ? THEN mma.allocation_ratio ELSE 0 END), 0) as total_ratio,
+      COUNT(DISTINCT CASE WHEN md.target_month = ? THEN mma.monthly_detail_id END) as project_count
+    FROM members m
+    LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
+    LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id
+    WHERE m.status = 'active'
+    GROUP BY m.id, m.name
+    ORDER BY total_ratio DESC
+  `).bind(lastMonth, lastMonth).all()
+  
   // メンバー別 累計売上（検収済のみ）
   const { results: memberTotalSales } = await DB.prepare(`
     SELECT 
@@ -4809,7 +5130,31 @@ app.get('/', async (c) => {
     ORDER BY total_sales DESC
   `).all()
   
+  // 入金不一致の月次明細を取得（入金総額が0より大きく、月次明細金額と異なる場合）
+  // payment_historiesから実際の入金額を集計して比較
+  const { results: paymentMismatches } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.target_month,
+      md.amount,
+      COALESCE(SUM(ph.payment_amount), 0) as total_payment_amount,
+      c.contract_name,
+      p.project_name,
+      l.company_name
+    FROM monthly_details md
+    LEFT JOIN contracts c ON md.contract_id = c.id
+    LEFT JOIN projects p ON c.project_id = p.id
+    LEFT JOIN leads l ON p.lead_id = l.id
+    LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
+    GROUP BY md.id, md.target_month, md.amount, c.contract_name, p.project_name, l.company_name
+    HAVING COALESCE(SUM(ph.payment_amount), 0) > 0 
+      AND md.amount != COALESCE(SUM(ph.payment_amount), 0)
+    ORDER BY md.target_month DESC
+    LIMIT 10
+  `).all()
+  
   const currentMonthSalesTotal = (currentMonthSales[0] as any)?.total || 0
+  const lastMonthSalesTotal = (lastMonthSales[0] as any)?.total || 0
   const uninspectedTotal = (uninspected[0] as any)?.total || 0
   const unbilledTotal = (unbilled[0] as any)?.total || 0
   const unpaidTotal = (unpaid[0] as any)?.total || 0
@@ -4932,6 +5277,18 @@ app.get('/', async (c) => {
 
         <!-- KPIカード -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+          <!-- 前月売上 -->
+          <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+            <div class="px-4 py-5 sm:p-6">
+              <dt class="text-sm font-medium text-gray-500 truncate">
+                <i class="fas fa-history mr-1"></i>前月売上(確定)
+              </dt>
+              <dd class="mt-1 text-3xl font-semibold text-gray-700">
+                ¥${lastMonthSalesTotal.toLocaleString()}
+              </dd>
+            </div>
+          </a>
+
           <!-- 当月売上 -->
           <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
@@ -5003,7 +5360,38 @@ app.get('/', async (c) => {
         </div>
 
         <!-- メンバー稼働率と累計売上 -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          <!-- メンバー稼働率（前月） -->
+          <div class="bg-white shadow rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">
+              <i class="fas fa-history mr-2"></i>メンバー稼働率(前月)
+            </h2>
+            ${memberWorkRatioLastMonth.length > 0 ? `
+            <div class="space-y-3">
+              ${memberWorkRatioLastMonth.map((m: any) => {
+                const ratio = (m.total_ratio * 100).toFixed(1)
+                const color = m.total_ratio >= 1.0 ? 'bg-green-600' : m.total_ratio >= 0.7 ? 'bg-blue-600' : m.total_ratio >= 0.3 ? 'bg-yellow-600' : 'bg-gray-400'
+                return `
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm font-medium text-gray-700">${m.member_name}</span>
+                    <span class="text-sm font-semibold text-gray-900">${ratio}%</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="${color} h-2 rounded-full" style="width: ${Math.min(100, parseFloat(ratio))}%"></div>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-1">${m.project_count}案件</p>
+                </div>
+                `}).join('')}
+            </div>
+            ` : `
+            <div class="text-center py-8 text-gray-500">
+              <i class="fas fa-user-slash text-4xl mb-2"></i>
+              <p>前月のアサインがありません</p>
+            </div>
+            `}
+          </div>
+
           <!-- メンバー稼働率（当月） -->
           <div class="bg-white shadow rounded-lg p-6">
             <h2 class="text-lg font-semibold text-gray-900 mb-4">
@@ -5090,9 +5478,9 @@ app.get('/', async (c) => {
         // 未処理タスクの読み込み
         axios.get('/api/dashboard/pending-tasks').then(response => {
           const tasks = response.data.data;
-          const { overdueInspections, overdueBillings, overduePayments, amountMismatch } = tasks;
+          const { overdueInspections, overdueBillings, overduePayments, amountMismatch, paymentMismatches } = tasks;
           
-          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length + (amountMismatch ? amountMismatch.length : 0);
+          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length + (amountMismatch ? amountMismatch.length : 0) + (paymentMismatches ? paymentMismatches.length : 0);
           
           if (totalTasks === 0) {
             document.getElementById('pending-tasks-content').innerHTML = \`
@@ -5196,6 +5584,34 @@ app.get('/', async (c) => {
                         想定売上: ¥\${Math.round(task.expected_revenue).toLocaleString()}
                       </div>
                       <div class="text-xs text-purple-600 font-semibold">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>差額: ¥\${Math.round(task.difference).toLocaleString()}
+                      </div>
+                    </a>
+                  \`).join('')}
+                </div>
+              </div>
+            \`;
+          }
+          
+          // 入金不一致
+          if (paymentMismatches && paymentMismatches.length > 0) {
+            html += \`
+              <div class="border-l-4 border-pink-500 bg-pink-50 p-4 rounded">
+                <h3 class="text-pink-800 font-semibold mb-3 flex items-center">
+                  <i class="fas fa-coins mr-2"></i>🔴 入金不一致 (\${paymentMismatches.length}件)
+                </h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto">
+                  \${paymentMismatches.map(task => \`
+                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
+                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
+                      <div class="text-xs text-gray-600">\${task.target_month}</div>
+                      <div class="text-xs text-pink-600 mt-1">
+                        請求金額: ¥\${task.amount.toLocaleString()}
+                      </div>
+                      <div class="text-xs text-pink-600">
+                        入金総額: ¥\${(task.total_payment_amount || 0).toLocaleString()}
+                      </div>
+                      <div class="text-xs text-pink-600 font-semibold">
                         <i class="fas fa-exclamation-triangle mr-1"></i>差額: ¥\${Math.round(task.difference).toLocaleString()}
                       </div>
                     </a>
@@ -5486,7 +5902,66 @@ app.get('/projects/:id', async (c) => {
             </div>
         </div>
 
-        <!-- 案件編集モーダル -->
+        <!-- 商談メモ -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">
+                    <i class="fas fa-comments mr-2 text-green-600"></i>商談メモ
+                </h3>
+                <button onclick="openAddMeetingNoteModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                    <i class="fas fa-plus mr-2"></i>メモを追加
+                </button>
+            </div>
+
+            <div id="meeting-notes-list" class="space-y-3">
+                <!-- 商談メモは動的にロード -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 商談メモ追加モーダル -->
+    <div id="add-meeting-note-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">
+                    <i class="fas fa-comments mr-2"></i>商談メモを追加
+                </h3>
+                <button onclick="closeAddMeetingNoteModal()" class="text-gray-400 hover:text-gray-500">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="add-meeting-note-form" onsubmit="addMeetingNote(event)">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        日付 <span class="text-red-500">*</span>
+                    </label>
+                    <input type="date" name="meeting_date" required
+                        class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500">
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        メモ <span class="text-red-500">*</span>
+                    </label>
+                    <textarea name="note" required rows="5"
+                        class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="商談の内容や重要なポイントを記録してください"></textarea>
+                </div>
+                
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeAddMeetingNoteModal()" class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                        キャンセル
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                        <i class="fas fa-plus mr-2"></i>追加
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 案件編集モーダル -->
         <div id="edit-project-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
                 <h3 class="text-xl font-semibold text-gray-800 mb-4">
@@ -5682,6 +6157,103 @@ app.get('/projects/:id', async (c) => {
               errorDiv.classList.remove('hidden');
             }
           });
+
+          // 商談メモ関連の関数
+          
+          // 商談メモ一覧を読み込む
+          async function loadMeetingNotes() {
+            try {
+              const response = await axios.get(\`/api/projects/\${PROJECT_ID}/meeting-notes\`);
+              if (response.data.success) {
+                const notes = response.data.data;
+                const container = document.getElementById('meeting-notes-list');
+                
+                if (notes.length === 0) {
+                  container.innerHTML = \`
+                    <div class="text-center py-8 text-gray-500">
+                      <i class="fas fa-comments text-4xl mb-2"></i>
+                      <p>商談メモがまだありません</p>
+                    </div>
+                  \`;
+                } else {
+                  container.innerHTML = notes.map(note => \`
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center space-x-2">
+                          <i class="fas fa-calendar text-blue-500"></i>
+                          <span class="text-sm font-medium text-gray-700">\${note.meeting_date}</span>
+                        </div>
+                        <button onclick="deleteMeetingNote(\${note.id})" class="text-red-600 hover:text-red-800 text-sm">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
+                      <p class="text-gray-800 whitespace-pre-wrap">\${note.note}</p>
+                      <div class="mt-2 text-xs text-gray-500">
+                        <i class="fas fa-user mr-1"></i>\${note.created_by} - \${new Date(note.created_at).toLocaleString('ja-JP')}
+                      </div>
+                    </div>
+                  \`).join('');
+                }
+              }
+            } catch (error) {
+              console.error('商談メモの読み込みに失敗しました:', error);
+            }
+          }
+
+          // 商談メモ追加モーダルを開く
+          function openAddMeetingNoteModal() {
+            document.getElementById('add-meeting-note-modal').classList.remove('hidden');
+            // デフォルトで今日の日付を設定
+            const today = new Date().toISOString().split('T')[0];
+            document.querySelector('#add-meeting-note-form input[name="meeting_date"]').value = today;
+          }
+
+          // 商談メモ追加モーダルを閉じる
+          function closeAddMeetingNoteModal() {
+            document.getElementById('add-meeting-note-modal').classList.add('hidden');
+            document.getElementById('add-meeting-note-form').reset();
+          }
+
+          // 商談メモを追加
+          async function addMeetingNote(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            const data = {
+              project_id: PROJECT_ID,
+              meeting_date: formData.get('meeting_date'),
+              note: formData.get('note')
+            };
+            
+            try {
+              const response = await axios.post('/api/meeting-notes', data);
+              if (response.data.success) {
+                alert('商談メモを追加しました');
+                closeAddMeetingNoteModal();
+                loadMeetingNotes();
+              }
+            } catch (error) {
+              alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+            }
+          }
+
+          // 商談メモを削除
+          async function deleteMeetingNote(noteId) {
+            if (!confirm('この商談メモを削除しますか？')) return;
+            
+            try {
+              const response = await axios.delete(\`/api/meeting-notes/\${noteId}\`);
+              if (response.data.success) {
+                alert('商談メモを削除しました');
+                loadMeetingNotes();
+              }
+            } catch (error) {
+              alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+            }
+          }
+
+          // ページロード時に商談メモを読み込む
+          loadMeetingNotes();
         </script>
     </body>
     </html>
@@ -5708,13 +6280,18 @@ app.get('/contracts/:id', async (c) => {
   
   if (!contract) return c.notFound()
 
-  // 月次明細を取得
+  // 月次明細を取得（実際の入金履歴から集計）
   const monthlyDetails = await c.env.DB.prepare(`
     SELECT 
       md.*,
-      md.total_payment_amount as paid_amount
+      COALESCE(SUM(ph.payment_amount), 0) as paid_amount
     FROM monthly_details md
+    LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
     WHERE md.contract_id = ?
+    GROUP BY md.id, md.target_month, md.contract_id, md.amount, md.inspection_status, 
+             md.inspection_date, md.billing_status, md.billing_date, md.invoice_number, 
+             md.expected_payment_date, md.payment_status, md.payment_date, 
+             md.total_payment_amount, md.name, md.notes, md.created_at, md.updated_at
     ORDER BY md.target_month ASC
   `).bind(id).all()
 
@@ -5763,12 +6340,17 @@ app.get('/contracts/:id', async (c) => {
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
-          // 認証チェック用のユーティリティ関数
+          // 認証チェック用のユーティリティ関数（インライン定義）
           const AUTH_UTILS = {
-            getToken: function() { return localStorage.getItem('jwt_token'); },
+            getToken: function() {
+              return localStorage.getItem('jwt_token');
+            },
             checkAuth: function() {
               const token = this.getToken();
-              if (!token) { window.location.href = '/login'; return false; }
+              if (!token) {
+                window.location.href = '/login';
+                return false;
+              }
               return true;
             },
             getCurrentUser: async function() {
@@ -5791,6 +6373,11 @@ app.get('/contracts/:id', async (c) => {
               if (!user) return false;
               if (user.role === 'admin') return true;
               return user.permissions && user.permissions.includes(permission);
+            },
+            hasAnyPermission: function(user, permissions) {
+              if (!user) return false;
+              if (user.role === 'admin') return true;
+              return permissions.some(p => this.hasPermission(user, p));
             },
             logout: async function() {
               const token = this.getToken();
@@ -5819,11 +6406,12 @@ app.get('/contracts/:id', async (c) => {
               'payment_manage': '入金の登録'
             }
           };
-          
+
+          // ナビゲーションバーユーティリティ
           const NAVBAR = {
             showPermissionError: function(requiredPermission) {
               const label = AUTH_UTILS.PERMISSION_LABELS[requiredPermission] || requiredPermission;
-              alert('この操作を行う権限がありません。\\n必要な権限: ' + label + '\n\n管理者に権限の付与を依頼してください。');
+              alert('この操作を行う権限がありません。' + String.fromCharCode(10) + '必要な権限: ' + label + String.fromCharCode(10) + String.fromCharCode(10) + '管理者に権限の付与を依頼してください。');
             }
           };
         </script>
@@ -6020,9 +6608,14 @@ app.get('/contracts/:id', async (c) => {
                                     }
                                 </td>
                                 <td class="px-4 py-3">
-                                    <a href="/monthly/${md.id}" class="text-blue-600 hover:text-blue-800">
-                                        <i class="fas fa-edit mr-1"></i>詳細
-                                    </a>
+                                    <div class="flex items-center space-x-2">
+                                        <a href="/monthly/${md.id}" class="text-blue-600 hover:text-blue-800">
+                                            <i class="fas fa-edit mr-1"></i>詳細
+                                        </a>
+                                        <button onclick="confirmDeleteMonthlyDetail(${md.id}, '${md.target_month}')" class="text-red-600 hover:text-red-800 admin-only-button" style="display:none;">
+                                            <i class="fas fa-trash-alt mr-1"></i>削除
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                             `).join('')}
@@ -6125,9 +6718,6 @@ app.get('/contracts/:id', async (c) => {
             </div>
         </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-        <script src="/static/auth.js"></script>
-        <script src="/static/navbar.js"></script>
         <script>
             const CONTRACT_ID = ${id};
             let currentUser = null;
@@ -6148,7 +6738,72 @@ app.get('/contracts/:id', async (c) => {
                 if (editButton && !AUTH_UTILS.hasPermission(currentUser, 'contract_manage')) {
                     editButton.style.display = 'none';
                 }
+
+                // 管理者の場合、削除ボタンを表示
+                if (currentUser.role === 'admin') {
+                    const deleteButtons = document.querySelectorAll('.admin-only-button');
+                    deleteButtons.forEach(btn => btn.style.display = 'inline-block');
+                }
             }
+
+            // 月次明細削除確認（グローバルスコープに公開）
+            window.confirmDeleteMonthlyDetail = async function(monthlyDetailId, targetMonth) {
+                if (!currentUser || currentUser.role !== 'admin') {
+                    alert('管理者権限が必要です');
+                    return;
+                }
+
+                try {
+                    const token = AUTH_UTILS.getToken();
+                    const response = await axios.get(\`/api/monthly-details/\${monthlyDetailId}/delete-impact\`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    const impact = response.data.impact;
+                    
+                    let message = '以下のデータを完全に削除します：\\n\\n';
+                    message += '■ 月次明細: ' + targetMonth + '\\n';
+                    message += '  - 契約名: ' + (impact.monthly_detail.contract_name || '-') + '\\n';
+                    message += '  - 案件名: ' + (impact.monthly_detail.project_name || '-') + '\\n';
+                    message += '  - 金額: ¥' + (impact.monthly_detail.amount || 0).toLocaleString() + '\\n';
+                    
+                    if (impact.member_assignments_count > 0) {
+                        message += '\\n■ メンバーアサイン: ' + impact.member_assignments_count + '件\\n';
+                        impact.member_assignments.forEach(ma => {
+                            message += '  - ' + ma.member_name + ' (単価: ¥' + (ma.unit_price || 0).toLocaleString() + 
+                                     ', 稼働率: ' + ((ma.allocation_ratio || 0) * 100).toFixed(0) + '%)\\n';
+                        });
+                    }
+                    
+                    if (impact.payment_histories_count > 0) {
+                        message += '\\n■ 入金履歴: ' + impact.payment_histories_count + '件\\n';
+                        impact.payment_histories.forEach(ph => {
+                            message += '  - ' + ph.payment_date + ': ¥' + (ph.payment_amount || 0).toLocaleString() + 
+                                     (ph.note ? ' (' + ph.note + ')' : '') + '\\n';
+                        });
+                    }
+
+                    if (impact.change_histories_count > 0) {
+                        message += '\\n■ 変更履歴: ' + impact.change_histories_count + '件\\n';
+                    }
+                    
+                    message += '\\nこの操作は取り消せません。本当に削除しますか？';
+                    
+                    if (!confirm(message)) return;
+                    
+                    const deleteResponse = await axios.delete(\`/api/monthly-details/\${monthlyDetailId}\`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    
+                    if (deleteResponse.data.success) {
+                        alert('月次明細を削除しました');
+                        location.reload();
+                    }
+                } catch (error) {
+                    alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+                }
+            }
+
 
             // 編集モーダルを開く（グローバルスコープに公開）
             window.openEditModal = function() {
@@ -6229,7 +6884,12 @@ app.get('/contracts/:id', async (c) => {
                 }
             });
 
-            loadUserInfo();
+            // DOMContentLoaded後にloadUserInfoを実行
+            document.addEventListener('DOMContentLoaded', function() {
+                AUTH_UTILS.checkAuth();
+                AUTH_UTILS.setupAxios();
+                loadUserInfo();
+            });
         </script>
     </body>
     </html>
@@ -8166,6 +8826,15 @@ app.get('/monthly-list', async (c) => {
 app.get('/projects', async (c) => {
   const { DB } = c.env
   
+  // クエリパラメータからソート情報を取得
+  const sortBy = c.req.query('sortBy') || 'created_at'
+  const sortOrder = c.req.query('sortOrder') || 'DESC'
+  
+  // ソート可能なカラムのホワイトリスト
+  const allowedSortColumns = ['project_name', 'company_name', 'department', 'sales_rep_name', 'contract_count', 'status', 'created_at']
+  const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
+  const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  
   // 全案件を取得（リード情報と契約数を含む）
   const { results: projects } = await DB.prepare(`
     SELECT 
@@ -8178,7 +8847,7 @@ app.get('/projects', async (c) => {
     LEFT JOIN leads l ON p.lead_id = l.id
     LEFT JOIN members m ON p.sales_rep_id = m.id
     WHERE p.status = 'active'
-    ORDER BY p.created_at DESC
+    ORDER BY ${sortColumn} ${order}
   `).all()
   
   return c.html(`
@@ -8237,6 +8906,20 @@ app.get('/projects', async (c) => {
           }
         };
         
+        // ソート機能
+        function sortTable(column) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const currentSort = urlParams.get('sortBy');
+          const currentOrder = urlParams.get('sortOrder') || 'DESC';
+          
+          let newOrder = 'ASC';
+          if (currentSort === column && currentOrder === 'ASC') {
+            newOrder = 'DESC';
+          }
+          
+          window.location.href = '/projects?sortBy=' + column + '&sortOrder=' + newOrder;
+        }
+
         document.addEventListener('DOMContentLoaded', async function() {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
@@ -8493,16 +9176,30 @@ app.get('/projects', async (c) => {
         <!-- 案件一覧テーブル -->
         <div class="bg-white shadow overflow-hidden sm:rounded-lg">
           <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
+            <table class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件名</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">顧客</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">部署</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">営業担当</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約数</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">作成日</th>
+                  <th data-sort="project_name" onclick="sortTable('project_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 200px;">
+                    案件名 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="company_name" onclick="sortTable('company_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 150px;">
+                    顧客 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="department" onclick="sortTable('department')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                    部署 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="sales_rep_name" onclick="sortTable('sales_rep_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                    営業担当 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="contract_count" onclick="sortTable('contract_count')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                    契約数 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="status" onclick="sortTable('status')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                    ステータス <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
+                  <th data-sort="created_at" onclick="sortTable('created_at')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                    作成日 <i class="sort-icon fas fa-sort ml-1"></i>
+                  </th>
                 </tr>
               </thead>
               <tbody class="bg-white divide-y divide-gray-200">
@@ -8584,6 +9281,15 @@ app.get('/projects', async (c) => {
 app.get('/contracts', async (c) => {
   const { DB } = c.env
   
+  // クエリパラメータからソート情報を取得
+  const sortBy = c.req.query('sortBy') || 'created_at'
+  const sortOrder = c.req.query('sortOrder') || 'DESC'
+  
+  // ソート可能なカラムのホワイトリスト
+  const allowedSortColumns = ['contract_name', 'project_name', 'company_name', 'monthly_count', 'inspected_count', 'total_amount', 'created_at']
+  const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
+  const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  
   // 全契約を取得（案件・リード情報を含む）
   const { results: contracts } = await DB.prepare(`
     SELECT 
@@ -8596,7 +9302,7 @@ app.get('/contracts', async (c) => {
     FROM contracts c
     LEFT JOIN projects p ON c.project_id = p.id
     LEFT JOIN leads l ON p.lead_id = l.id
-    ORDER BY c.created_at DESC
+    ORDER BY ${sortColumn} ${order}
   `).all()
   
   return c.html(`
@@ -8655,6 +9361,20 @@ app.get('/contracts', async (c) => {
           }
         };
         
+        // ソート機能
+        function sortTable(column) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const currentSort = urlParams.get('sortBy');
+          const currentOrder = urlParams.get('sortOrder') || 'DESC';
+          
+          let newOrder = 'ASC';
+          if (currentSort === column && currentOrder === 'ASC') {
+            newOrder = 'DESC';
+          }
+          
+          window.location.href = '/contracts?sortBy=' + column + '&sortOrder=' + newOrder;
+        }
+
         document.addEventListener('DOMContentLoaded', async function() {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
@@ -8916,16 +9636,28 @@ app.get('/contracts', async (c) => {
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
           ${contracts.length > 0 ? `
-          <table class="min-w-full divide-y divide-gray-200">
+          <table class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件/顧客</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約期間</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約金額</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">進捗</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
-                  <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none;">操作</th>
+                <th data-sort="contract_name" onclick="sortTable('contract_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 200px;">
+                  契約名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="project_name" onclick="sortTable('project_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 180px;">
+                  案件/顧客 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="min-width: 180px;">
+                  契約期間
+                </th>
+                <th data-sort="total_amount" onclick="sortTable('total_amount')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 150px;">
+                  契約金額 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="inspected_count" onclick="sortTable('inspected_count')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  進捗 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="min-width: 100px;">
+                  ステータス
+                </th>
+                  <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider admin-only-column" style="display: none; min-width: 80px;">操作</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -9019,6 +9751,15 @@ app.get('/contracts', async (c) => {
 app.get('/monthly-details', async (c) => {
   const { DB } = c.env
   
+  // クエリパラメータからソート情報を取得
+  const sortBy = c.req.query('sortBy') || 'target_month'
+  const sortOrder = c.req.query('sortOrder') || 'DESC'
+  
+  // ソート可能なカラムのホワイトリスト
+  const allowedSortColumns = ['target_month', 'amount', 'contract_name', 'project_name', 'company_name', 'inspection_status', 'billing_status', 'payment_status']
+  const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'target_month'
+  const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  
   // 全ての月次明細を取得（契約情報と案件情報を含む）
   const { results: monthlyDetails } = await DB.prepare(`
     SELECT 
@@ -9037,7 +9778,7 @@ app.get('/monthly-details', async (c) => {
     LEFT JOIN contracts c ON md.contract_id = c.id
     LEFT JOIN projects p ON c.project_id = p.id
     LEFT JOIN leads l ON p.lead_id = l.id
-    ORDER BY md.target_month DESC, md.id DESC
+    ORDER BY ${sortColumn} ${order}, md.id DESC
   `).all()
   
   return c.html(`
@@ -9088,6 +9829,20 @@ app.get('/monthly-details', async (c) => {
           }
         };
 
+        // ソート機能
+        function sortTable(column) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const currentSort = urlParams.get('sortBy');
+          const currentOrder = urlParams.get('sortOrder') || 'DESC';
+          
+          let newOrder = 'ASC';
+          if (currentSort === column && currentOrder === 'ASC') {
+            newOrder = 'DESC';
+          }
+          
+          window.location.href = '/monthly-details?sortBy=' + column + '&sortOrder=' + newOrder;
+        }
+
         document.addEventListener('DOMContentLoaded', async function() {
           if (!AUTH_UTILS.checkAuth()) return;
           
@@ -9133,6 +9888,44 @@ app.get('/monthly-details', async (c) => {
                 
                 document.getElementById('import-preview').innerHTML = previewHTML;
                 document.getElementById('import-button').disabled = false;
+              };
+              reader.readAsText(file);
+            });
+          }
+
+          // 入金CSVファイル読み込みイベント
+          const paymentCsvFileInput = document.getElementById('payment-csv-file');
+          if (paymentCsvFileInput) {
+            paymentCsvFileInput.addEventListener('change', function(event) {
+              const file = event.target.files[0];
+              if (!file) return;
+
+              const reader = new FileReader();
+              reader.onload = function(e) {
+                const csv = e.target.result;
+                const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                  alert('CSVファイルが空です');
+                  document.getElementById('payment-import-button').disabled = true;
+                  return;
+                }
+
+                // プレビュー表示（最初の6行）
+                const previewLines = lines.slice(0, 6);
+                let previewHTML = '<table class="min-w-full text-xs"><tbody>';
+                previewLines.forEach((line, index) => {
+                  if (index === 0) {
+                    previewHTML += '<tr class="bg-gray-100 font-bold"><td class="px-2 py-1" colspan="100">ヘッダー: ' + line + '</td></tr>';
+                  } else {
+                    previewHTML += '<tr><td class="px-2 py-1">' + line + '</td></tr>';
+                  }
+                });
+                previewHTML += '</tbody></table>';
+                previewHTML += '<p class="mt-2 text-sm text-gray-600">総件数: ' + (lines.length - 1) + '件</p>';
+                
+                document.getElementById('payment-import-preview').innerHTML = previewHTML;
+                document.getElementById('payment-import-button').disabled = false;
               };
               reader.readAsText(file);
             });
@@ -9272,6 +10065,76 @@ app.get('/monthly-details', async (c) => {
           };
           reader.readAsText(file);
         }
+
+        // 入金CSVインポートモーダル
+        function openPaymentImportModal() {
+          document.getElementById('payment-import-modal').classList.remove('hidden');
+        }
+
+        function closePaymentImportModal() {
+          document.getElementById('payment-import-modal').classList.add('hidden');
+          document.getElementById('payment-csv-file').value = '';
+          document.getElementById('payment-import-preview').innerHTML = '';
+          document.getElementById('payment-import-button').disabled = true;
+        }
+
+        // 入金CSVインポート実行
+        async function importPaymentHistoriesCSV() {
+          const file = document.getElementById('payment-csv-file').files[0];
+          if (!file) {
+            alert('CSVファイルを選択してください');
+            return;
+          }
+
+          if (!confirm('入金履歴をCSVからインポートしますか?\\n指定された月次明細に入金履歴が追加されます。')) return;
+
+          const reader = new FileReader();
+          reader.onload = async function(event) {
+            const csv = event.target.result;
+            const lines = csv.split(/\\r?\\n/).filter(line => line.trim());
+            
+            // ヘッダーをスキップ
+            const dataLines = lines.slice(1);
+            
+            const payment_histories = dataLines.map(line => {
+              const values = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+              return {
+                monthly_detail_id: parseInt(values[0]) || 0,
+                payment_date: values[1] || '',
+                payment_amount: parseInt(values[2]) || 0,
+                note: values[3] || ''
+              };
+            });
+
+            try {
+              const token = AUTH_UTILS.getToken();
+              const response = await axios.post('/api/payment-histories/import/csv', 
+                { payment_histories },
+                { headers: { 'Authorization': 'Bearer ' + token } }
+              );
+              
+              const { success_count, error_count, errors } = response.data;
+              
+              let message = success_count + '件の入金履歴を登録しました';
+              if (error_count > 0) {
+                message += '\\n\\nエラー: ' + error_count + '件';
+                errors.slice(0, 5).forEach(err => {
+                  message += '\\n行' + err.line + ': ' + err.error + ' (月次明細ID: ' + err.monthly_detail_id + ')';
+                });
+              }
+              
+              alert(message);
+              
+              if (success_count > 0) {
+                closePaymentImportModal();
+                location.reload();
+              }
+            } catch (error) {
+              alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+            }
+          };
+          reader.readAsText(file);
+        }
       </script>
     </head>
     <body class="bg-gray-100">
@@ -9329,30 +10192,49 @@ app.get('/monthly-details', async (c) => {
               <i class="fas fa-download mr-2"></i>CSVエクスポート
             </button>
             <button onclick="openImportModal()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              <i class="fas fa-upload mr-2"></i>CSVインポート
+              <i class="fas fa-upload mr-2"></i>明細CSVインポート
+            </button>
+            <button onclick="openPaymentImportModal()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+              <i class="fas fa-money-bill-wave mr-2"></i>入金CSVインポート
             </button>
           </div>
         </div>
 
         ${monthlyDetails.length > 0 ? `
         <div class="bg-white rounded-lg shadow overflow-hidden">
-          <table class="min-w-full divide-y divide-gray-200">
+          <table class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">対象月</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">契約名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件名</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">会社名</th>
-                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">金額</th>
-                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">検収</th>
-                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">請求</th>
-                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">入金</th>
-                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                <th data-sort="target_month" onclick="sortTable('target_month')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  対象月 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="contract_name" onclick="sortTable('contract_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 200px;">
+                  契約名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="project_name" onclick="sortTable('project_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 180px;">
+                  案件名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="company_name" onclick="sortTable('company_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 150px;">
+                  会社名 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="amount" onclick="sortTable('amount')" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  金額 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="inspection_status" onclick="sortTable('inspection_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                  検収 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="billing_status" onclick="sortTable('billing_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                  請求 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="payment_status" onclick="sortTable('payment_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
+                  入金 <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" style="min-width: 80px;">操作</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
               ${monthlyDetails.map(detail => `
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-blue-50 cursor-pointer transition-colors" onclick="window.location.href='/monthly/${detail.id}'">
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     ${detail.target_month}
                   </td>
@@ -9390,7 +10272,7 @@ app.get('/monthly-details', async (c) => {
                     </span>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                    <a href="/monthly/${detail.id}" class="text-blue-600 hover:text-blue-900">
+                    <a href="/monthly/${detail.id}" class="text-blue-600 hover:text-blue-900" onclick="event.stopPropagation()">
                       <i class="fas fa-eye mr-1"></i>詳細
                     </a>
                   </td>
@@ -9432,6 +10314,36 @@ app.get('/monthly-details', async (c) => {
             </button>
             <button id="import-button" onclick="importMonthlyDetailsCSV()" disabled class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">
               インポート実行
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 入金CSVインポートモーダル -->
+      <div id="payment-import-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">入金履歴CSVインポート</h3>
+            <button onclick="closePaymentImportModal()" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: 月次明細ID,入金日(YYYY-MM-DD),入金金額,備考</p>
+            <p class="text-sm text-blue-600 mb-2">※月次明細IDは月次明細一覧画面で確認できます（CSVエクスポートで確認可能）</p>
+            <p class="text-sm text-gray-500 mb-2">例: 1,2026-02-28,1000000,振込手数料込み</p>
+            <input type="file" id="payment-csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
+          </div>
+          
+          <div id="payment-import-preview" class="mb-4 max-h-60 overflow-y-auto"></div>
+          
+          <div class="flex justify-end space-x-2">
+            <button onclick="closePaymentImportModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+              キャンセル
+            </button>
+            <button id="payment-import-button" onclick="importPaymentHistoriesCSV()" disabled class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400">
+              入金履歴インポート
             </button>
           </div>
         </div>
@@ -9985,6 +10897,83 @@ app.delete('/api/contracts/:id', authMiddleware, requireAdmin, async (c) => {
   }
 });
 
+// 月次明細削除の影響確認API
+app.get('/api/monthly-details/:id/delete-impact', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env;
+  const monthlyDetailId = parseInt(c.req.param('id'));
+
+  if (!monthlyDetailId) {
+    return c.json({ success: false, error: '月次明細IDが必要です' }, 400);
+  }
+
+  try {
+    // 月次明細情報を取得
+    const monthlyDetail = await DB.prepare(`
+      SELECT 
+        md.*,
+        c.contract_name,
+        p.project_name,
+        l.company_name
+      FROM monthly_details md
+      LEFT JOIN contracts c ON md.contract_id = c.id
+      LEFT JOIN projects p ON c.project_id = p.id
+      LEFT JOIN leads l ON p.lead_id = l.id
+      WHERE md.id = ?
+    `).bind(monthlyDetailId).first();
+
+    if (!monthlyDetail) {
+      return c.json({ success: false, error: '月次明細が見つかりません' }, 404);
+    }
+
+    // 関連するメンバーアサインを取得
+    const { results: memberAssignments } = await DB.prepare(`
+      SELECT 
+        mma.id,
+        m.name as member_name,
+        mma.unit_price,
+        mma.allocation_ratio
+      FROM monthly_member_assignments mma
+      LEFT JOIN members m ON mma.member_id = m.id
+      WHERE mma.monthly_detail_id = ?
+    `).bind(monthlyDetailId).all();
+
+    // 関連する入金履歴を取得
+    const { results: paymentHistories } = await DB.prepare(`
+      SELECT 
+        id,
+        payment_date,
+        payment_amount,
+        note
+      FROM payment_histories
+      WHERE monthly_detail_id = ?
+      ORDER BY payment_date DESC
+    `).bind(monthlyDetailId).all();
+
+    // 関連する変更履歴を取得
+    const { results: changeHistories } = await DB.prepare(`
+      SELECT COUNT(*) as count
+      FROM status_change_histories
+      WHERE table_name = 'monthly_details' AND record_id = ?
+    `).bind(monthlyDetailId).all();
+
+    return c.json({
+      success: true,
+      impact: {
+        monthly_detail: monthlyDetail,
+        member_assignments: memberAssignments,
+        member_assignments_count: memberAssignments.length,
+        payment_histories: paymentHistories,
+        payment_histories_count: paymentHistories.length,
+        change_histories_count: changeHistories[0]?.count || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Get delete impact error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 // 月次明細削除API（関連するメンバーアサインも含む）
 app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) => {
   const { DB } = c.env;
@@ -10000,11 +10989,21 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
       SELECT COUNT(*) as count FROM monthly_member_assignments WHERE monthly_detail_id = ?
     `).bind(monthlyDetailId).first();
 
+    const paymentHistories = await DB.prepare(`
+      SELECT COUNT(*) as count FROM payment_histories WHERE monthly_detail_id = ?
+    `).bind(monthlyDetailId).first();
+
+    const changeHistories = await DB.prepare(`
+      SELECT COUNT(*) as count FROM status_change_histories 
+      WHERE table_name = 'monthly_details' AND record_id = ?
+    `).bind(monthlyDetailId).first();
+
     // バッチで全削除を実行（外部キー制約を一時的に無効化）
     const batchStatements = [
       DB.prepare('PRAGMA foreign_keys = OFF'),
       DB.prepare(`DELETE FROM monthly_member_assignments WHERE monthly_detail_id = ?`).bind(monthlyDetailId),
       DB.prepare(`DELETE FROM payment_histories WHERE monthly_detail_id = ?`).bind(monthlyDetailId),
+      DB.prepare(`DELETE FROM status_change_histories WHERE table_name = 'monthly_details' AND record_id = ?`).bind(monthlyDetailId),
       DB.prepare(`DELETE FROM monthly_details WHERE id = ?`).bind(monthlyDetailId),
       DB.prepare('PRAGMA foreign_keys = ON')
     ];
@@ -10015,7 +11014,9 @@ app.delete('/api/monthly-details/:id', authMiddleware, requireAdmin, async (c) =
       success: true,
       deleted: {
         monthly_details: 1,
-        monthly_member_assignments: monthlyMembers.count
+        monthly_member_assignments: monthlyMembers.count,
+        payment_histories: paymentHistories.count,
+        change_histories: changeHistories.count
       }
     });
 

@@ -82,13 +82,10 @@ const AUTH_UTILS = {
   }
 };
 
-// ページ読み込み時に認証チェック
-document.addEventListener('DOMContentLoaded', function() {
-  // ログインページとヘルスチェックは除外
-  if (window.location.pathname !== '/login' && 
-      window.location.pathname !== '/health' &&
-      window.location.pathname !== '/test') {
-    AUTH_UTILS.checkAuth();
-    AUTH_UTILS.setupAxios();
+// ナビゲーションバーユーティリティ
+const NAVBAR = {
+  showPermissionError: function(requiredPermission) {
+    const label = AUTH_UTILS.PERMISSION_LABELS[requiredPermission] || requiredPermission;
+    alert('この操作を行う権限がありません。\n必要な権限: ' + label + '\n\n管理者に権限の付与を依頼してください。');
   }
-});
+};
