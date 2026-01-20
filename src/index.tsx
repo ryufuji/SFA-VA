@@ -13,6 +13,52 @@ const app = new Hono<{ Bindings: Bindings }>()
 app.use('/api/*', cors())
 
 // ========================================
+// Helper Functions
+// ========================================
+
+/**
+ * 契約ステータスを自動更新する関数
+ * 関連する月次明細がすべて「検収済」「請求済」「金額と入金総額が一致」の場合、契約を「完了」に更新
+ */
+async function updateContractStatusIfCompleted(DB: D1Database, contractId: number) {
+  // 契約に関連する月次明細をすべて取得
+  const { results: monthlyDetails } = await DB.prepare(`
+    SELECT 
+      md.id,
+      md.amount,
+      md.inspection_status,
+      md.billing_status,
+      md.payment_status,
+      COALESCE(SUM(ph.payment_amount), 0) as total_payment
+    FROM monthly_details md
+    LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
+    WHERE md.contract_id = ?
+    GROUP BY md.id, md.amount, md.inspection_status, md.billing_status, md.payment_status
+  `).bind(contractId).all()
+
+  // 月次明細が存在しない場合は何もしない
+  if (!monthlyDetails || monthlyDetails.length === 0) {
+    return
+  }
+
+  // すべての月次明細が条件を満たすかチェック
+  const allCompleted = monthlyDetails.every((detail: any) => {
+    return detail.inspection_status === '検収済' &&
+           detail.billing_status === '請求済' &&
+           detail.amount === detail.total_payment
+  })
+
+  // すべて完了している場合、契約ステータスを「completed」に更新
+  if (allCompleted) {
+    await DB.prepare(`
+      UPDATE contracts 
+      SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ? AND status != 'completed'
+    `).bind(contractId).run()
+  }
+}
+
+// ========================================
 // Test Routes (データベース不要)
 // ========================================
 app.get('/health', (c) => {
@@ -2399,6 +2445,13 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
     WHERE id = ?
   `).bind(totalPayment, paymentStatus, payment_date, monthly_detail_id).run()
   
+  // 月次明細の契約IDを取得
+  const monthlyDetail = await DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
+  if (monthlyDetail?.contract_id) {
+    // 契約ステータスを自動更新
+    await updateContractStatusIfCompleted(DB, monthlyDetail.contract_id)
+  }
+  
   return c.json({ success: true, message: 'Payment added successfully', totalPayment, paymentStatus })
 })
 
@@ -2960,6 +3013,13 @@ app.put('/api/monthly-details/:id/inspection', authMiddleware, requirePermission
     WHERE id = ?
   `).bind(inspection_status, inspection_date, id).run()
 
+  // 月次明細の契約IDを取得
+  const monthlyDetail = await c.env.DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(id).first() as any
+  if (monthlyDetail?.contract_id) {
+    // 契約ステータスを自動更新
+    await updateContractStatusIfCompleted(c.env.DB, monthlyDetail.contract_id)
+  }
+
   return c.json({ success: true })
 })
 
@@ -2998,6 +3058,13 @@ app.put('/api/monthly-details/:id/billing', authMiddleware, requirePermission('i
     SET billing_status = ?, billing_date = ?, invoice_number = ?, expected_payment_date = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(billing_status, billing_date, invoice_number, expected_payment_date, id).run()
+
+  // 月次明細の契約IDを取得
+  const monthlyDetail = await c.env.DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(id).first() as any
+  if (monthlyDetail?.contract_id) {
+    // 契約ステータスを自動更新
+    await updateContractStatusIfCompleted(c.env.DB, monthlyDetail.contract_id)
+  }
 
   return c.json({ success: true })
 })
@@ -3070,6 +3137,13 @@ app.delete('/api/payment-histories/:id', authMiddleware, requirePermission('paym
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(totalPayment, paymentStatus, payment.monthly_detail_id).run()
+
+  // 月次明細の契約IDを取得
+  const monthlyDetail = await c.env.DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(payment.monthly_detail_id).first() as any
+  if (monthlyDetail?.contract_id) {
+    // 契約ステータスを自動更新
+    await updateContractStatusIfCompleted(c.env.DB, monthlyDetail.contract_id)
+  }
 
   return c.json({ success: true })
 })
