@@ -130,7 +130,6 @@ app.get('/login', (c) => {
               <strong>初回ログイン情報</strong>
             </p>
             <div class="text-xs text-blue-700 space-y-1">
-              <p><strong>管理者:</strong> admin@system.local / admin1234</p>
               <p><strong>一般ユーザー:</strong> メンバーのメールアドレス</p>
               <p><strong>デフォルトパスワード:</strong> {メールアドレスのローカル部分}1234</p>
               <p class="text-xs text-blue-600 italic">例: john@example.com → john1234</p>
