@@ -10799,6 +10799,9 @@ app.get('/quotes', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
+                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -10932,13 +10935,13 @@ app.get('/quotes', async (c) => {
             // ユーザー名を表示
             AUTH_UTILS.getCurrentUser().then(user => {
               if (user) {
-                document.getElementById('user-display-name').textContent = user.name;
+                document.getElementById('nav-user-name').textContent = user.name;
               } else {
-                document.getElementById('user-display-name').textContent = 'ゲスト';
+                document.getElementById('nav-user-name').textContent = 'ゲスト';
               }
             }).catch(error => {
               console.error('Failed to load user info:', error);
-              document.getElementById('user-display-name').textContent = 'ゲスト';
+              document.getElementById('nav-user-name').textContent = 'ゲスト';
             });
             
             async function deleteQuote(id) {
