@@ -6642,7 +6642,7 @@ app.get('/projects/detail/:id', async (c) => {
   
   // アクティブなメンバー一覧を取得（編集モーダル用）
   const { results: members } = await c.env.DB.prepare(
-    'SELECT id, name, email FROM members WHERE status = ? ORDER BY name ASC'
+    'SELECT id, name, email, default_unit_price FROM members WHERE status = ? ORDER BY name ASC'
   ).bind('active').all()
 
   return c.html(`
@@ -7308,6 +7308,7 @@ app.get('/projects/detail/:id', async (c) => {
           // ========================================
           
           const quotesMembers = ${JSON.stringify(members)};
+          console.log('Quotes Members:', quotesMembers);
           let quoteItemCounter = 0;
           
           // 見積書一覧を読み込む
@@ -7447,6 +7448,7 @@ app.get('/projects/detail/:id', async (c) => {
           window.updateMemberPrice = function(select, itemId) {
             const selectedOption = select.options[select.selectedIndex];
             const price = selectedOption.getAttribute('data-price') || 0;
+            console.log('Selected member:', selectedOption.text, 'Price:', price);
             const itemDiv = document.getElementById('quote-item-' + itemId);
             const priceInput = itemDiv.querySelector('.quote-unit-price');
             priceInput.value = price;
