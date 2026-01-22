@@ -6667,14 +6667,17 @@ app.get('/projects/detail/:id', async (c) => {
                 </div>
               </div>
               <div class="flex items-center space-x-4">
-                <span id="nav-user-name" class="text-sm text-gray-700">読込中...</span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">
-                  <i class="fas fa-user mr-1"></i>プロフィール
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <a href="/admin/users" id="admin-users-link" class="text-sm text-gray-600 hover:text-gray-900 hidden">
-                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
                 </a>
-                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
                 </button>
               </div>
@@ -7706,6 +7709,9 @@ app.get('/contracts/:id', async (c) => {
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
                   </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
+                  </a>
                   <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
@@ -7716,12 +7722,16 @@ app.get('/contracts/:id', async (c) => {
               </div>
               <div class="flex items-center space-x-4">
                 <span class="text-sm text-gray-700">
-                  <i class="fas fa-user-circle mr-1"></i><span id="user-display-name">読み込み中...</span>
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-gray-600 hover:text-blue-600 text-sm">
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <button onclick="AUTH_UTILS.logout()" class="text-red-600 hover:text-red-700 text-sm">
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
                 </button>
               </div>
@@ -8227,14 +8237,17 @@ app.get('/projects/detail/:projectId/contracts/new', async (c) => {
                 </div>
               </div>
               <div class="flex items-center space-x-4">
-                <span id="nav-user-name" class="text-sm text-gray-700">読込中...</span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">
-                  <i class="fas fa-user mr-1"></i>プロフィール
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <a href="/admin/users" id="admin-users-link" class="text-sm text-gray-600 hover:text-gray-900 hidden">
-                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
                 </a>
-                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
                 </button>
               </div>
@@ -8936,8 +8949,8 @@ app.get('/monthly/:id', async (c) => {
                 <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
                 </a>
                 <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -10149,8 +10162,8 @@ app.get('/monthly-list', async (c) => {
                 <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                  <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
                 </a>
                 <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -14863,8 +14876,8 @@ app.get('/members', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
