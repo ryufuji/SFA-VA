@@ -10753,7 +10753,7 @@ app.get('/quotes', async (c) => {
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
     </head>
     <body class="bg-gray-100">
-        <!-- ナビゲーション -->
+        <!-- グローバルナビゲーション -->
         <nav class="bg-white shadow-sm">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -10770,19 +10770,29 @@ app.get('/quotes', async (c) => {
                   <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-users mr-2"></i>リード
                   </a>
-                  <a href="/quotes" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-file-invoice mr-2"></i>見積書
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-project-diagram mr-2"></i>案件
                   </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/settings/company" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-cog mr-2"></i>設定
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
+                </a>
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                   <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
                 </button>
               </div>
@@ -10877,17 +10887,49 @@ app.get('/quotes', async (c) => {
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
             const AUTH_UTILS = {
-              logout: function() {
+              getToken: () => localStorage.getItem('jwt_token'),
+              checkAuth: () => {
+                if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+                  window.location.href = '/login';
+                }
+              },
+              getCurrentUser: async () => {
+                try {
+                  const response = await axios.get('/api/auth/me', {
+                    headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+                  });
+                  return response.data.user;
+                } catch (error) {
+                  console.error('Failed to get current user:', error);
+                  return null;
+                }
+              },
+              logout: () => {
                 localStorage.removeItem('jwt_token');
                 window.location.href = '/login';
+              },
+              setupAxios: () => {
+                const token = AUTH_UTILS.getToken();
+                if (token) {
+                  axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+                }
               }
             };
+
+            AUTH_UTILS.checkAuth();
+            AUTH_UTILS.setupAxios();
             
-            const token = localStorage.getItem('jwt_token');
-            if (!token) {
-              window.location.href = '/login';
-            }
-            axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+            // ユーザー名を表示
+            AUTH_UTILS.getCurrentUser().then(user => {
+              if (user) {
+                document.getElementById('user-display-name').textContent = user.name;
+              } else {
+                document.getElementById('user-display-name').textContent = 'ゲスト';
+              }
+            }).catch(error => {
+              console.error('Failed to load user info:', error);
+              document.getElementById('user-display-name').textContent = 'ゲスト';
+            });
             
             async function deleteQuote(id) {
               if (!confirm('この見積書を削除しますか？')) return;
@@ -11729,7 +11771,7 @@ app.get('/invoices', async (c) => {
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
     </head>
     <body class="bg-gray-100">
-        <!-- ナビゲーション -->
+        <!-- グローバルナビゲーション -->
         <nav class="bg-white shadow-sm">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -11747,31 +11789,29 @@ app.get('/invoices', async (c) => {
                     <i class="fas fa-users mr-2"></i>リード
                   </a>
                   <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-project-diagram mr-2"></i>案件
+                    <i class="fas fa-briefcase mr-2"></i>案件
                   </a>
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                  <a href="/quotes" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-file-invoice mr-2"></i>見積書
-                  </a>
-                  <a href="/invoices" class="border-blue-600 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 font-medium">
-                    <i class="fas fa-receipt mr-2"></i>請求書
-                  </a>
-                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-tie mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
-              <div class="flex items-center">
-                <span class="text-gray-700 mr-4">
-                  <i class="fas fa-user-circle mr-2"></i><span id="nav-user-name">読込中...</span>
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/settings/company" class="text-gray-500 hover:text-gray-700 mr-4">
-                  <i class="fas fa-building"></i>
+                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-user-cog mr-1"></i>プロフィール
                 </a>
-                <button onclick="AUTH_UTILS.logout()" class="text-gray-500 hover:text-gray-700">
-                  <i class="fas fa-sign-out-alt"></i>
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
                 </button>
               </div>
             </div>
