@@ -7078,6 +7078,7 @@ app.get('/projects/detail/:id', async (c) => {
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
           const PROJECT_ID = ${id};
+          const PROJECT_NAME = '${project.project_name.replace(/'/g, "\\'")}';
           
           // AUTH_UTILS - 認証ユーティリティ
           const AUTH_UTILS = {
@@ -7351,6 +7352,8 @@ app.get('/projects/detail/:id', async (c) => {
           // 見積書作成モーダルを開く
           window.openCreateQuoteModal = function() {
             document.getElementById('create-quote-modal').classList.remove('hidden');
+            // 件名に案件名を自動入力
+            document.querySelector('#create-quote-form input[name="subject"]').value = PROJECT_NAME;
             // 今日の日付をデフォルト設定
             const today = new Date().toISOString().split('T')[0];
             document.querySelector('#create-quote-form input[name="issue_date"]').value = today;
@@ -7405,13 +7408,18 @@ app.get('/projects/detail/:id', async (c) => {
                 </div>
                 <div>
                   <label class="block text-xs text-gray-600 mb-1">数量 *</label>
-                  <input type="number" step="0.1" class="quote-quantity w-full px-2 py-1 border border-gray-300 rounded text-sm" 
-                         value="1" min="0.1" required onchange="calculateQuoteItem(\${quoteItemCounter})">
+                  <input type="number" step="1" class="quote-quantity w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         value="1" min="1" required onchange="calculateQuoteItem(\${quoteItemCounter})">
                 </div>
                 <div>
                   <label class="block text-xs text-gray-600 mb-1">単位</label>
                   <input type="text" class="quote-unit w-full px-2 py-1 border border-gray-300 rounded text-sm" 
                          value="人月">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">稼働率 *</label>
+                  <input type="number" step="0.01" class="quote-workload w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         value="1.0" min="0" max="1" required onchange="calculateQuoteItem(\${quoteItemCounter})">
                 </div>
                 <div>
                   <label class="block text-xs text-gray-600 mb-1">単価 *</label>
@@ -7455,12 +7463,13 @@ app.get('/projects/detail/:id', async (c) => {
           // 明細の金額を計算
           window.calculateQuoteItem = function(itemId) {
             const itemDiv = document.getElementById('quote-item-' + itemId);
-            const quantity = parseFloat(itemDiv.querySelector('.quote-quantity').value) || 0;
+            const quantity = parseInt(itemDiv.querySelector('.quote-quantity').value) || 0;
+            const workload = parseFloat(itemDiv.querySelector('.quote-workload').value) || 0;
             const unitPrice = parseFloat(itemDiv.querySelector('.quote-unit-price').value) || 0;
-            const amount = quantity * unitPrice;
+            const amount = quantity * workload * unitPrice;
             
-            itemDiv.querySelector('.quote-amount').value = '¥' + amount.toLocaleString();
-            itemDiv.querySelector('.quote-amount').dataset.amount = amount;
+            itemDiv.querySelector('.quote-amount').value = '¥' + Math.floor(amount).toLocaleString();
+            itemDiv.querySelector('.quote-amount').dataset.amount = Math.floor(amount);
             
             calculateQuoteTotal();
           }
@@ -7491,7 +7500,8 @@ app.get('/projects/detail/:id', async (c) => {
               const memberSelect = itemDiv.querySelector('.quote-member');
               const memberId = memberSelect.value || null;
               const description = itemDiv.querySelector('.quote-description').value;
-              const quantity = parseFloat(itemDiv.querySelector('.quote-quantity').value);
+              const quantity = parseInt(itemDiv.querySelector('.quote-quantity').value);
+              const workload = parseFloat(itemDiv.querySelector('.quote-workload').value);
               const unit = itemDiv.querySelector('.quote-unit').value;
               const unitPrice = parseFloat(itemDiv.querySelector('.quote-unit-price').value);
               const amount = parseFloat(itemDiv.querySelector('.quote-amount').dataset.amount);
@@ -7501,6 +7511,7 @@ app.get('/projects/detail/:id', async (c) => {
                 member_id: memberId,
                 item_description: description,
                 quantity: quantity,
+                workload: workload,
                 unit: unit,
                 unit_price: unitPrice,
                 amount: amount,
@@ -11094,7 +11105,8 @@ app.get('/quotes/:id/pdf', async (c) => {
                                     <thead>
                                         <tr style="background: #4a90e2; color: white;">
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: left; font-weight: 600;">品目・品名</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 70px; font-weight: 600;">数量</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">数量</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">稼働率</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: center; width: 50px; font-weight: 600;">単位</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 100px; font-weight: 600;">単価</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 110px; font-weight: 600;">金額</th>
@@ -11108,6 +11120,7 @@ app.get('/quotes/:id/pdf', async (c) => {
                                                     \${item.note ? '<div style="font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #ddd;">' + item.note + '</div>' : ''}
                                                 </td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: center; color: #666;">\${item.unit || ''}</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
@@ -11116,15 +11129,15 @@ app.get('/quotes/:id/pdf', async (c) => {
                                     </tbody>
                                     <tfoot>
                                         <tr style="background: #f8f9fa;">
-                                            <td colspan="4" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
+                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
                                             <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #1a1a1a;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #f8f9fa;">
-                                            <td colspan="4" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
+                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
                                             <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #666;">¥\${(quote.tax || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #4a90e2; color: white;">
-                                            <td colspan="4" style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
+                                            <td colspan="5" style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
                                             <td style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 15px;">¥\${(quote.total || 0).toLocaleString()}</td>
                                         </tr>
                                     </tfoot>
@@ -16715,14 +16728,15 @@ app.post('/api/projects/:projectId/quotes', authMiddleware, requirePermission('l
       const item = items[i]
       await DB.prepare(`
         INSERT INTO quote_items (
-          quote_id, member_id, item_description, quantity,
+          quote_id, member_id, item_description, quantity, workload,
           unit, unit_price, amount, note, sort_order
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         quoteId,
         item.member_id || null,
         item.item_description,
         item.quantity,
+        item.workload || 1.0,
         item.unit || '人月',
         item.unit_price,
         item.amount,
