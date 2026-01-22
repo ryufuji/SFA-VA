@@ -17338,11 +17338,12 @@ const EXPORT_TABLES = [
   { name: 'monthly_details', label: '月次明細' },
   { name: 'contract_member_assignments', label: '契約メンバーアサイン' },
   { name: 'monthly_member_assignments', label: '月次メンバーアサイン' },
-  { name: 'quotes', label: '見積' },
+  { name: 'quotes', label: '見積書' },
   { name: 'invoices', label: '請求書' },
   // 第4レベル依存
   { name: 'payment_histories', label: '入金履歴' },
-  { name: 'quote_items', label: '見積明細' },
+  { name: 'quote_items', label: '見積書明細' },
+  { name: 'quote_status_changes', label: '見積書ステータス変更履歴' },
   { name: 'invoice_items', label: '請求書明細' },
   // ログテーブル（最後）
   { name: 'status_change_histories', label: 'ステータス変更履歴' },
