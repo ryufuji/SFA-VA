@@ -736,9 +736,6 @@ app.get('/admin/users', (c) => {
               <a href="/settings" class="text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
-              <a href="/profile" class="text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user mr-1"></i>プロフィール
-              </a>
               <button id="logout-button" class="text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
               </button>
@@ -1056,9 +1053,6 @@ app.get('/details', (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -1228,9 +1222,6 @@ app.get('/settings', (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-blue-600 font-semibold">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -1283,6 +1274,24 @@ app.get('/settings', (c) => {
                 </div>
                 <p class="text-gray-600 text-sm">
                   営業メンバーの登録、編集、削除を行います。案件や契約へのアサイン、按分比率の設定に使用されます。
+                </p>
+              </div>
+            </a>
+
+            <!-- プロフィール -->
+            <a href="/profile" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-indigo-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-indigo-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-user-cog text-2xl text-indigo-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">プロフィール</h2>
+                    <p class="text-sm text-gray-500">個人情報とパスワードの変更</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  ログインユーザーの氏名、メールアドレス、パスワードを変更できます。
                 </p>
               </div>
             </a>
@@ -4977,9 +4986,6 @@ app.get('/leads', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -5500,9 +5506,6 @@ app.get('/leads/:id', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -6158,9 +6161,6 @@ app.get('/', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -6689,9 +6689,6 @@ app.get('/projects/detail/:id', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -7743,9 +7740,6 @@ app.get('/contracts/:id', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -8259,9 +8253,6 @@ app.get('/projects/detail/:projectId/contracts/new', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -8964,9 +8955,6 @@ app.get('/monthly/:id', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -10177,9 +10165,6 @@ app.get('/monthly-list', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -10611,9 +10596,6 @@ app.get('/projects', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -10804,9 +10786,6 @@ app.get('/quotes', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -11255,9 +11234,6 @@ app.get('/quotes/:id', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -11832,9 +11808,6 @@ app.get('/invoices', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -12029,9 +12002,6 @@ app.get('/invoices/:id', async (c) => {
                   <i class="fas fa-user-circle mr-1"></i>
                   <span id="nav-user-name">読込中...</span>
                 </span>
-                <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                  <i class="fas fa-user-cog mr-1"></i>プロフィール
-                </a>
                 <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                   <i class="fas fa-cog mr-1"></i>設定
                 </a>
@@ -13151,9 +13121,6 @@ app.get('/contracts', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -13717,9 +13684,6 @@ app.get('/monthly-details', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
@@ -14941,9 +14905,6 @@ app.get('/members', async (c) => {
                 <i class="fas fa-user-circle mr-1"></i>
                 <span id="nav-user-name">読込中...</span>
               </span>
-              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
-                <i class="fas fa-user-cog mr-1"></i>プロフィール
-              </a>
               <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-cog mr-1"></i>設定
               </a>
