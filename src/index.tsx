@@ -11106,9 +11106,9 @@ app.get('/quotes/:id/pdf', async (c) => {
                                         <tr style="background: #4a90e2; color: white;">
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: left; font-weight: 600;">品目・品名</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">数量</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">稼働率</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: center; width: 50px; font-weight: 600;">単位</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 100px; font-weight: 600;">単価</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">稼働率</th>
                                             <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 110px; font-weight: 600;">金額</th>
                                         </tr>
                                     </thead>
@@ -11120,9 +11120,9 @@ app.get('/quotes/:id/pdf', async (c) => {
                                                     \${item.note ? '<div style="font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #ddd;">' + item.note + '</div>' : ''}
                                                 </td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: center; color: #666;">\${item.unit || ''}</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
                                             </tr>
                                         \`).join('')}
