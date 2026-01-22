@@ -1269,12 +1269,30 @@ app.get('/settings', (c) => {
               </div>
             </a>
 
-            <!-- ユーザー管理 -->
-            <a href="/admin/users" id="user-management-card" class="block" style="display:none;">
-              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-blue-500">
+            <!-- メンバー管理 -->
+            <a href="/members" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-green-500">
                 <div class="flex items-center mb-4">
                   <div class="bg-green-100 rounded-full p-3 mr-4">
-                    <i class="fas fa-users-cog text-2xl text-green-600"></i>
+                    <i class="fas fa-user-tie text-2xl text-green-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">メンバー管理</h2>
+                    <p class="text-sm text-gray-500">営業メンバーの登録と管理</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  営業メンバーの登録、編集、削除を行います。案件や契約へのアサイン、按分比率の設定に使用されます。
+                </p>
+              </div>
+            </a>
+
+            <!-- ユーザー管理 -->
+            <a href="/admin/users" id="user-management-card" class="block" style="display:none;">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-orange-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-orange-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-users-cog text-2xl text-orange-600"></i>
                   </div>
                   <div>
                     <h2 class="text-xl font-semibold text-gray-900">ユーザー管理</h2>
