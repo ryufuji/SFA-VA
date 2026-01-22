@@ -2,9 +2,11 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { hashPassword, verifyPassword, getUserPermissions, logAction, ADMIN_PERMISSIONS } from './auth'
 import { generateJWT, authMiddleware, requirePermission, requireAdmin } from './middleware/auth'
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 type Bindings = {
   DB: D1Database;
+  STORAGE: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -191,6 +193,12 @@ app.get('/login', (c) => {
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
+        // ページロード時に古いトークンをクリア
+        // これにより、ログアウト後の404エラーを防ぐ
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('user');
+        document.cookie = 'jwt_token=; path=/; max-age=0; SameSite=Lax';
+        
         document.getElementById('login-form').addEventListener('submit', async (e) => {
           e.preventDefault();
           
@@ -212,9 +220,12 @@ app.get('/login', (c) => {
             });
             
             if (response.data.success) {
-              // JWTトークンをlocalStorageに保存
+              // JWTトークンをlocalStorageとクッキーに保存
               localStorage.setItem('jwt_token', response.data.token);
               localStorage.setItem('user', JSON.stringify(response.data.user));
+              
+              // クッキーにもトークンを保存（PDFページなど新しいウィンドウで使用するため）
+              document.cookie = 'jwt_token=' + response.data.token + '; path=/; max-age=86400; SameSite=Lax';
               
               // パスワード変更が必要な場合は強制的にパスワード変更画面へ
               if (response.data.password_change_required) {
@@ -266,6 +277,9 @@ app.get('/profile', (c) => {
               <span id="user-name" class="text-gray-700"></span>
               <a href="/" class="text-gray-600 hover:text-blue-600">
                 <i class="fas fa-home mr-1"></i>ダッシュボード
+              </a>
+              <a href="/settings" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button id="logout-button" class="text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -719,6 +733,9 @@ app.get('/admin/users', (c) => {
               <a href="/" class="text-gray-600 hover:text-blue-600">
                 <i class="fas fa-home mr-1"></i>ダッシュボード
               </a>
+              <a href="/settings" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
+              </a>
               <a href="/profile" class="text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user mr-1"></i>プロフィール
               </a>
@@ -987,6 +1004,768 @@ app.get('/admin/users', (c) => {
         });
         
         loadUsers();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// 詳細一覧トップページ
+app.get('/details', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>詳細一覧 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/details" class="border-blue-500 text-blue-600 inline-flex items-center px-1 pt-1 border-b-2 font-semibold">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-sm text-gray-700">
+                <i class="fas fa-user-circle mr-1"></i>
+                <span id="nav-user-name">読込中...</span>
+              </span>
+              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-user-cog mr-1"></i>プロフィール
+              </a>
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
+              </a>
+              <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="px-4 py-6 sm:px-0">
+          <h1 class="text-3xl font-bold text-gray-900 mb-6">
+            <i class="fas fa-list-alt mr-2"></i>詳細一覧
+          </h1>
+          
+          <!-- 詳細一覧メニュー -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 月次明細一覧 -->
+            <a href="/monthly-details" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-blue-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-blue-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-calendar-alt text-2xl text-blue-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">月次明細一覧</h2>
+                    <p class="text-sm text-gray-500">月次ベースの契約明細</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  各契約の月次明細情報を確認できます。検収状況、請求状況、入金状況などを一覧で管理します。
+                </p>
+              </div>
+            </a>
+
+            <!-- 見積書一覧 -->
+            <a href="/quotes" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-green-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-green-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-file-invoice text-2xl text-green-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">見積書一覧</h2>
+                    <p class="text-sm text-gray-500">発行した見積書</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  案件に対して発行した見積書を一覧で確認できます。ステータスやPDF出力も可能です。
+                </p>
+              </div>
+            </a>
+
+            <!-- 請求書一覧 -->
+            <a href="/invoices" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-purple-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-purple-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-file-invoice-dollar text-2xl text-purple-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">請求書一覧</h2>
+                    <p class="text-sm text-gray-500">発行した請求書</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  月次明細から発行した請求書を一覧で確認できます。PDF出力や入金管理も可能です。
+                </p>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        // AUTH_UTILS - 認証ユーティリティ
+        const AUTH_UTILS = {
+          getToken: () => localStorage.getItem('jwt_token'),
+          checkAuth: () => {
+            if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+              window.location.href = '/login';
+            }
+          },
+          logout: () => {
+            localStorage.removeItem('jwt_token');
+            document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+            window.location.href = '/login';
+          }
+        };
+
+        // 認証チェック
+        AUTH_UTILS.checkAuth();
+
+        // Axiosのデフォルト設定
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + AUTH_UTILS.getToken();
+
+        // ユーザー情報を取得
+        async function loadUserInfo() {
+          try {
+            const response = await axios.get('/api/auth/me');
+            if (response.data && response.data.success) {
+              const user = response.data.user;
+              if (user && user.name) {
+                document.getElementById('nav-user-name').textContent = user.name;
+              }
+            }
+          } catch (error) {
+            console.error('ユーザー情報の取得に失敗しました:', error);
+          }
+        }
+
+        loadUserInfo();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+// 自社情報管理画面（権限必要）
+// 設定トップページ
+app.get('/settings', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>設定 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-users mr-2"></i>リード
+                </a>
+                <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-briefcase mr-2"></i>案件
+                </a>
+                <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-file-contract mr-2"></i>契約
+                </a>
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-sm text-gray-700">
+                <i class="fas fa-user-circle mr-1"></i>
+                <span id="nav-user-name">読込中...</span>
+              </span>
+              <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-user-cog mr-1"></i>プロフィール
+              </a>
+              <a href="/settings" class="text-sm text-blue-600 font-semibold">
+                <i class="fas fa-cog mr-1"></i>設定
+              </a>
+              <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="px-4 py-6 sm:px-0">
+          <h1 class="text-3xl font-bold text-gray-900 mb-6">
+            <i class="fas fa-cog mr-2"></i>設定
+          </h1>
+          
+          <!-- 設定メニュー -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- 自社情報管理 -->
+            <a href="/settings/company" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-blue-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-blue-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-building text-2xl text-blue-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">自社情報管理</h2>
+                    <p class="text-sm text-gray-500">会社情報、ロゴ、印鑑などの設定</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  会社名、住所、電話番号、登録番号、銀行口座、ロゴ、会社印などの自社情報を管理します。
+                </p>
+              </div>
+            </a>
+
+            <!-- ユーザー管理 -->
+            <a href="/admin/users" id="user-management-card" class="block" style="display:none;">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-blue-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-green-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-users-cog text-2xl text-green-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">ユーザー管理</h2>
+                    <p class="text-sm text-gray-500">ユーザーアカウントと権限の管理</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  ユーザーアカウントの作成、編集、削除、および権限の設定を行います。管理者のみアクセス可能です。
+                </p>
+              </div>
+            </a>
+
+            <!-- データバックアップ・リストア -->
+            <a href="/settings/data-backup" id="data-backup-card" class="block" style="display:none;">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-purple-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-purple-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-database text-2xl text-purple-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">データバックアップ・リストア</h2>
+                    <p class="text-sm text-gray-500">全テーブルデータのエクスポート・インポート</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  全データのバックアップ（CSV形式）、テスト環境へのデータ投入、本番環境への初期データ登録を行います。管理者のみアクセス可能です。
+                </p>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        // AUTH_UTILS - 認証ユーティリティ
+        const AUTH_UTILS = {
+          getToken: () => localStorage.getItem('jwt_token'),
+          checkAuth: () => {
+            if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+              window.location.href = '/login';
+            }
+          },
+          logout: () => {
+            localStorage.removeItem('jwt_token');
+            document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+            window.location.href = '/login';
+          }
+        };
+
+        // 認証チェック
+        AUTH_UTILS.checkAuth();
+
+        // Axiosのデフォルト設定
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + AUTH_UTILS.getToken();
+
+        // ユーザー情報を取得
+        async function loadUserInfo() {
+          try {
+            const response = await axios.get('/api/auth/me');
+            console.log('API response:', response.data);
+            if (response.data && response.data.success) {
+              const user = response.data.user;
+              if (user && user.name) {
+                document.getElementById('nav-user-name').textContent = user.name;
+                
+                // 管理者の場合のみユーザー管理カードとデータバックアップカードを表示
+                if (user.role === 'admin') {
+                  document.getElementById('user-management-card').style.display = 'block';
+                  const dataBackupCard = document.getElementById('data-backup-card');
+                  if (dataBackupCard) dataBackupCard.style.display = 'block';
+                }
+              } else {
+                console.error('ユーザー情報が不正です:', response.data);
+              }
+            }
+          } catch (error) {
+            console.error('ユーザー情報の取得に失敗しました:');
+            console.error('Error message:', error.message);
+            console.error('Error response:', error.response?.data);
+            console.error('Error status:', error.response?.status);
+            console.error('Full error:', error);
+          }
+        }
+
+        loadUserInfo();
+      </script>
+    </body>
+    </html>
+  `)
+})
+
+app.get('/settings/company', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>自社情報管理 - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+      <!-- ナビゲーション -->
+      <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex items-center">
+              <i class="fas fa-chart-line text-2xl text-blue-600 mr-3"></i>
+              <span class="text-xl font-semibold text-gray-800">SFA システム</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span id="user-name" class="text-gray-700"></span>
+              <a href="/" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-home mr-1"></i>ダッシュボード
+              </a>
+              <a href="/settings" class="text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
+              </a>
+              <button id="logout-button" class="text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-4xl mx-auto py-8 px-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">
+          <i class="fas fa-building mr-2"></i>自社情報管理
+        </h1>
+
+        <!-- 成功・エラーメッセージ -->
+        <div id="success-message" class="hidden bg-green-50 border-l-4 border-green-400 p-4 mb-4">
+          <p class="text-sm text-green-700">
+            <i class="fas fa-check-circle mr-2"></i>
+            <span id="success-text"></span>
+          </p>
+        </div>
+        <div id="error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+          <p class="text-sm text-red-700">
+            <i class="fas fa-exclamation-circle mr-2"></i>
+            <span id="error-text"></span>
+          </p>
+        </div>
+
+        <form id="company-form" class="space-y-6">
+          <!-- 基本情報 -->
+          <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">基本情報</h2>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  会社名 <span class="text-red-500">*</span>
+                </label>
+                <input type="text" id="company_name" required
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    郵便番号
+                  </label>
+                  <input type="text" id="postal_code" placeholder="1234567"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    登録番号（インボイス）
+                  </label>
+                  <input type="text" id="registration_number" placeholder="T1234567890123"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  住所
+                </label>
+                <input type="text" id="address"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- 銀行情報 -->
+          <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">銀行情報</h2>
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    銀行名
+                  </label>
+                  <input type="text" id="bank_name" placeholder="三井住友銀行"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    支店名
+                  </label>
+                  <input type="text" id="bank_branch" placeholder="渋谷支店"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    口座種別
+                  </label>
+                  <select id="account_type"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">選択してください</option>
+                    <option value="普通">普通</option>
+                    <option value="当座">当座</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    口座番号
+                  </label>
+                  <input type="text" id="account_number" placeholder="1234567"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  口座名義
+                </label>
+                <input type="text" id="account_holder" placeholder="バリュー アーキテクツ（カ"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- 画像アップロード -->
+          <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">ロゴ・印鑑</h2>
+            <div class="space-y-6">
+              <!-- ロゴ -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  <i class="fas fa-image mr-1"></i>会社ロゴ
+                </label>
+                <div class="flex items-center space-x-4">
+                  <div id="logo-preview" class="hidden w-32 h-32 border-2 border-gray-300 rounded-lg overflow-hidden">
+                    <img id="logo-image" src="" alt="Logo" class="w-full h-full object-contain">
+                  </div>
+                  <div class="flex-1">
+                    <input type="file" id="logo-file" accept="image/*" class="hidden">
+                    <button type="button" onclick="document.getElementById('logo-file').click()"
+                      class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      <i class="fas fa-upload mr-2"></i>ファイルを選択
+                    </button>
+                    <button type="button" id="upload-logo-button" class="hidden ml-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                      <i class="fas fa-cloud-upload mr-2"></i>アップロード
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2">推奨サイズ: 200×100px程度、最大1MB</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 会社印 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  <i class="fas fa-stamp mr-1"></i>会社印
+                </label>
+                <div class="flex items-center space-x-4">
+                  <div id="seal-preview" class="hidden w-32 h-32 border-2 border-gray-300 rounded-lg overflow-hidden">
+                    <img id="seal-image" src="" alt="Seal" class="w-full h-full object-contain">
+                  </div>
+                  <div class="flex-1">
+                    <input type="file" id="seal-file" accept="image/*" class="hidden">
+                    <button type="button" onclick="document.getElementById('seal-file').click()"
+                      class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      <i class="fas fa-upload mr-2"></i>ファイルを選択
+                    </button>
+                    <button type="button" id="upload-seal-button" class="hidden ml-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                      <i class="fas fa-cloud-upload mr-2"></i>アップロード
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2">推奨サイズ: 100×100px程度、最大1MB</p>
+                  </div>
+                </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 保存ボタン -->
+          <div class="flex justify-end">
+            <button type="submit" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+              <i class="fas fa-save mr-2"></i>保存
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script>
+        const token = localStorage.getItem('jwt_token');
+        if (!token) {
+          window.location.href = '/login';
+        }
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+
+        // ユーザー情報取得
+        async function loadUserInfo() {
+          try {
+            const response = await axios.get('/api/auth/me');
+            document.getElementById('user-name').textContent = response.data.user.name;
+          } catch (error) {
+            console.error('ユーザー情報取得失敗:', error);
+          }
+        }
+
+        // 自社情報取得
+        async function loadCompanyInfo() {
+          try {
+            const response = await axios.get('/api/company-info');
+            const data = response.data.data;
+
+            document.getElementById('company_name').value = data.company_name || '';
+            document.getElementById('postal_code').value = data.postal_code || '';
+            document.getElementById('address').value = data.address || '';
+            document.getElementById('registration_number').value = data.registration_number || '';
+            document.getElementById('bank_name').value = data.bank_name || '';
+            document.getElementById('bank_branch').value = data.bank_branch || '';
+            document.getElementById('account_type').value = data.account_type || '';
+            document.getElementById('account_number').value = data.account_number || '';
+            document.getElementById('account_holder').value = data.account_holder || '';
+
+            // 画像表示
+            if (data.logo_base64) {
+              const logoImg = document.getElementById('logo-image');
+              logoImg.src = data.logo_base64;
+              document.getElementById('logo-preview').classList.remove('hidden');
+            }
+            if (data.seal_base64) {
+              const sealImg = document.getElementById('seal-image');
+              sealImg.src = data.seal_base64;
+              document.getElementById('seal-preview').classList.remove('hidden');
+            }
+          } catch (error) {
+            if (error.response?.status === 403) {
+              document.getElementById('error-text').textContent = 'この画面を閲覧する権限がありません';
+              document.getElementById('error-message').classList.remove('hidden');
+              setTimeout(() => window.location.href = '/', 2000);
+            }
+          }
+        }
+
+        // フォーム送信
+        document.getElementById('company-form').addEventListener('submit', async (e) => {
+          e.preventDefault();
+
+          const errorDiv = document.getElementById('error-message');
+          const successDiv = document.getElementById('success-message');
+          errorDiv.classList.add('hidden');
+          successDiv.classList.add('hidden');
+
+          try {
+            await axios.put('/api/company-info', {
+              company_name: document.getElementById('company_name').value,
+              postal_code: document.getElementById('postal_code').value,
+              address: document.getElementById('address').value,
+              registration_number: document.getElementById('registration_number').value,
+              bank_name: document.getElementById('bank_name').value,
+              bank_branch: document.getElementById('bank_branch').value,
+              account_type: document.getElementById('account_type').value,
+              account_number: document.getElementById('account_number').value,
+              account_holder: document.getElementById('account_holder').value
+            });
+
+            document.getElementById('success-text').textContent = '自社情報を更新しました';
+            successDiv.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || '更新に失敗しました';
+            errorDiv.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+
+        // ロゴファイル選択
+        document.getElementById('logo-file').addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            // ファイルサイズチェック（1MB = 1048576バイト）
+            const maxSize = 1 * 1024 * 1024; // 1MB
+            if (file.size > maxSize) {
+              document.getElementById('error-text').textContent = 'ロゴ画像のファイルサイズが大きすぎます（最大1MB）';
+              document.getElementById('error-message').classList.remove('hidden');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              e.target.value = ''; // ファイル選択をクリア
+              return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              document.getElementById('logo-image').src = e.target.result;
+              document.getElementById('logo-preview').classList.remove('hidden');
+              document.getElementById('upload-logo-button').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+
+        // 印鑑ファイル選択
+        document.getElementById('seal-file').addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            // ファイルサイズチェック（1MB = 1048576バイト）
+            const maxSize = 1 * 1024 * 1024; // 1MB
+            if (file.size > maxSize) {
+              document.getElementById('error-text').textContent = '会社印画像のファイルサイズが大きすぎます（最大1MB）';
+              document.getElementById('error-message').classList.remove('hidden');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              e.target.value = ''; // ファイル選択をクリア
+              return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              document.getElementById('seal-image').src = e.target.result;
+              document.getElementById('seal-preview').classList.remove('hidden');
+              document.getElementById('upload-seal-button').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+
+        // ロゴアップロード
+        document.getElementById('upload-logo-button').addEventListener('click', async () => {
+          const file = document.getElementById('logo-file').files[0];
+          if (!file) return;
+
+          const formData = new FormData();
+          formData.append('logo', file);
+
+          try {
+            await axios.post('/api/company-info/upload-logo', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            document.getElementById('success-text').textContent = 'ロゴをアップロードしました';
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('upload-logo-button').classList.add('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || 'アップロードに失敗しました';
+            document.getElementById('error-message').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+
+        // 印鑑アップロード
+        document.getElementById('upload-seal-button').addEventListener('click', async () => {
+          const file = document.getElementById('seal-file').files[0];
+          if (!file) return;
+
+          const formData = new FormData();
+          formData.append('seal', file);
+
+          try {
+            await axios.post('/api/company-info/upload-seal', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            document.getElementById('success-text').textContent = '会社印をアップロードしました';
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('upload-seal-button').classList.add('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } catch (error) {
+            document.getElementById('error-text').textContent = error.response?.data?.error || 'アップロードに失敗しました';
+            document.getElementById('error-message').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+
+        // ログアウト
+        document.getElementById('logout-button').addEventListener('click', async () => {
+          try {
+            await axios.post('/api/auth/logout');
+          } catch (error) {
+            console.error('ログアウトエラー:', error);
+          }
+          localStorage.removeItem('jwt_token');
+          window.location.href = '/login';
+        });
+
+        loadUserInfo();
+        loadCompanyInfo();
       </script>
     </body>
     </html>
@@ -1730,15 +2509,15 @@ app.get('/api/projects/:id', authMiddleware, async (c) => {
 app.post('/api/projects', authMiddleware, requirePermission('lead_manage'), async (c) => {
   const { DB } = c.env
   const body = await c.req.json()
-  const { lead_id, project_name, sales_rep_id } = body
+  const { lead_id, project_name, sales_rep_id, expected_monthly_amount } = body
   
   if (!lead_id || !project_name) {
     return c.json({ success: false, error: 'Lead ID and project name are required' }, 400)
   }
   
   const result = await DB.prepare(
-    'INSERT INTO projects (lead_id, project_name, sales_rep_id, status) VALUES (?, ?, ?, ?)'
-  ).bind(lead_id, project_name, sales_rep_id || null, 'active').run()
+    'INSERT INTO projects (lead_id, project_name, sales_rep_id, status, expected_monthly_amount) VALUES (?, ?, ?, ?, ?)'
+  ).bind(lead_id, project_name, sales_rep_id || null, 'active', expected_monthly_amount || 0).run()
   
   return c.json({ success: true, data: { id: result.meta.last_row_id } })
 })
@@ -1748,7 +2527,7 @@ app.put('/api/projects/:id', authMiddleware, requirePermission('lead_manage'), a
   const { DB } = c.env
   const user = c.get('user')
   const id = c.req.param('id')
-  const { project_name, sales_rep_id, status } = await c.req.json()
+  const { project_name, sales_rep_id, status, expected_monthly_amount } = await c.req.json()
   
   // 案件の存在確認
   const project = await DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first()
@@ -1774,12 +2553,14 @@ app.put('/api/projects/:id', authMiddleware, requirePermission('lead_manage'), a
       SET project_name = ?,
           sales_rep_id = ?,
           status = ?,
+          expected_monthly_amount = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       project_name,
       sales_rep_id || null,
       status || 'active',
+      expected_monthly_amount || 0,
       id
     ).run()
     
@@ -2504,6 +3285,9 @@ app.post('/api/auth/login', async (c) => {
   
   // 監査ログ記録
   await logAction(c.env.DB, user.id, 'login', null, null, {}, c.req.header('CF-Connecting-IP'))
+  
+  // Cookieにトークンを設定（HTTPOnly, Secure, SameSite）
+  c.header('Set-Cookie', `jwt_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`)
   
   return c.json({
     success: true,
@@ -3983,13 +4767,25 @@ app.get('/leads', async (c) => {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
           const user = await AUTH_UTILS.getCurrentUser();
+          console.log('Current user:', user);
           if (user) {
-            document.getElementById('nav-user-name').textContent = user.name;
-            if (user.role === 'admin') {
-              document.getElementById('admin-menu').style.display = '';
-              document.getElementById('csv-export-button').style.display = '';
-              document.getElementById('csv-import-button').style.display = '';
+            const navUserName = document.getElementById('nav-user-name');
+            if (navUserName) {
+              navUserName.textContent = user.name;
             }
+            if (user.role === 'admin') {
+              console.log('User is admin, showing CSV buttons');
+              const adminMenu = document.getElementById('admin-menu');
+              if (adminMenu) adminMenu.style.display = '';
+              const csvExportButton = document.getElementById('csv-export-button');
+              const csvImportButton = document.getElementById('csv-import-button');
+              if (csvExportButton) csvExportButton.style.display = '';
+              if (csvImportButton) csvImportButton.style.display = '';
+            } else {
+              console.log('User role:', user.role);
+            }
+          } else {
+            console.log('No user found');
           }
           
           // ソートアイコンの更新
@@ -4153,11 +4949,8 @@ app.get('/leads', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -4169,8 +4962,8 @@ app.get('/leads', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -4679,11 +5472,8 @@ app.get('/leads/:id', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -4695,8 +5485,8 @@ app.get('/leads/:id', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -4810,18 +5600,22 @@ app.get('/leads/:id', async (c) => {
                   <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件名</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">営業担当</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">見込み月額</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ステータス</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">作成日</th>
                   </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
                   ${projects.map((project: any) => `
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/projects/${project.id}'">
+                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/projects/detail/${project.id}'">
                       <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         ${project.project_name}
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         ${project.sales_rep_name ? `<i class="fas fa-user mr-1 text-blue-500"></i>${project.sales_rep_name}` : '<span class="text-gray-400">-</span>'}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        <i class="fas fa-yen-sign mr-1 text-green-500"></i>${(project.expected_monthly_amount || 0).toLocaleString()}
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         ${project.status === 'active' ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800"><i class="fas fa-play-circle mr-1"></i>進行中</span>' :
@@ -4880,6 +5674,16 @@ app.get('/leads/:id', async (c) => {
                 `).join('')}
               </select>
               <p class="mt-1 text-xs text-gray-500">案件を担当する営業メンバーを選択してください（任意）</p>
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                <i class="fas fa-yen-sign mr-1"></i>見込み月額
+              </label>
+              <input type="number" name="expected_monthly_amount" min="0" step="1000"
+                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="例: 1000000">
+              <p class="mt-1 text-xs text-gray-500">月額の見込み金額を入力してください（任意）</p>
             </div>
             
             <div class="flex justify-end space-x-3">
@@ -4961,6 +5765,13 @@ app.get('/leads/:id', async (c) => {
             data.sales_rep_id = null;
           } else if (data.sales_rep_id) {
             data.sales_rep_id = parseInt(data.sales_rep_id);
+          }
+          
+          // expected_monthly_amountを数値に変換
+          if (data.expected_monthly_amount) {
+            data.expected_monthly_amount = parseInt(data.expected_monthly_amount);
+          } else {
+            data.expected_monthly_amount = 0;
           }
           
           try {
@@ -5319,11 +6130,8 @@ app.get('/', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -5335,8 +6143,8 @@ app.get('/', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -5789,7 +6597,7 @@ app.get('/', async (c) => {
 
 // 案件詳細 (ハブ画面)
 // 案件詳細画面（ハブ画面）
-app.get('/projects/:id', async (c) => {
+app.get('/projects/detail/:id', async (c) => {
   const id = c.req.param('id')
   
   // 案件情報とリード情報、営業担当を取得
@@ -5853,11 +6661,8 @@ app.get('/projects/:id', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
@@ -5930,6 +6735,12 @@ app.get('/projects/:id', async (c) => {
                         </p>
                     </div>
                     <div>
+                        <label class="text-sm text-gray-600">見込み月額</label>
+                        <p class="text-gray-800">
+                            <i class="fas fa-yen-sign mr-1 text-green-500"></i>${(project.expected_monthly_amount || 0).toLocaleString()}
+                        </p>
+                    </div>
+                    <div>
                         <label class="text-sm text-gray-600">作成日</label>
                         <p class="text-gray-800">${project.created_at}</p>
                     </div>
@@ -5946,7 +6757,7 @@ app.get('/projects/:id', async (c) => {
                     <h2 class="text-xl font-bold text-gray-800">
                         <i class="fas fa-file-contract mr-2 text-blue-600"></i>契約一覧
                     </h2>
-                    <button onclick="location.href='/projects/${id}/contracts/new'" 
+                    <button onclick="location.href='/projects/detail/${id}/contracts/new'" 
                             class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
                         <i class="fas fa-plus mr-2"></i>契約を追加
                     </button>
@@ -5994,6 +6805,22 @@ app.get('/projects/:id', async (c) => {
                     <p class="text-sm mt-2">「契約を追加」ボタンから新しい契約を作成してください</p>
                 </div>
                 `}
+            </div>
+        </div>
+
+        <!-- 見積書 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">
+                    <i class="fas fa-file-invoice mr-2 text-purple-600"></i>見積書
+                </h3>
+                <button onclick="openCreateQuoteModal()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                    <i class="fas fa-plus mr-2"></i>見積書を作成
+                </button>
+            </div>
+
+            <div id="quotes-list" class="space-y-3">
+                <!-- 見積書は動的にロード -->
             </div>
         </div>
 
@@ -6056,6 +6883,101 @@ app.get('/projects/:id', async (c) => {
         </div>
     </div>
 
+    <!-- 見積書作成モーダル -->
+    <div id="create-quote-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">
+                    <i class="fas fa-file-invoice mr-2 text-purple-600"></i>見積書を作成
+                </h3>
+                <button onclick="closeCreateQuoteModal()" class="text-gray-400 hover:text-gray-500">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="create-quote-form" onsubmit="createQuote(event)">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            件名 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" name="subject" required
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            発行日 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="date" name="issue_date" required
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            有効期限 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="date" name="expiry_date" required
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    </div>
+                </div>
+
+                <!-- 見積明細 -->
+                <div class="mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm font-medium text-gray-700">
+                            見積明細 <span class="text-red-500">*</span>
+                        </label>
+                        <button type="button" onclick="addQuoteItem()" 
+                                class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">
+                            <i class="fas fa-plus mr-1"></i>明細を追加
+                        </button>
+                    </div>
+                    
+                    <div id="quote-items" class="space-y-2">
+                        <!-- 明細行は動的に追加 -->
+                    </div>
+                </div>
+
+                <!-- 合計金額 -->
+                <div class="bg-gray-50 p-4 rounded mb-4">
+                    <div class="space-y-2 text-right">
+                        <div class="flex justify-between">
+                            <span class="text-gray-700">小計:</span>
+                            <span id="quote-subtotal" class="font-semibold">¥0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-700">消費税 (10%):</span>
+                            <span id="quote-tax" class="font-semibold">¥0</span>
+                        </div>
+                        <div class="flex justify-between text-lg border-t pt-2">
+                            <span class="text-gray-900 font-bold">合計:</span>
+                            <span id="quote-total" class="font-bold text-purple-600">¥0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 備考 -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        備考
+                    </label>
+                    <textarea name="notes" rows="3"
+                        class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="支払い条件や納期などの補足情報を入力してください"></textarea>
+                </div>
+                
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeCreateQuoteModal()" 
+                            class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50">
+                        キャンセル
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                        <i class="fas fa-save mr-2"></i>見積書を保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- 案件編集モーダル -->
         <div id="edit-project-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
@@ -6111,6 +7033,16 @@ app.get('/projects/:id', async (c) => {
                             <option value="lost" ${project.status === 'lost' ? 'selected' : ''}>失注</option>
                             <option value="archived" ${project.status === 'archived' ? 'selected' : ''}>アーカイブ</option>
                         </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-yen-sign mr-1"></i>見込み月額
+                        </label>
+                        <input type="number" id="edit-expected-monthly-amount" min="0" step="1000"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            value="${project.expected_monthly_amount || 0}">
+                        <p class="mt-1 text-xs text-gray-500">月額の見込み金額を入力してください（任意）</p>
                     </div>
 
                     <div class="flex space-x-3 pt-4">
@@ -6197,6 +7129,7 @@ app.get('/projects/:id', async (c) => {
             const projectName = document.getElementById('edit-project-name').value;
             const salesRepId = document.getElementById('edit-sales-rep-id').value;
             const status = document.getElementById('edit-status').value;
+            const expectedMonthlyAmount = parseInt(document.getElementById('edit-expected-monthly-amount').value) || 0;
             
             const errorDiv = document.getElementById('modal-error-message');
             const successDiv = document.getElementById('modal-success-message');
@@ -6207,7 +7140,8 @@ app.get('/projects/:id', async (c) => {
               const response = await axios.put(\`/api/projects/\${PROJECT_ID}\`, {
                 project_name: projectName,
                 sales_rep_id: salesRepId || null,
-                status: status
+                status: status,
+                expected_monthly_amount: expectedMonthlyAmount
               });
               
               document.getElementById('modal-success-text').textContent = '案件を更新しました';
@@ -6349,6 +7283,249 @@ app.get('/projects/:id', async (c) => {
 
           // ページロード時に商談メモを読み込む
           loadMeetingNotes();
+          
+          // ========================================
+          // 見積書管理機能
+          // ========================================
+          
+          const quotesMembers = ${JSON.stringify(members)};
+          let quoteItemCounter = 0;
+          
+          // 見積書一覧を読み込む
+          async function loadQuotes() {
+            try {
+              const response = await axios.get(\`/api/projects/\${PROJECT_ID}/quotes\`);
+              const quotes = response.data.data || [];
+              const list = document.getElementById('quotes-list');
+              
+              if (quotes.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-4">見積書はまだありません</p>';
+                return;
+              }
+              
+              list.innerHTML = quotes.map(q => \`
+                <div class="border border-gray-200 rounded p-3 hover:bg-gray-50">
+                  <div class="flex justify-between items-start">
+                    <div>
+                      <div class="font-semibold text-gray-800">\${q.quote_number}</div>
+                      <div class="text-sm text-gray-600">\${q.subject}</div>
+                      <div class="text-xs text-gray-500 mt-1">
+                        発行日: \${q.issue_date} / 有効期限: \${q.expiry_date || '未設定'}
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-bold text-purple-600">¥\${q.total.toLocaleString()}</div>
+                      <button onclick="window.open('/quotes/\${q.id}/pdf', '_blank')" 
+                              class="mt-1 text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">
+                        <i class="fas fa-file-pdf mr-1"></i>PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              \`).join('');
+            } catch (error) {
+              console.error('見積書の読み込みに失敗:', error);
+              document.getElementById('quotes-list').innerHTML = 
+                '<p class="text-red-500 text-center py-4">見積書の読み込みに失敗しました</p>';
+            }
+          }
+          
+          // 見積書作成モーダルを開く
+          window.openCreateQuoteModal = function() {
+            document.getElementById('create-quote-modal').classList.remove('hidden');
+            // 今日の日付をデフォルト設定
+            const today = new Date().toISOString().split('T')[0];
+            document.querySelector('#create-quote-form input[name="issue_date"]').value = today;
+            // 1ヶ月後を有効期限のデフォルト
+            const oneMonthLater = new Date();
+            oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+            document.querySelector('#create-quote-form input[name="expiry_date"]').value = 
+              oneMonthLater.toISOString().split('T')[0];
+            // 初期明細を追加
+            if (quoteItemCounter === 0) {
+              addQuoteItem();
+            }
+          }
+          
+          // 見積書作成モーダルを閉じる
+          window.closeCreateQuoteModal = function() {
+            document.getElementById('create-quote-modal').classList.add('hidden');
+            document.getElementById('create-quote-form').reset();
+            document.getElementById('quote-items').innerHTML = '';
+            quoteItemCounter = 0;
+          }
+          
+          // 明細行を追加
+          window.addQuoteItem = function() {
+            quoteItemCounter++;
+            const container = document.getElementById('quote-items');
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'border border-gray-200 rounded-lg p-3 space-y-2';
+            itemDiv.id = 'quote-item-' + quoteItemCounter;
+            
+            itemDiv.innerHTML = \`
+              <div class="flex justify-between items-center mb-2">
+                <span class="font-medium text-sm text-gray-700">明細 #\${quoteItemCounter}</span>
+                <button type="button" onclick="removeQuoteItem(\${quoteItemCounter})" 
+                        class="text-red-600 hover:text-red-700 text-sm">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">メンバー</label>
+                  <select class="quote-member w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                          onchange="updateMemberPrice(this, \${quoteItemCounter})">
+                    <option value="">選択してください</option>
+                    \${quotesMembers.map(m => \`<option value="\${m.id}" data-price="\${m.default_unit_price || 0}">\${m.name}</option>\`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">品名 *</label>
+                  <input type="text" class="quote-description w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         placeholder="例: コンサルティング業務" required>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">数量 *</label>
+                  <input type="number" step="0.1" class="quote-quantity w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         value="1" min="0.1" required onchange="calculateQuoteItem(\${quoteItemCounter})">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">単位</label>
+                  <input type="text" class="quote-unit w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         value="人月">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">単価 *</label>
+                  <input type="number" class="quote-unit-price w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                         value="0" min="0" required onchange="calculateQuoteItem(\${quoteItemCounter})">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">金額</label>
+                  <input type="text" class="quote-amount w-full px-2 py-1 border border-gray-300 rounded text-sm bg-gray-50" 
+                         value="¥0" readonly>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">備考</label>
+                <input type="text" class="quote-note w-full px-2 py-1 border border-gray-300 rounded text-sm" 
+                       placeholder="例: 対応内容の詳細">
+              </div>
+            \`;
+            
+            container.appendChild(itemDiv);
+            calculateQuoteTotal();
+          }
+          
+          // メンバー選択時に単価を自動入力
+          window.updateMemberPrice = function(select, itemId) {
+            const selectedOption = select.options[select.selectedIndex];
+            const price = selectedOption.getAttribute('data-price') || 0;
+            const itemDiv = document.getElementById('quote-item-' + itemId);
+            const priceInput = itemDiv.querySelector('.quote-unit-price');
+            priceInput.value = price;
+            calculateQuoteItem(itemId);
+          }
+          
+          // 明細行を削除
+          window.removeQuoteItem = function(itemId) {
+            const itemDiv = document.getElementById('quote-item-' + itemId);
+            itemDiv.remove();
+            calculateQuoteTotal();
+          }
+          
+          // 明細の金額を計算
+          window.calculateQuoteItem = function(itemId) {
+            const itemDiv = document.getElementById('quote-item-' + itemId);
+            const quantity = parseFloat(itemDiv.querySelector('.quote-quantity').value) || 0;
+            const unitPrice = parseFloat(itemDiv.querySelector('.quote-unit-price').value) || 0;
+            const amount = quantity * unitPrice;
+            
+            itemDiv.querySelector('.quote-amount').value = '¥' + amount.toLocaleString();
+            itemDiv.querySelector('.quote-amount').dataset.amount = amount;
+            
+            calculateQuoteTotal();
+          }
+          
+          // 合計を計算
+          window.calculateQuoteTotal = function() {
+            const amounts = Array.from(document.querySelectorAll('.quote-amount'))
+              .map(el => parseFloat(el.dataset.amount) || 0);
+            
+            const subtotal = amounts.reduce((sum, amount) => sum + amount, 0);
+            const tax = Math.floor(subtotal * 0.1);
+            const total = subtotal + tax;
+            
+            document.getElementById('quote-subtotal').textContent = '¥' + subtotal.toLocaleString();
+            document.getElementById('quote-tax').textContent = '¥' + tax.toLocaleString();
+            document.getElementById('quote-total').textContent = '¥' + total.toLocaleString();
+          }
+          
+          // 見積書作成
+          window.createQuote = async function(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            // 明細を収集
+            const items = [];
+            document.querySelectorAll('[id^="quote-item-"]').forEach(itemDiv => {
+              const memberSelect = itemDiv.querySelector('.quote-member');
+              const memberId = memberSelect.value || null;
+              const description = itemDiv.querySelector('.quote-description').value;
+              const quantity = parseFloat(itemDiv.querySelector('.quote-quantity').value);
+              const unit = itemDiv.querySelector('.quote-unit').value;
+              const unitPrice = parseFloat(itemDiv.querySelector('.quote-unit-price').value);
+              const amount = parseFloat(itemDiv.querySelector('.quote-amount').dataset.amount);
+              const note = itemDiv.querySelector('.quote-note').value;
+              
+              items.push({
+                member_id: memberId,
+                item_description: description,
+                quantity: quantity,
+                unit: unit,
+                unit_price: unitPrice,
+                amount: amount,
+                note: note
+              });
+            });
+            
+            if (items.length === 0) {
+              alert('明細を追加してください');
+              return;
+            }
+            
+            const data = {
+              issue_date: formData.get('issue_date'),
+              expiry_date: formData.get('expiry_date') || null,
+              subject: formData.get('subject'),
+              items: items,
+              notes: formData.get('notes')
+            };
+            
+            try {
+              const response = await axios.post('/api/projects/' + PROJECT_ID + '/quotes', data);
+              if (response.data.success) {
+                const quoteId = response.data.data.id;
+                const quoteNumber = response.data.data.quote_number;
+                
+                // モーダルを閉じる
+                closeCreateQuoteModal();
+                
+                // 確認メッセージを表示して詳細画面へ遷移
+                if (confirm(\`見積書を作成しました！\\n見積番号: \${quoteNumber}\\n\\n詳細画面を表示しますか？\`)) {
+                  window.location.href = \`/quotes/\${quoteId}\`;
+                } else {
+                  loadQuotes();
+                }
+              }
+            } catch (error) {
+              alert('エラーが発生しました: ' + (error.response?.data?.error || error.message));
+            }
+          }
+          
+          // ページロード時に見積書を読み込む
+          loadQuotes();
         </script>
     </body>
     </html>
@@ -6532,11 +7709,8 @@ app.get('/contracts/:id', async (c) => {
                   <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
@@ -6562,7 +7736,7 @@ app.get('/contracts/:id', async (c) => {
                 <span class="text-gray-400 mx-2">/</span>
                 <a href="/leads/${contract.lead_id}" class="text-blue-600 hover:text-blue-800">${contract.company_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
-                <a href="/projects/${contract.project_id}" class="text-blue-600 hover:text-blue-800">${contract.project_name}</a>
+                <a href="/projects/detail/${contract.project_id}" class="text-blue-600 hover:text-blue-800">${contract.project_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
                 <span class="text-gray-700">${contract.contract_name}</span>
             </div>
@@ -6992,7 +8166,7 @@ app.get('/contracts/:id', async (c) => {
 })
 
 // 契約作成画面
-app.get('/projects/:projectId/contracts/new', async (c) => {
+app.get('/projects/detail/:projectId/contracts/new', async (c) => {
   const projectId = c.req.param('projectId')
   
   // 案件情報を取得
@@ -7047,11 +8221,8 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
@@ -7076,7 +8247,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
             <div class="mb-6 text-sm">
                 <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
                 <span class="text-gray-400 mx-2">/</span>
-                <a href="/projects/${projectId}" class="text-blue-600 hover:text-blue-800">${project.project_name}</a>
+                <a href="/projects/detail/${projectId}" class="text-blue-600 hover:text-blue-800">${project.project_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
                 <span class="text-gray-700">契約作成</span>
             </div>
@@ -7255,7 +8426,7 @@ app.get('/projects/:projectId/contracts/new', async (c) => {
 
                     <!-- ボタン -->
                     <div class="flex justify-end space-x-3">
-                        <button type="button" onclick="location.href='/projects/${projectId}'"
+                        <button type="button" onclick="location.href='/projects/detail/${projectId}'"
                                 class="px-6 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
                             キャンセル
                         </button>
@@ -7701,6 +8872,14 @@ app.get('/monthly/:id', async (c) => {
     LIMIT 10
   `).bind(id).all()
 
+  // 関連する請求書を取得
+  const invoice = await c.env.DB.prepare(`
+    SELECT id, invoice_number, issue_date
+    FROM invoices
+    WHERE monthly_detail_id = ?
+    LIMIT 1
+  `).bind(id).first()
+
   // 統計計算
   const totalPayment = payments.results.reduce((sum, p) => sum + (p.payment_amount || 0), 0)
   const remainingAmount = (monthly.amount || 0) - totalPayment
@@ -7744,11 +8923,8 @@ app.get('/monthly/:id', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
@@ -7778,7 +8954,7 @@ app.get('/monthly/:id', async (c) => {
                 <span class="text-gray-400 mx-2">/</span>
                 <a href="/leads/${monthly.lead_id}" class="text-blue-600 hover:text-blue-800">${monthly.company_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
-                <a href="/projects/${monthly.project_id}" class="text-blue-600 hover:text-blue-800">${monthly.project_name}</a>
+                <a href="/projects/detail/${monthly.project_id}" class="text-blue-600 hover:text-blue-800">${monthly.project_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
                 <a href="/contracts/${monthly.contract_id}" class="text-blue-600 hover:text-blue-800">${monthly.contract_name}</a>
                 <span class="text-gray-400 mx-2">/</span>
@@ -7943,7 +9119,19 @@ app.get('/monthly/:id', async (c) => {
                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
-                    <div class="flex justify-end">
+                    <div class="flex justify-end gap-3">
+                        ${!invoice ? `
+                        <button type="button" onclick="openCreateInvoiceModal()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                            <i class="fas fa-receipt mr-2"></i>請求書を作成
+                        </button>
+                        ` : `
+                        <button type="button" onclick="window.open('/invoices/${invoice.id}/pdf', '_blank')" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                            <i class="fas fa-file-pdf mr-2"></i>請求書PDF
+                        </button>
+                        <a href="/invoices/${invoice.id}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                            <i class="fas fa-eye mr-2"></i>請求書詳細
+                        </a>
+                        `}
                         <button type="submit" class="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700">
                             <i class="fas fa-save mr-2"></i>請求情報を更新
                         </button>
@@ -8488,6 +9676,69 @@ app.get('/monthly/:id', async (c) => {
                     alert('エラーが発生しました: ' + error.message)
                 })
             }
+            
+            // 請求書作成モーダル
+            window.openCreateInvoiceModal = function() {
+                document.getElementById('create-invoice-modal').classList.remove('hidden')
+                // 今日の日付をデフォルト設定
+                const today = new Date().toISOString().split('T')[0]
+                document.querySelector('#create-invoice-form input[name="issue_date"]').value = today
+                // 30日後を支払期限のデフォルト
+                const dueDate = new Date()
+                dueDate.setDate(dueDate.getDate() + 30)
+                document.querySelector('#create-invoice-form input[name="payment_due_date"]').value = dueDate.toISOString().split('T')[0]
+                // 件名のデフォルト設定
+                document.querySelector('#create-invoice-form input[name="subject"]').value = 
+                    '${monthly.target_month} 業務委託費用'
+            }
+            
+            window.closeCreateInvoiceModal = function() {
+                document.getElementById('create-invoice-modal').classList.add('hidden')
+                document.getElementById('create-invoice-form').reset()
+            }
+            
+            // 請求書作成
+            document.getElementById('create-invoice-form').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                
+                const formData = new FormData(e.target)
+                const data = {
+                    issue_date: formData.get('issue_date'),
+                    payment_due_date: formData.get('payment_due_date') || null,
+                    subject: formData.get('subject'),
+                    notes: formData.get('notes') || null
+                }
+                
+                try {
+                    const response = await axios.post('/api/monthly-details/${id}/invoice', data)
+                    if (response.data.success) {
+                        const invoiceId = response.data.data.invoice_id
+                        const invoiceNumber = response.data.data.invoice_number
+                        
+                        // 確認ダイアログで選択肢を提示
+                        const userChoice = confirm(
+                            '請求書を作成しました！\\n' +
+                            '請求書番号: ' + invoiceNumber + '\\n\\n' +
+                            'OKをクリックするとPDFを生成します。\\n' +
+                            'キャンセルをクリックすると請求書一覧へ移動します。'
+                        )
+                        
+                        closeCreateInvoiceModal()
+                        
+                        if (userChoice) {
+                            // PDFを新しいタブで開く
+                            window.open('/invoices/' + invoiceId + '/pdf', '_blank')
+                            // 現在のページをリロードして請求済みに更新
+                            setTimeout(() => location.reload(), 500)
+                        } else {
+                            // 請求書一覧へ遷移
+                            window.location.href = '/invoices'
+                        }
+                    }
+                } catch (error) {
+                    alert('エラーが発生しました: ' + (error.response?.data?.error || error.message))
+                }
+            })
             }) // DOMContentLoaded end
         </script>
 
@@ -8546,6 +9797,87 @@ app.get('/monthly/:id', async (c) => {
                         <button type="submit" 
                                 class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
                             <i class="fas fa-check mr-2"></i>追加
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 請求書作成モーダル -->
+        <div id="create-invoice-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-2/3 shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-900">
+                        <i class="fas fa-receipt mr-2 text-green-600"></i>請求書を作成
+                    </h3>
+                    <button onclick="closeCreateInvoiceModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                
+                <form id="create-invoice-form" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                発行日 <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" name="issue_date" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                支払期限
+                            </label>
+                            <input type="date" name="payment_due_date"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            件名 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" name="subject" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                               placeholder="例: 2026年1月分 業務委託費用">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            備考
+                        </label>
+                        <textarea name="notes" rows="3"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                                  placeholder="支払条件や振込先などの補足情報"></textarea>
+                    </div>
+                    
+                    <!-- 請求金額プレビュー -->
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-gray-700 mb-2">請求金額プレビュー</h4>
+                        <div class="space-y-1 text-sm">
+                            <div class="flex justify-between">
+                                <span>小計:</span>
+                                <span id="invoice-preview-subtotal">¥${monthly.amount.toLocaleString()}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>消費税 (10%):</span>
+                                <span id="invoice-preview-tax">¥${Math.floor(monthly.amount * 0.1).toLocaleString()}</span>
+                            </div>
+                            <div class="flex justify-between font-bold text-lg border-t pt-1">
+                                <span>合計:</span>
+                                <span id="invoice-preview-total" class="text-green-600">¥${(monthly.amount + Math.floor(monthly.amount * 0.1)).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" onclick="closeCreateInvoiceModal()" 
+                                class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                            <i class="fas fa-times mr-2"></i>キャンセル
+                        </button>
+                        <button type="submit" 
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            <i class="fas fa-check mr-2"></i>請求書を作成
                         </button>
                     </div>
                 </form>
@@ -8804,11 +10136,8 @@ app.get('/monthly-list', async (c) => {
                   <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                     <i class="fas fa-file-contract mr-2"></i>契約
                   </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
                   </a>
                 </div>
               </div>
@@ -9019,19 +10348,35 @@ app.get('/projects', async (c) => {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
           const user = await AUTH_UTILS.getCurrentUser();
+          console.log('Projects page - Current user:', user);
           if (user) {
             const navUserName = document.getElementById('nav-user-name');
             if (navUserName) {
               navUserName.textContent = user.name;
             }
-            const adminMenu = document.getElementById('admin-menu');
-            if (adminMenu && user.role === 'admin') {
-              adminMenu.style.display = '';
+            if (user.role === 'admin') {
+              console.log('User is admin, showing buttons');
+              const adminMenu = document.getElementById('admin-menu');
+              if (adminMenu) adminMenu.style.display = '';
               const csvExportButton = document.getElementById('csv-export-button');
               const csvImportButton = document.getElementById('csv-import-button');
-              if (csvExportButton) csvExportButton.style.display = '';
-              if (csvImportButton) csvImportButton.style.display = '';
+              if (csvExportButton) {
+                csvExportButton.style.display = '';
+                console.log('CSV export button shown');
+              } else {
+                console.log('CSV export button not found');
+              }
+              if (csvImportButton) {
+                csvImportButton.style.display = '';
+                console.log('CSV import button shown');
+              } else {
+                console.log('CSV import button not found');
+              }
+            } else {
+              console.log('User role:', user ? user.role : 'none');
             }
+          } else {
+            console.log('No user data received');
           }
         });
 
@@ -9225,11 +10570,8 @@ app.get('/projects', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -9241,8 +10583,8 @@ app.get('/projects', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -9254,7 +10596,7 @@ app.get('/projects', async (c) => {
 
       <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <!-- ページヘッダー -->
-        <div class="px-4 py-6 sm:px-0">
+        <div class="px-4 py-6 sm:px-0 flex justify-between items-center">
           <h1 class="text-3xl font-bold text-gray-900">
             <i class="fas fa-briefcase mr-2"></i>案件一覧
           </h1>
@@ -9299,7 +10641,7 @@ app.get('/projects', async (c) => {
               </thead>
               <tbody class="bg-white divide-y divide-gray-200">
                 ${projects.map(project => `
-                  <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/projects/${project.id}'">
+                  <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/projects/detail/${project.id}'">
                     <td class="px-6 py-4 whitespace-nowrap">
                       <div class="text-sm font-medium text-gray-900">${project.project_name}</div>
                     </td>
@@ -9367,6 +10709,2024 @@ app.get('/projects', async (c) => {
           </div>
         </div>
       </div>
+    </body>
+    </html>
+  `)
+})
+
+// 見積書一覧画面
+app.get('/quotes', async (c) => {
+  const { DB } = c.env
+  
+  const { results: quotes } = await DB.prepare(`
+    SELECT 
+      q.*,
+      p.project_name,
+      l.company_name
+    FROM quotes q
+    LEFT JOIN projects p ON q.project_id = p.id
+    LEFT JOIN leads l ON q.lead_id = l.id
+    ORDER BY q.created_at DESC
+  `).all()
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>見積書一覧 - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- ナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/quotes" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-invoice mr-2"></i>見積書
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/settings/company" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-cog mr-2"></i>設定
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto p-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-6">
+                <i class="fas fa-file-invoice mr-2 text-purple-600"></i>見積書一覧
+            </h1>
+
+            ${quotes.length > 0 ? `
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">見積番号</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">発行日</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">顧客</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">件名</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ステータス</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">金額</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${quotes.map((quote: any) => {
+                            const status = quote.status || 'draft';
+                            const statusStyles = {
+                                draft: { bg: 'bg-gray-100', text: 'text-gray-800', label: '下書き' },
+                                pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '承認待ち' },
+                                approved: { bg: 'bg-green-100', text: 'text-green-800', label: '承認済み' },
+                                rejected: { bg: 'bg-red-100', text: 'text-red-800', label: '却下' },
+                                expired: { bg: 'bg-gray-100', text: 'text-gray-600', label: '期限切れ' }
+                            };
+                            const style = statusStyles[status] || statusStyles.draft;
+                            
+                            return `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <a href="/quotes/${quote.id}" class="text-blue-600 hover:text-blue-800">
+                                    ${quote.quote_number}
+                                </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                ${quote.issue_date}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                ${quote.company_name}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                ${quote.project_name}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-700">
+                                ${quote.subject}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                <span class="inline-block px-2 py-1 text-xs rounded-full ${style.bg} ${style.text}">
+                                    ${style.label}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                                ¥${(quote.total || 0).toLocaleString()}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center text-sm">
+                                <button onclick="window.open('/quotes/${quote.id}/pdf', '_blank')" 
+                                        class="text-purple-600 hover:text-purple-900 mr-3">
+                                    <i class="fas fa-file-pdf mr-1"></i>PDF
+                                </button>
+                                <button onclick="deleteQuote(${quote.id})" 
+                                        class="text-red-600 hover:text-red-900">
+                                    <i class="fas fa-trash mr-1"></i>削除
+                                </button>
+                            </td>
+                        </tr>
+                        `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ` : `
+            <div class="bg-white rounded-lg shadow p-12 text-center text-gray-500">
+                <i class="fas fa-file-invoice text-6xl mb-4"></i>
+                <p class="text-xl">見積書がまだありません</p>
+                <p class="mt-2">案件詳細画面から見積書を作成してください</p>
+            </div>
+            `}
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+            const AUTH_UTILS = {
+              logout: function() {
+                localStorage.removeItem('jwt_token');
+                window.location.href = '/login';
+              }
+            };
+            
+            const token = localStorage.getItem('jwt_token');
+            if (!token) {
+              window.location.href = '/login';
+            }
+            axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+            
+            async function deleteQuote(id) {
+              if (!confirm('この見積書を削除しますか？')) return;
+              
+              try {
+                await axios.delete('/api/quotes/' + id);
+                alert('見積書を削除しました');
+                location.reload();
+              } catch (error) {
+                alert('削除に失敗しました: ' + (error.response?.data?.error || error.message));
+              }
+            }
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 見積書PDF表示画面
+app.get('/quotes/:id/pdf', async (c) => {
+  const id = c.req.param('id')
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>見積書PDF - SFA</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <style>
+            body { font-family: 'メイリオ', 'Meiryo', 'MS Pゴシック', sans-serif; }
+        </style>
+    </head>
+    <body class="bg-gray-100">
+        <div id="loading" class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+                <div class="mb-4">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
+                </div>
+                <p class="text-gray-700">見積書PDFを生成中...</p>
+            </div>
+        </div>
+        
+        <!-- 見積書HTMLテンプレート（画像化用） -->
+        <div id="quote-template" style="position: fixed; left: -99999px; width: 794px; background: white; padding: 40px;">
+            <!-- コンテンツは動的に生成 -->
+        </div>
+        
+        <script>
+            const quoteId = ${id};
+            
+            async function generateQuotePDF() {
+                try {
+                    // localStorageまたはクッキーからトークンを取得
+                    let token = localStorage.getItem('jwt_token');
+                    
+                    if (!token) {
+                        const cookies = document.cookie.split(';');
+                        for (let cookie of cookies) {
+                            const [name, value] = cookie.trim().split('=');
+                            if (name === 'jwt_token') {
+                                token = value;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!token) {
+                        alert('ログインが必要です。ログイン画面に戻ります。');
+                        window.location.href = '/login';
+                        return;
+                    }
+                    
+                    console.log('トークン取得成功:', token.substring(0, 20) + '...');
+                    
+                    const response = await fetch('/api/quotes/' + quoteId + '/pdf-data', {
+                        headers: { 'Authorization': 'Bearer ' + token },
+                        credentials: 'include'
+                    });
+                    
+                    console.log('レスポンスステータス:', response.status);
+                    
+                    if (!response.ok) {
+                        throw new Error('HTTPエラー: ' + response.status);
+                    }
+                    
+                    const result = await response.json();
+                    
+                    if (!result.success) {
+                        alert('データの取得に失敗しました: ' + (result.error || '不明なエラー'));
+                        window.close();
+                        return;
+                    }
+                    
+                    const { quote, items, companyInfo } = result.data;
+                    
+                    // HTMLテンプレートを生成（改善版レイアウト）
+                    const template = document.getElementById('quote-template');
+                    template.innerHTML = \`
+                        <div style="padding: 30px 40px; font-family: 'メイリオ', 'Meiryo', 'MS Pゴシック', sans-serif; max-width: 794px;">
+                            <!-- ヘッダー: 見積書タイトル -->
+                            <h1 style="text-align: center; font-size: 32px; margin-bottom: 30px; font-weight: bold; color: #1a1a1a; letter-spacing: 2px;">見積書</h1>
+                            
+                            <!-- 上部セクション: 発行先企業を最優先表示 -->
+                            <div style="margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; padding-bottom: 20px;">
+                                <div style="margin-bottom: 8px;">
+                                    <span style="font-size: 12px; color: #666; font-weight: 500;">発行先</span>
+                                </div>
+                                <div style="font-size: 20px; font-weight: bold; color: #1a1a1a; margin-bottom: 5px;">
+                                    \${quote.company_name}
+                                </div>
+                                <div style="font-size: 16px; color: #333;">
+                                    \${quote.honorific || '御中'}
+                                </div>
+                            </div>
+                            
+                            <!-- メタ情報とロゴ -->
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+                                <div style="flex: 1;">
+                                    <div style="margin-bottom: 15px;">
+                                        <span style="font-size: 11px; color: #666; font-weight: 500;">見積番号</span>
+                                        <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-top: 3px;">\${quote.quote_number}</div>
+                                    </div>
+                                    <div style="margin-bottom: 15px;">
+                                        <span style="font-size: 11px; color: #666; font-weight: 500;">発行日</span>
+                                        <div style="font-size: 14px; color: #1a1a1a; margin-top: 3px;">\${quote.issue_date}</div>
+                                    </div>
+                                    \${quote.expiry_date ? '<div style="margin-bottom: 15px;"><span style="font-size: 11px; color: #666; font-weight: 500;">有効期限</span><div style="font-size: 14px; color: #1a1a1a; margin-top: 3px;">' + quote.expiry_date + '</div></div>' : ''}
+                                </div>
+                                <div style="text-align: right; max-width: 200px;">
+                                    \${companyInfo.logo_base64 ? '<div style="margin-bottom: 15px;"><img src="' + companyInfo.logo_base64 + '" style="max-width: 150px; max-height: 70px; object-fit: contain;"></div>' : ''}
+                                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 5px; color: #1a1a1a;">\${companyInfo.company_name}</div>
+                                    <div style="font-size: 10px; color: #666; line-height: 1.6;">
+                                        \${companyInfo.postal_code ? '<div>〒' + companyInfo.postal_code + '</div>' : ''}
+                                        \${companyInfo.address ? '<div>' + companyInfo.address + '</div>' : ''}
+                                        \${companyInfo.registration_number ? '<div style="margin-top: 5px;">登録番号: ' + companyInfo.registration_number + '</div>' : ''}
+                                    </div>
+                                    \${companyInfo.seal_base64 ? '<div style="margin-top: 10px;"><img src="' + companyInfo.seal_base64 + '" style="max-width: 70px; max-height: 70px; object-fit: contain;"></div>' : ''}
+                                </div>
+                            </div>
+                            
+                            <!-- 件名 -->
+                            <div style="margin-bottom: 25px; padding: 12px 15px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;">
+                                <div style="font-size: 10px; color: #666; margin-bottom: 4px; font-weight: 500;">件名</div>
+                                <div style="font-size: 13px; color: #1a1a1a; font-weight: 600;">\${quote.subject}</div>
+                            </div>
+                            
+                            <!-- 金額サマリーカード（最重要情報） -->
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 25px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; color: rgba(255,255,255,0.9); margin-bottom: 8px; font-weight: 500;">お見積金額</div>
+                                <div style="font-size: 32px; font-weight: bold; color: #ffffff; letter-spacing: 1px;">¥\${(quote.total || 0).toLocaleString()}</div>
+                                <div style="font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 5px;">（消費税込み）</div>
+                            </div>
+                            
+                            <!-- 見積明細テーブル -->
+                            <div style="margin-bottom: 25px;">
+                                <div style="font-size: 14px; font-weight: bold; margin-bottom: 12px; color: #1a1a1a; padding-bottom: 8px; border-bottom: 2px solid #4a90e2;">
+                                    <i class="fas fa-list-ul" style="margin-right: 8px; color: #4a90e2;"></i>見積明細
+                                </div>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                                    <thead>
+                                        <tr style="background: #4a90e2; color: white;">
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: left; font-weight: 600;">品目・品名</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 70px; font-weight: 600;">数量</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: center; width: 50px; font-weight: 600;">単位</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 100px; font-weight: 600;">単価</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 110px; font-weight: 600;">金額</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        \${items.map((item, index) => \`
+                                            <tr style="background: \${index % 2 === 0 ? '#ffffff' : '#f8f9fa'};">
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; line-height: 1.6;">
+                                                    <div style="font-weight: 500; color: #1a1a1a; margin-bottom: 3px;">\${item.item_description}</div>
+                                                    \${item.note ? '<div style="font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #ddd;">' + item.note + '</div>' : ''}
+                                                </td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: center; color: #666;">\${item.unit || ''}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
+                                            </tr>
+                                        \`).join('')}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr style="background: #f8f9fa;">
+                                            <td colspan="4" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #1a1a1a;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
+                                        </tr>
+                                        <tr style="background: #f8f9fa;">
+                                            <td colspan="4" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #666;">¥\${(quote.tax || 0).toLocaleString()}</td>
+                                        </tr>
+                                        <tr style="background: #4a90e2; color: white;">
+                                            <td colspan="4" style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
+                                            <td style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 15px;">¥\${(quote.total || 0).toLocaleString()}</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                            
+                            <!-- 備考 -->
+                            \${quote.notes ? '<div style="margin-top: 25px; padding: 15px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;"><div style="font-weight: 600; margin-bottom: 8px; font-size: 12px; color: #1a1a1a;">備考</div><div style="font-size: 11px; line-height: 1.7; color: #333; white-space: pre-wrap;">' + quote.notes + '</div></div>' : ''}
+                        </div>
+                    \`;
+                    
+                    // HTMLを画像に変換
+                    const canvas = await html2canvas(template, {
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                        backgroundColor: '#ffffff',
+                        windowWidth: 794,
+                        windowHeight: template.scrollHeight
+                    });
+                    
+                    // jsPDF初期化
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({
+                        orientation: 'portrait',
+                        unit: 'mm',
+                        format: 'a4'
+                    });
+                    
+                    // 画像をPDFに追加
+                    const imgData = canvas.toDataURL('image/png');
+                    const imgWidth = 210; // A4の幅（mm）
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    
+                    doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+                    
+                    // PDFをダウンロード
+                    const fileName = '見積書_' + quote.quote_number + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+                    doc.save(fileName);
+                    
+                    // 3秒後にウィンドウを閉じる
+                    setTimeout(() => {
+                        window.close();
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('PDF生成エラー:', error);
+                    alert('PDF生成に失敗しました: ' + error.message);
+                    window.close();
+                }
+            }
+            
+            // ページロード後にPDF生成
+            window.addEventListener('load', generateQuotePDF);
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 見積書詳細画面（認証必須）
+app.get('/quotes/:id', authMiddleware, async (c) => {
+  const id = c.req.param('id')
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>見積書詳細 - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+        <!-- ナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/quotes" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-invoice mr-2"></i>見積書
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/settings/company" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-cog mr-2"></i>設定
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-gray-600 hover:text-gray-900">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-6xl mx-auto p-8">
+            <!-- ローディング表示 -->
+            <div id="loading" class="flex items-center justify-center py-12">
+                <div class="text-center">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+                    <p class="text-gray-600">読み込み中...</p>
+                </div>
+            </div>
+
+            <!-- メインコンテンツ -->
+            <div id="content" class="hidden">
+                <!-- パンくずリスト -->
+                <div class="mb-6">
+                    <nav class="flex" aria-label="Breadcrumb">
+                        <ol class="inline-flex items-center space-x-1 md:space-x-3">
+                            <li class="inline-flex items-center">
+                                <a href="/quotes" class="text-gray-600 hover:text-blue-600">
+                                    <i class="fas fa-file-invoice mr-2"></i>見積書一覧
+                                </a>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <i class="fas fa-chevron-right text-gray-400 mx-2"></i>
+                                    <span class="text-gray-900 font-medium" id="breadcrumb-title">詳細</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+                </div>
+
+                <!-- ヘッダー -->
+                <div class="bg-white border-b border-gray-200 p-6 mb-6 rounded-t-lg shadow-sm">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-sm text-gray-500 mb-1">発行先</p>
+                            <h2 class="text-2xl font-bold text-gray-900" id="company-name">-</h2>
+                            <p class="text-gray-600" id="honorific">-</p>
+                        </div>
+                        <div class="text-right text-sm text-gray-600">
+                            <p><span class="font-medium">見積番号:</span> <span id="quote-number">-</span></p>
+                            <p><span class="font-medium">発行日:</span> <span id="issue-date">-</span></p>
+                            <p><span class="font-medium">有効期限:</span> <span id="expiry-date">-</span></p>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+                        <p class="text-sm text-gray-500 mb-1">件名</p>
+                        <p class="text-lg text-gray-900" id="subject">-</p>
+                    </div>
+                </div>
+
+                <!-- 金額サマリーカード -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 mb-6 shadow-lg border-2 border-blue-200">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-sm text-gray-600 mb-1">お見積金額</p>
+                            <p class="text-4xl font-bold text-gray-900" id="total-amount">¥0</p>
+                            <p class="text-xs text-gray-500 mt-1">消費税込み</p>
+                        </div>
+                        <div class="text-right">
+                            <span id="status-badge" class="inline-block px-3 py-1 text-sm rounded-full">-</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 内訳ドロップダウン -->
+                    <button onclick="toggleBreakdown()" class="text-sm text-blue-600 hover:text-blue-700 mt-3 flex items-center">
+                        <i id="breakdown-icon" class="fas fa-chevron-down mr-1"></i> 
+                        <span id="breakdown-toggle-text">内訳を表示</span>
+                    </button>
+                    
+                    <div id="breakdown" class="hidden mt-3 pt-3 border-t border-gray-300">
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>小計</span>
+                            <span id="subtotal-amount">¥0</span>
+                        </div>
+                        <div class="flex justify-between text-sm text-gray-600 mb-2">
+                            <span>消費税(<span id="tax-rate">10</span>%)</span>
+                            <span id="tax-amount">¥0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- タブナビゲーション -->
+                <div class="border-b border-gray-200 mb-6">
+                    <nav class="-mb-px flex space-x-8">
+                        <button onclick="switchTab('overview')" 
+                                id="tab-overview" 
+                                class="tab-button border-blue-500 text-blue-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                            <i class="fas fa-info-circle mr-2"></i>概要
+                        </button>
+                        <button onclick="switchTab('items')" 
+                                id="tab-items" 
+                                class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                            <i class="fas fa-list-ul mr-2"></i>明細
+                        </button>
+                        <button onclick="switchTab('history')" 
+                                id="tab-history" 
+                                class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                            <i class="fas fa-history mr-2"></i>履歴
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- タブコンテンツ -->
+                <!-- 概要タブ -->
+                <div id="tab-content-overview" class="tab-content">
+                    <!-- 基本情報 -->
+                    <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center border-b border-gray-200 pb-3">
+                            <i class="fas fa-clipboard-list mr-2 text-blue-600"></i>
+                            基本情報
+                        </h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">見積番号</label>
+                                <p class="mt-1 text-base text-gray-900" id="overview-quote-number">-</p>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">発行日</label>
+                                <p class="mt-1 text-base text-gray-900" id="overview-issue-date">-</p>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">有効期限</label>
+                                <p class="mt-1 text-base text-gray-900" id="overview-expiry-date">-</p>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">ステータス</label>
+                                <p class="mt-1"><span id="overview-status-badge" class="inline-block px-2 py-1 text-xs rounded-full">-</span></p>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="text-sm font-medium text-gray-500">案件</label>
+                                <p class="mt-1 text-base text-gray-900" id="overview-project-name">-</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 備考 -->
+                    <div id="overview-notes-section" class="bg-white rounded-lg shadow-sm p-6 mb-6 hidden">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center border-b border-gray-200 pb-3">
+                            <i class="fas fa-sticky-note mr-2 text-blue-600"></i>
+                            備考
+                        </h3>
+                        <p id="overview-notes-content" class="text-sm text-gray-600 whitespace-pre-wrap">-</p>
+                    </div>
+                </div>
+
+                <!-- 明細タブ -->
+                <div id="tab-content-items" class="tab-content hidden">
+                    <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center">
+                            <i class="fas fa-list-ul mr-2 text-blue-600"></i>
+                            見積明細
+                        </h3>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50 border-b-2 border-gray-300">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">品目・品名</th>
+                                        <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700 w-20">数量</th>
+                                        <th class="px-4 py-3 text-center text-sm font-semibold text-gray-700 w-16">単位</th>
+                                        <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700 w-28">単価</th>
+                                        <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700 w-32">金額</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="items-tbody" class="divide-y divide-gray-200">
+                                    <!-- 動的に生成 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 履歴タブ -->
+                <div id="tab-content-history" class="tab-content hidden">
+                    <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center">
+                            <i class="fas fa-history mr-2 text-blue-600"></i>
+                            変更履歴
+                        </h3>
+                        <div id="history-list" class="space-y-3">
+                            <p class="text-gray-500 text-center py-8">変更履歴はまだありません</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- アクションバー -->
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 sticky bottom-0 z-40">
+                    <div class="flex justify-between items-center">
+                        <a href="/quotes" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                            <i class="fas fa-arrow-left mr-2"></i>一覧に戻る
+                        </a>
+                        
+                        <div class="flex space-x-3">
+                            <button onclick="openStatusModal()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-exchange-alt mr-2"></i>ステータス変更
+                            </button>
+                            <button onclick="window.open('/quotes/${id}/pdf', '_blank')" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-file-pdf mr-2"></i>PDF出力
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ステータス変更モーダル -->
+        <div id="status-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 class="text-lg font-semibold mb-4">見積ステータスを変更</h3>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">変更後のステータス</label>
+                    <select id="new-status" class="w-full border border-gray-300 rounded px-3 py-2">
+                        <option value="draft">下書き</option>
+                        <option value="pending">承認待ち</option>
+                        <option value="approved">承認済み</option>
+                        <option value="rejected">却下</option>
+                        <option value="expired">期限切れ</option>
+                    </select>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">コメント（任意）</label>
+                    <textarea id="status-comment" rows="3" class="w-full border border-gray-300 rounded px-3 py-2" placeholder="ステータス変更の理由やメモを入力..."></textarea>
+                </div>
+                
+                <div class="flex justify-end space-x-3">
+                    <button onclick="closeStatusModal()" class="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50">
+                        キャンセル
+                    </button>
+                    <button onclick="submitStatusChange()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                        変更を保存
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const QUOTE_ID = ${id};
+            let quoteData = null;
+
+            // ステータスバッジのスタイル
+            const STATUS_STYLES = {
+                draft: { bg: 'bg-gray-100', text: 'text-gray-800', label: '下書き' },
+                pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '承認待ち' },
+                approved: { bg: 'bg-green-100', text: 'text-green-800', label: '承認済み' },
+                rejected: { bg: 'bg-red-100', text: 'text-red-800', label: '却下' },
+                expired: { bg: 'bg-gray-100', text: 'text-gray-600', label: '期限切れ' }
+            };
+
+            // 内訳の表示切り替え
+            function toggleBreakdown() {
+                const breakdown = document.getElementById('breakdown');
+                const icon = document.getElementById('breakdown-icon');
+                const toggleText = document.getElementById('breakdown-toggle-text');
+                
+                if (breakdown.classList.contains('hidden')) {
+                    breakdown.classList.remove('hidden');
+                    icon.classList.remove('fa-chevron-down');
+                    icon.classList.add('fa-chevron-up');
+                    toggleText.textContent = '内訳を隠す';
+                } else {
+                    breakdown.classList.add('hidden');
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                    toggleText.textContent = '内訳を表示';
+                }
+            }
+
+            // タブ切り替え
+            function switchTab(tabName) {
+                // すべてのタブボタンを非アクティブに
+                const tabButtons = document.querySelectorAll('.tab-button');
+                tabButtons.forEach(btn => {
+                    btn.classList.remove('border-blue-500', 'text-blue-600');
+                    btn.classList.add('border-transparent', 'text-gray-500');
+                });
+
+                // すべてのタブコンテンツを隠す
+                const tabContents = document.querySelectorAll('.tab-content');
+                tabContents.forEach(content => {
+                    content.classList.add('hidden');
+                });
+
+                // 選択されたタブをアクティブに
+                const activeButton = document.getElementById(\`tab-\${tabName}\`);
+                activeButton.classList.remove('border-transparent', 'text-gray-500');
+                activeButton.classList.add('border-blue-500', 'text-blue-600');
+
+                // 選択されたタブコンテンツを表示
+                const activeContent = document.getElementById(\`tab-content-\${tabName}\`);
+                activeContent.classList.remove('hidden');
+            }
+
+            // 見積書データの読み込み
+            async function loadQuoteData() {
+                try {
+                    const token = localStorage.getItem('jwt_token') || getCookie('jwt_token');
+                    if (!token) {
+                        window.location.href = '/login';
+                        return;
+                    }
+
+                    const response = await axios.get(\`/api/quotes/\${QUOTE_ID}\`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    if (!response.data.success) {
+                        alert('見積書の取得に失敗しました: ' + response.data.error);
+                        window.location.href = '/quotes';
+                        return;
+                    }
+
+                    quoteData = response.data.data;
+                    renderQuoteData();
+                } catch (error) {
+                    console.error('エラー:', error);
+                    alert('見積書の取得に失敗しました');
+                    window.location.href = '/quotes';
+                }
+            }
+
+            // 見積書データの表示
+            function renderQuoteData() {
+                const data = quoteData;
+
+                // ヘッダー情報
+                document.getElementById('breadcrumb-title').textContent = data.quote_number;
+                document.getElementById('company-name').textContent = data.company_name || '-';
+                document.getElementById('honorific').textContent = data.honorific || '御中';
+                document.getElementById('quote-number').textContent = data.quote_number;
+                document.getElementById('issue-date').textContent = data.issue_date;
+                document.getElementById('expiry-date').textContent = data.expiry_date || '無期限';
+                document.getElementById('subject').textContent = data.subject;
+
+                // 金額サマリー
+                document.getElementById('total-amount').textContent = '¥' + (data.total || 0).toLocaleString();
+                document.getElementById('subtotal-amount').textContent = '¥' + (data.subtotal || 0).toLocaleString();
+                document.getElementById('tax-rate').textContent = data.tax_rate || 10;
+                document.getElementById('tax-amount').textContent = '¥' + (data.tax || 0).toLocaleString();
+
+                // ステータスバッジ
+                const status = data.status || 'draft';
+                const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.draft;
+                const badge = document.getElementById('status-badge');
+                badge.className = \`inline-block px-3 py-1 text-sm rounded-full \${statusStyle.bg} \${statusStyle.text}\`;
+                badge.textContent = statusStyle.label;
+
+                // 概要タブの基本情報
+                document.getElementById('overview-quote-number').textContent = data.quote_number;
+                document.getElementById('overview-issue-date').textContent = data.issue_date;
+                document.getElementById('overview-expiry-date').textContent = data.expiry_date || '無期限';
+                document.getElementById('overview-project-name').textContent = data.project_name || '-';
+                
+                const overviewBadge = document.getElementById('overview-status-badge');
+                overviewBadge.className = \`inline-block px-2 py-1 text-xs rounded-full \${statusStyle.bg} \${statusStyle.text}\`;
+                overviewBadge.textContent = statusStyle.label;
+
+                // 概要タブの備考
+                if (data.notes) {
+                    document.getElementById('overview-notes-section').classList.remove('hidden');
+                    document.getElementById('overview-notes-content').textContent = data.notes;
+                }
+
+                // 明細
+                const tbody = document.getElementById('items-tbody');
+                tbody.innerHTML = '';
+                
+                if (data.items && data.items.length > 0) {
+                    data.items.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-gray-50 transition';
+                        tr.innerHTML = \`
+                            <td class="px-4 py-3">
+                                <div class="text-sm text-gray-900">\${item.item_description}</div>
+                                \${item.note ? '<div class="text-xs text-gray-500 mt-1">' + item.note + '</div>' : ''}
+                            </td>
+                            <td class="px-4 py-3 text-right text-sm">\${item.quantity.toLocaleString()}</td>
+                            <td class="px-4 py-3 text-center text-sm">\${item.unit || ''}</td>
+                            <td class="px-4 py-3 text-right text-sm">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                            <td class="px-4 py-3 text-right text-sm font-semibold">¥\${(item.amount || 0).toLocaleString()}</td>
+                        \`;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">明細がありません</td></tr>';
+                }
+
+                // ローディングを隠してコンテンツを表示
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('content').classList.remove('hidden');
+            }
+
+            // Cookieから値を取得
+            function getCookie(name) {
+                const cookies = document.cookie.split(';');
+                for (let cookie of cookies) {
+                    const [cookieName, cookieValue] = cookie.trim().split('=');
+                    if (cookieName === name) return cookieValue;
+                }
+                return null;
+            }
+
+            // ステータス変更モーダルを開く
+            function openStatusModal() {
+                const modal = document.getElementById('status-modal');
+                const selectElement = document.getElementById('new-status');
+                
+                // 現在のステータスを選択
+                if (quoteData && quoteData.status) {
+                    selectElement.value = quoteData.status;
+                }
+                
+                modal.classList.remove('hidden');
+            }
+
+            // ステータス変更モーダルを閉じる
+            function closeStatusModal() {
+                const modal = document.getElementById('status-modal');
+                modal.classList.add('hidden');
+                document.getElementById('status-comment').value = '';
+            }
+
+            // ステータス変更を送信
+            async function submitStatusChange() {
+                const newStatus = document.getElementById('new-status').value;
+                const comment = document.getElementById('status-comment').value;
+
+                if (!newStatus) {
+                    alert('ステータスを選択してください');
+                    return;
+                }
+
+                try {
+                    const token = localStorage.getItem('jwt_token') || getCookie('jwt_token');
+                    const response = await axios.put(\`/api/quotes/\${QUOTE_ID}/status\`, {
+                        status: newStatus,
+                        comment: comment || null
+                    }, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    if (response.data.success) {
+                        alert('ステータスを更新しました');
+                        closeStatusModal();
+                        // ページをリロードしてデータを再取得
+                        location.reload();
+                    } else {
+                        alert('ステータスの更新に失敗しました: ' + response.data.error);
+                    }
+                } catch (error) {
+                    console.error('エラー:', error);
+                    alert('ステータスの更新に失敗しました: ' + (error.response?.data?.error || error.message));
+                }
+            }
+
+            // ステータス変更履歴を読み込む
+            async function loadStatusHistory() {
+                try {
+                    const token = localStorage.getItem('jwt_token') || getCookie('jwt_token');
+                    const response = await axios.get(\`/api/quotes/\${QUOTE_ID}/status-history\`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    if (response.data.success) {
+                        const history = response.data.data;
+                        const historyList = document.getElementById('history-list');
+                        
+                        if (history && history.length > 0) {
+                            historyList.innerHTML = history.map(item => {
+                                const statusStyles = {
+                                    draft: { label: '下書き' },
+                                    pending: { label: '承認待ち' },
+                                    approved: { label: '承認済み' },
+                                    rejected: { label: '却下' },
+                                    expired: { label: '期限切れ' }
+                                };
+                                const fromLabel = statusStyles[item.from_status]?.label || item.from_status;
+                                const toLabel = statusStyles[item.to_status]?.label || item.to_status;
+                                
+                                return \`
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <div>
+                                                <span class="text-sm text-gray-600">\${fromLabel}</span>
+                                                <i class="fas fa-arrow-right mx-2 text-gray-400"></i>
+                                                <span class="text-sm font-semibold">\${toLabel}</span>
+                                            </div>
+                                            <span class="text-xs text-gray-500">\${new Date(item.changed_at).toLocaleString('ja-JP')}</span>
+                                        </div>
+                                        <div class="text-sm text-gray-600">
+                                            変更者: \${item.changed_by_name || 'システム'}
+                                        </div>
+                                        \${item.comment ? '<div class="mt-2 text-sm text-gray-700 bg-gray-50 p-2 rounded">' + item.comment + '</div>' : ''}
+                                    </div>
+                                \`;
+                            }).join('');
+                        } else {
+                            historyList.innerHTML = '<p class="text-gray-500 text-center py-8">変更履歴はまだありません</p>';
+                        }
+                    }
+                } catch (error) {
+                    console.error('履歴取得エラー:', error);
+                }
+            }
+
+            // ページロード時にデータを取得
+            window.addEventListener('load', () => {
+                loadQuoteData();
+                loadStatusHistory();
+            });
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 請求書一覧画面
+app.get('/invoices', async (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>請求書一覧 - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- ナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-project-diagram mr-2"></i>案件
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/quotes" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-invoice mr-2"></i>見積書
+                  </a>
+                  <a href="/invoices" class="border-blue-600 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 font-medium">
+                    <i class="fas fa-receipt mr-2"></i>請求書
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-tie mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center">
+                <span class="text-gray-700 mr-4">
+                  <i class="fas fa-user-circle mr-2"></i><span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/settings/company" class="text-gray-500 hover:text-gray-700 mr-4">
+                  <i class="fas fa-building"></i>
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-gray-500 hover:text-gray-700">
+                  <i class="fas fa-sign-out-alt"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">
+                    <i class="fas fa-receipt mr-3 text-green-600"></i>請求書一覧
+                </h1>
+            </div>
+
+            <!-- 請求書一覧 -->
+            <div id="invoices-list" class="space-y-4">
+                <!-- 動的にロード -->
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+          const AUTH_UTILS = {
+            getToken: () => localStorage.getItem('jwt_token'),
+            checkAuth: () => {
+              if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+                window.location.href = '/login';
+              }
+            },
+            getCurrentUser: async () => {
+              try {
+                const response = await axios.get('/api/auth/me', {
+                  headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+                });
+                return response.data.user;
+              } catch (error) {
+                console.error('Failed to get current user:', error);
+                return null;
+              }
+            },
+            logout: () => {
+              localStorage.removeItem('jwt_token');
+              window.location.href = '/login';
+            },
+            setupAxios: () => {
+              const token = AUTH_UTILS.getToken();
+              if (token) {
+                axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
+              }
+            }
+          };
+
+          AUTH_UTILS.setupAxios();
+          
+          AUTH_UTILS.getCurrentUser().then(user => {
+            if (user) {
+              document.getElementById('nav-user-name').textContent = user.name;
+            } else {
+              document.getElementById('nav-user-name').textContent = 'ゲスト';
+            }
+          }).catch(error => {
+            console.error('Failed to load user info:', error);
+            document.getElementById('nav-user-name').textContent = 'ゲスト';
+          });
+
+          async function loadInvoices() {
+            try {
+              const response = await axios.get('/api/invoices');
+              const invoices = response.data.data || [];
+              const list = document.getElementById('invoices-list');
+              
+              if (invoices.length === 0) {
+                list.innerHTML = \`
+                  <div class="bg-white rounded-lg shadow p-8 text-center">
+                    <i class="fas fa-receipt text-5xl text-gray-300 mb-4"></i>
+                    <p class="text-gray-500 text-lg">請求書はまだありません</p>
+                  </div>
+                \`;
+                return;
+              }
+              
+              list.innerHTML = invoices.map(inv => \`
+                <div class="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6">
+                  <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-3 mb-2">
+                        <a href="/invoices/\${inv.id}" class="text-lg font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                          \${inv.invoice_number}
+                        </a>
+                        <span class="px-2 py-1 rounded text-xs font-semibold \${
+                          inv.payment_status === '入金完了' ? 'bg-green-100 text-green-800' :
+                          inv.payment_status === '部分入金' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }">
+                          \${inv.payment_status}
+                        </span>
+                      </div>
+                      <p class="text-gray-600 mb-1">\${inv.company_name} \${inv.honorific || '御中'}</p>
+                      <p class="text-sm text-gray-500">\${inv.subject}</p>
+                      <div class="flex gap-4 mt-2 text-sm text-gray-600">
+                        <span><i class="fas fa-calendar-alt mr-1"></i>発行日: \${inv.issue_date}</span>
+                        \${inv.payment_due_date ? \`<span><i class="fas fa-clock mr-1"></i>支払期限: \${inv.payment_due_date}</span>\` : ''}
+                      </div>
+                    </div>
+                    <div class="text-right ml-4">
+                      <div class="text-2xl font-bold text-green-600 mb-2">
+                        ¥\${inv.total.toLocaleString()}
+                      </div>
+                      <div class="flex gap-2">
+                        <a href="/invoices/\${inv.id}" 
+                           class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">
+                          <i class="fas fa-eye mr-1"></i>詳細
+                        </a>
+                        <button onclick="window.open('/invoices/\${inv.id}/pdf', '_blank')" 
+                                class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm">
+                          <i class="fas fa-file-pdf mr-1"></i>PDF
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              \`).join('');
+            } catch (error) {
+              console.error('請求書の読み込みに失敗:', error);
+              document.getElementById('invoices-list').innerHTML = \`
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p class="text-red-700">請求書の読み込みに失敗しました</p>
+                </div>
+              \`;
+            }
+          }
+
+          loadInvoices();
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 請求書詳細画面
+app.get('/invoices/:id', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>請求書詳細 - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/quotes" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-invoice mr-2"></i>見積書
+                  </a>
+                  <a href="/invoices" class="border-blue-600 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 font-medium">
+                    <i class="fas fa-receipt mr-2"></i>請求書
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-user-friends mr-2"></i>メンバー
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/settings/company" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-building mr-1"></i>自社情報
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- ローディング表示 -->
+            <div id="loading" class="text-center py-12">
+                <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
+                <p class="mt-4 text-gray-600">請求書を読み込んでいます...</p>
+            </div>
+
+            <!-- コンテンツ（最初は非表示） -->
+            <div id="content" class="hidden">
+                <!-- パンくずリスト -->
+                <div class="mb-6 text-sm">
+                    <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
+                    <span class="text-gray-400 mx-2">/</span>
+                    <a href="/invoices" class="text-blue-600 hover:text-blue-800">請求書一覧</a>
+                    <span class="text-gray-400 mx-2">/</span>
+                    <span id="breadcrumb-title" class="text-gray-700">-</span>
+                </div>
+
+                <!-- ヘッダー部分 -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <div class="flex justify-between items-start mb-6">
+                        <!-- 左側：発行先企業 -->
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <h1 class="text-3xl font-bold text-gray-900" id="company-name">-</h1>
+                                <span id="honorific" class="text-xl text-gray-600">御中</span>
+                            </div>
+                            <p class="text-sm text-gray-600" id="company-address">-</p>
+                        </div>
+
+                        <!-- 右側：メタデータ -->
+                        <div class="text-right space-y-2">
+                            <div class="flex items-center justify-end gap-3">
+                                <span class="text-sm text-gray-600">請求書番号:</span>
+                                <span id="invoice-number" class="text-lg font-bold text-gray-900">-</span>
+                            </div>
+                            <div class="flex items-center justify-end gap-3">
+                                <span class="text-sm text-gray-600">発行日:</span>
+                                <span id="issue-date" class="text-sm font-semibold text-gray-700">-</span>
+                            </div>
+                            <div class="flex items-center justify-end gap-3">
+                                <span class="text-sm text-gray-600">支払期限:</span>
+                                <span id="payment-due-date" class="text-sm font-semibold text-gray-700">-</span>
+                            </div>
+                            <div id="payment-status-badge" class="inline-block px-3 py-1 rounded-full text-sm font-semibold">
+                                -
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 金額サマリーカード -->
+                    <div class="bg-gradient-to-r from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <p class="text-green-100 text-sm font-medium mb-1">ご請求金額</p>
+                                <p class="text-4xl font-bold" id="total">¥0</p>
+                            </div>
+                            <button onclick="toggleBreakdown()" class="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg transition-colors">
+                                <span id="breakdown-toggle-text">内訳を表示</span>
+                                <i id="breakdown-icon-down" class="fas fa-chevron-down ml-2"></i>
+                                <i id="breakdown-icon-up" class="fas fa-chevron-up ml-2 hidden"></i>
+                            </button>
+                        </div>
+                        
+                        <div id="breakdown" class="hidden mt-4 pt-4 border-t border-green-400 border-opacity-30">
+                            <div class="space-y-2 text-green-50">
+                                <div class="flex justify-between">
+                                    <span>小計:</span>
+                                    <span id="subtotal" class="font-semibold">¥0</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>消費税 (<span id="tax-rate">10</span>%):</span>
+                                    <span id="tax" class="font-semibold">¥0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 件名 -->
+                <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded">
+                    <p class="text-xs text-green-700 font-semibold uppercase tracking-wider mb-1">件名</p>
+                    <p id="subject" class="text-gray-900 font-medium">-</p>
+                </div>
+
+                <!-- 明細テーブル -->
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-list-ul mr-2 text-green-600"></i>請求明細
+                    </h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-green-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">品目・品名</th>
+                                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">数量</th>
+                                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">単位</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">単価</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">金額</th>
+                                </tr>
+                            </thead>
+                            <tbody id="items-table" class="bg-white divide-y divide-gray-200">
+                                <!-- 動的に追加 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 備考 -->
+                <div id="notes-section" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-sticky-note mr-2 text-yellow-600"></i>備考
+                    </h2>
+                    <p id="notes" class="text-gray-700 whitespace-pre-wrap">-</p>
+                </div>
+
+                <!-- アクションバー -->
+                <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4 px-6">
+                    <div class="max-w-7xl mx-auto flex justify-between items-center">
+                        <a href="/invoices" class="text-gray-600 hover:text-gray-900">
+                            <i class="fas fa-arrow-left mr-2"></i>一覧に戻る
+                        </a>
+                        <div class="flex gap-3">
+                            <button onclick="window.open('/invoices/${id}/pdf', '_blank')" 
+                                    class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                                <i class="fas fa-file-pdf mr-2"></i>PDF出力
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 下部余白（アクションバーの高さ分） -->
+                <div class="h-20"></div>
+            </div>
+        </div>
+
+        <script>
+            const INVOICE_ID = ${id};
+            
+            const AUTH_UTILS = {
+              getToken: () => localStorage.getItem('jwt_token'),
+              checkAuth: () => {
+                if (!AUTH_UTILS.getToken()) {
+                  window.location.href = '/login';
+                  return false;
+                }
+                return true;
+              },
+              getCurrentUser: async () => {
+                try {
+                  const response = await axios.get('/api/auth/me', {
+                    headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
+                  });
+                  return response.data.user;
+                } catch (error) {
+                  return null;
+                }
+              },
+              logout: () => {
+                localStorage.removeItem('jwt_token');
+                window.location.href = '/login';
+              },
+              setupAxios: () => {
+                axios.defaults.headers.common['Authorization'] = 'Bearer ' + AUTH_UTILS.getToken();
+              }
+            };
+            
+            // 支払いステータスのスタイル
+            const PAYMENT_STATUS_STYLES = {
+              '未入金': 'bg-red-100 text-red-800',
+              '部分入金': 'bg-yellow-100 text-yellow-800',
+              '入金完了': 'bg-green-100 text-green-800'
+            };
+            
+            // 内訳表示の切り替え
+            function toggleBreakdown() {
+                const breakdown = document.getElementById('breakdown');
+                const toggleText = document.getElementById('breakdown-toggle-text');
+                const iconDown = document.getElementById('breakdown-icon-down');
+                const iconUp = document.getElementById('breakdown-icon-up');
+                
+                breakdown.classList.toggle('hidden');
+                
+                if (breakdown.classList.contains('hidden')) {
+                    toggleText.textContent = '内訳を表示';
+                    iconDown.classList.remove('hidden');
+                    iconUp.classList.add('hidden');
+                } else {
+                    toggleText.textContent = '内訳を隠す';
+                    iconDown.classList.add('hidden');
+                    iconUp.classList.remove('hidden');
+                }
+            }
+            
+            // 請求書データの読み込み
+            async function loadInvoiceData() {
+                try {
+                    const response = await axios.get('/api/invoices/' + INVOICE_ID);
+                    
+                    if (!response.data.success) {
+                        alert('請求書が見つかりません');
+                        window.location.href = '/invoices';
+                        return;
+                    }
+                    
+                    const data = response.data.data;
+                    renderInvoiceData(data);
+                    
+                    document.getElementById('loading').classList.add('hidden');
+                    document.getElementById('content').classList.remove('hidden');
+                } catch (error) {
+                    console.error('請求書データの読み込みエラー:', error);
+                    alert('請求書データの読み込みに失敗しました');
+                    window.location.href = '/invoices';
+                }
+            }
+            
+            // 請求書データの表示
+            function renderInvoiceData(data) {
+                // パンくずリスト
+                document.getElementById('breadcrumb-title').textContent = data.invoice_number;
+                
+                // ヘッダー情報
+                document.getElementById('company-name').textContent = data.company_name || '-';
+                document.getElementById('honorific').textContent = data.honorific || '御中';
+                document.getElementById('invoice-number').textContent = data.invoice_number;
+                document.getElementById('issue-date').textContent = data.issue_date;
+                document.getElementById('payment-due-date').textContent = data.payment_due_date || '指定なし';
+                
+                // 住所
+                if (data.postal_code && data.address) {
+                    document.getElementById('company-address').textContent = 
+                        '〒' + data.postal_code + ' ' + data.address;
+                } else {
+                    document.getElementById('company-address').textContent = '-';
+                }
+                
+                // 支払いステータス
+                const statusBadge = document.getElementById('payment-status-badge');
+                const status = data.payment_status || '未入金';
+                statusBadge.textContent = status;
+                statusBadge.className = 'inline-block px-3 py-1 rounded-full text-sm font-semibold ' + 
+                    (PAYMENT_STATUS_STYLES[status] || 'bg-gray-100 text-gray-800');
+                
+                // 金額
+                document.getElementById('total').textContent = '¥' + (data.total || 0).toLocaleString();
+                document.getElementById('subtotal').textContent = '¥' + (data.subtotal || 0).toLocaleString();
+                document.getElementById('tax-rate').textContent = data.tax_rate || 10;
+                document.getElementById('tax').textContent = '¥' + (data.tax || 0).toLocaleString();
+                
+                // 件名
+                document.getElementById('subject').textContent = data.subject || '-';
+                
+                // 明細
+                const itemsTable = document.getElementById('items-table');
+                if (data.items && data.items.length > 0) {
+                    itemsTable.innerHTML = data.items.map(item => \`
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-900">\${item.item_description}</div>
+                                \${item.note ? \`<div class="text-xs text-gray-500 mt-1">\${item.note}</div>\` : ''}
+                            </td>
+                            <td class="px-6 py-4 text-center text-sm text-gray-900">\${(item.quantity || 0).toLocaleString()}</td>
+                            <td class="px-6 py-4 text-center text-sm text-gray-700">\${item.unit || ''}</td>
+                            <td class="px-6 py-4 text-right text-sm text-gray-900">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                            <td class="px-6 py-4 text-right text-sm font-semibold text-gray-900">¥\${(item.amount || 0).toLocaleString()}</td>
+                        </tr>
+                    \`).join('');
+                } else {
+                    itemsTable.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">明細がありません</td></tr>';
+                }
+                
+                // 備考
+                if (data.notes) {
+                    document.getElementById('notes-section').classList.remove('hidden');
+                    document.getElementById('notes').textContent = data.notes;
+                }
+            }
+            
+            // 初期化
+            document.addEventListener('DOMContentLoaded', async () => {
+                if (!AUTH_UTILS.checkAuth()) return;
+                AUTH_UTILS.setupAxios();
+                
+                const user = await AUTH_UTILS.getCurrentUser();
+                if (user) {
+                    document.getElementById('nav-user-name').textContent = user.email;
+                }
+                
+                await loadInvoiceData();
+            });
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 請求書PDF生成画面
+app.get('/invoices/:id/pdf', async (c) => {
+  const id = c.req.param('id')
+  
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>請求書PDF - SFA</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <style>
+            body { 
+                margin: 0; 
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .pdf-container {
+                width: 794px;
+                background: white;
+                padding: 40px;
+                margin: 0 auto;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .invoice-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #22c55e;
+            }
+            .customer-info {
+                flex: 1;
+            }
+            .customer-name {
+                font-size: 20px;
+                font-weight: bold;
+                color: #1f2937;
+                margin-bottom: 8px;
+            }
+            .customer-address {
+                font-size: 12px;
+                color: #6b7280;
+                line-height: 1.6;
+            }
+            .company-info {
+                text-align: right;
+                font-size: 11px;
+                color: #4b5563;
+                line-height: 1.7;
+            }
+            .company-name-right {
+                font-weight: bold;
+                font-size: 13px;
+                color: #1f2937;
+                margin-bottom: 4px;
+            }
+            .invoice-title {
+                text-align: center;
+                font-size: 32px;
+                font-weight: bold;
+                color: #1f2937;
+                margin: 20px 0 30px 0;
+                letter-spacing: 8px;
+            }
+            .metadata {
+                display: flex;
+                justify-content: flex-end;
+                gap: 30px;
+                margin-bottom: 30px;
+                font-size: 12px;
+            }
+            .metadata-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .metadata-label {
+                color: #6b7280;
+                font-weight: 500;
+            }
+            .metadata-value {
+                color: #1f2937;
+                font-weight: 600;
+            }
+            .amount-summary {
+                background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+                border-radius: 12px;
+                padding: 24px;
+                margin: 30px 0;
+                box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+            }
+            .amount-label {
+                color: rgba(255, 255, 255, 0.9);
+                font-size: 14px;
+                font-weight: 500;
+                margin-bottom: 8px;
+            }
+            .amount-value {
+                color: white;
+                font-size: 32px;
+                font-weight: bold;
+                letter-spacing: 1px;
+            }
+            .subject-section {
+                background-color: #f0fdf4;
+                border-left: 4px solid #22c55e;
+                padding: 16px 20px;
+                margin: 25px 0;
+                border-radius: 4px;
+            }
+            .subject-label {
+                color: #16a34a;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 6px;
+            }
+            .subject-text {
+                color: #1f2937;
+                font-size: 15px;
+                font-weight: 500;
+                line-height: 1.6;
+            }
+            .items-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 25px 0;
+                font-size: 12px;
+            }
+            .items-table thead {
+                background-color: #22c55e;
+                color: white;
+            }
+            .items-table th {
+                padding: 12px;
+                text-align: left;
+                font-weight: 600;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .items-table td {
+                padding: 12px;
+                border-bottom: 1px solid #e0e0e0;
+                color: #374151;
+            }
+            .items-table tbody tr:nth-child(even) {
+                background-color: #f9fafb;
+            }
+            .items-table tbody tr:hover {
+                background-color: #f0fdf4;
+            }
+            .items-table td:last-child,
+            .items-table th:last-child {
+                text-align: right;
+                font-weight: 600;
+            }
+            .item-note {
+                border-left: 2px solid #22c55e;
+                padding-left: 10px;
+                font-size: 10px;
+                color: #6b7280;
+                font-style: italic;
+                margin-top: 4px;
+            }
+            .summary-row {
+                background-color: #22c55e !important;
+                color: white !important;
+                font-weight: bold !important;
+                font-size: 13px !important;
+            }
+            .summary-row td {
+                padding: 14px 12px !important;
+                border-bottom: none !important;
+            }
+            .bank-info {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 20px;
+                margin: 25px 0;
+            }
+            .bank-title {
+                color: #16a34a;
+                font-size: 12px;
+                font-weight: 600;
+                margin-bottom: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .bank-details {
+                font-size: 12px;
+                color: #374151;
+                line-height: 1.8;
+            }
+            .notes-section {
+                background-color: #fffbeb;
+                border: 1px solid #fde68a;
+                border-radius: 8px;
+                padding: 16px 20px;
+                margin-top: 25px;
+            }
+            .notes-title {
+                color: #92400e;
+                font-size: 11px;
+                font-weight: 600;
+                margin-bottom: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .notes-text {
+                color: #78350f;
+                font-size: 12px;
+                line-height: 1.7;
+                white-space: pre-wrap;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="text-center" style="padding: 20px;">
+            <i class="fas fa-spinner fa-spin text-4xl text-green-600"></i>
+            <p class="text-gray-700" style="margin-top: 16px;">請求書PDFを生成中...</p>
+        </div>
+        
+        <div id="pdf-content" class="pdf-container" style="position: absolute; left: -9999px;">
+            <!-- PDFコンテンツはJavaScriptで動的生成 -->
+        </div>
+        
+        <script>
+            const invoiceId = ${id};
+            
+            async function generateInvoicePDF() {
+                try {
+                    // トークン取得
+                    let token = localStorage.getItem('jwt_token');
+                    if (!token) {
+                        const cookies = document.cookie.split(';');
+                        for (let cookie of cookies) {
+                            const [name, value] = cookie.trim().split('=');
+                            if (name === 'jwt_token') {
+                                token = value;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!token) {
+                        alert('ログインが必要です。ログイン画面に戻ります。');
+                        window.location.href = '/login';
+                        return;
+                    }
+                    
+                    // データ取得
+                    const response = await fetch('/api/invoices/' + invoiceId + '/pdf-data', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('HTTPエラー: ' + response.status);
+                    }
+                    
+                    const result = await response.json();
+                    if (!result.success) {
+                        alert('データの取得に失敗しました: ' + (result.error || '不明なエラー'));
+                        window.close();
+                        return;
+                    }
+                    
+                    const { invoice, items, companyInfo } = result.data;
+                    
+                    // PDFコンテンツ生成
+                    const pdfContent = document.getElementById('pdf-content');
+                    let html = '';
+                    
+                    // ヘッダー
+                    html += '<div class="invoice-header">';
+                    html += '<div class="customer-info">';
+                    html += '<div class="customer-name">' + (invoice.company_name || '') + ' ' + (invoice.honorific || '御中') + '</div>';
+                    if (invoice.billing_postal_code && invoice.billing_address) {
+                        html += '<div class="customer-address">';
+                        html += '〒' + invoice.billing_postal_code + '<br>';
+                        html += invoice.billing_address;
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                    
+                    html += '<div class="company-info">';
+                    if (companyInfo.logo_base64) {
+                        html += '<img src="' + companyInfo.logo_base64 + '" style="max-width: 120px; max-height: 40px; margin-bottom: 8px;" /><br>';
+                    }
+                    html += '<div class="company-name-right">' + (companyInfo.company_name || '') + '</div>';
+                    if (companyInfo.postal_code && companyInfo.address) {
+                        html += '〒' + companyInfo.postal_code + '<br>';
+                        html += companyInfo.address + '<br>';
+                    }
+                    if (companyInfo.registration_number) {
+                        html += '登録番号: ' + companyInfo.registration_number + '<br>';
+                    }
+                    if (companyInfo.seal_base64) {
+                        html += '<img src="' + companyInfo.seal_base64 + '" style="max-width: 60px; max-height: 60px; margin-top: 8px;" />';
+                    }
+                    html += '</div>';
+                    html += '</div>';
+                    
+                    // タイトル
+                    html += '<div class="invoice-title">請求書</div>';
+                    
+                    // メタデータ
+                    html += '<div class="metadata">';
+                    html += '<div class="metadata-item">';
+                    html += '<span class="metadata-label">請求書番号:</span>';
+                    html += '<span class="metadata-value">' + (invoice.invoice_number || '') + '</span>';
+                    html += '</div>';
+                    html += '<div class="metadata-item">';
+                    html += '<span class="metadata-label">発行日:</span>';
+                    html += '<span class="metadata-value">' + (invoice.issue_date || '') + '</span>';
+                    html += '</div>';
+                    if (invoice.payment_due_date) {
+                        html += '<div class="metadata-item">';
+                        html += '<span class="metadata-label">支払期限:</span>';
+                        html += '<span class="metadata-value">' + invoice.payment_due_date + '</span>';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                    
+                    // 金額サマリー
+                    html += '<div class="amount-summary">';
+                    html += '<div class="amount-label">ご請求金額</div>';
+                    html += '<div class="amount-value">¥' + (invoice.total || 0).toLocaleString() + '</div>';
+                    html += '</div>';
+                    
+                    // 件名
+                    if (invoice.subject) {
+                        html += '<div class="subject-section">';
+                        html += '<div class="subject-label">件名</div>';
+                        html += '<div class="subject-text">' + invoice.subject + '</div>';
+                        html += '</div>';
+                    }
+                    
+                    // 明細テーブル
+                    html += '<table class="items-table">';
+                    html += '<thead>';
+                    html += '<tr>';
+                    html += '<th style="width: 35%;">品目・品名</th>';
+                    html += '<th style="width: 12%; text-align: center;">数量</th>';
+                    html += '<th style="width: 10%; text-align: center;">単位</th>';
+                    html += '<th style="width: 18%; text-align: right;">単価</th>';
+                    html += '<th style="width: 25%; text-align: right;">金額</th>';
+                    html += '</tr>';
+                    html += '</thead>';
+                    html += '<tbody>';
+                    
+                    items.forEach(item => {
+                        html += '<tr>';
+                        html += '<td>';
+                        html += item.item_description || '';
+                        if (item.note) {
+                            html += '<div class="item-note">' + item.note + '</div>';
+                        }
+                        html += '</td>';
+                        html += '<td style="text-align: center;">' + (item.quantity || 0).toLocaleString() + '</td>';
+                        html += '<td style="text-align: center;">' + (item.unit || '') + '</td>';
+                        html += '<td style="text-align: right;">¥' + (item.unit_price || 0).toLocaleString() + '</td>';
+                        html += '<td style="text-align: right;">¥' + (item.amount || 0).toLocaleString() + '</td>';
+                        html += '</tr>';
+                    });
+                    
+                    // 小計・税・合計
+                    html += '<tr>';
+                    html += '<td colspan="4" style="text-align: right; font-weight: 600;">小計</td>';
+                    html += '<td style="text-align: right; font-weight: 600;">¥' + (invoice.subtotal || 0).toLocaleString() + '</td>';
+                    html += '</tr>';
+                    html += '<tr>';
+                    html += '<td colspan="4" style="text-align: right; font-weight: 600;">消費税 (' + (invoice.tax_rate || 10) + '%)</td>';
+                    html += '<td style="text-align: right; font-weight: 600;">¥' + (invoice.tax || 0).toLocaleString() + '</td>';
+                    html += '</tr>';
+                    html += '<tr class="summary-row">';
+                    html += '<td colspan="4" style="text-align: right;">合計金額</td>';
+                    html += '<td style="text-align: right;">¥' + (invoice.total || 0).toLocaleString() + '</td>';
+                    html += '</tr>';
+                    
+                    html += '</tbody>';
+                    html += '</table>';
+                    
+                    // 振込先情報
+                    if (companyInfo.bank_name) {
+                        html += '<div class="bank-info">';
+                        html += '<div class="bank-title">お振込先</div>';
+                        html += '<div class="bank-details">';
+                        html += '銀行名: ' + (companyInfo.bank_name || '') + '<br>';
+                        if (companyInfo.bank_branch) {
+                            html += '支店名: ' + companyInfo.bank_branch + '<br>';
+                        }
+                        if (companyInfo.account_type) {
+                            html += '口座種別: ' + companyInfo.account_type + '<br>';
+                        }
+                        if (companyInfo.account_number) {
+                            html += '口座番号: ' + companyInfo.account_number + '<br>';
+                        }
+                        if (companyInfo.account_holder) {
+                            html += '口座名義: ' + companyInfo.account_holder;
+                        }
+                        html += '</div>';
+                        html += '</div>';
+                    }
+                    
+                    // 備考
+                    if (invoice.notes) {
+                        html += '<div class="notes-section">';
+                        html += '<div class="notes-title">備考</div>';
+                        html += '<div class="notes-text">' + invoice.notes + '</div>';
+                        html += '</div>';
+                    }
+                    
+                    pdfContent.innerHTML = html;
+                    pdfContent.style.position = 'static';
+                    pdfContent.style.left = '0';
+                    
+                    // html2canvasでキャンバス生成
+                    const canvas = await html2canvas(pdfContent, {
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                        backgroundColor: '#ffffff',
+                        windowWidth: 794
+                    });
+                    
+                    // jsPDFでPDF生成
+                    const { jsPDF } = window.jspdf;
+                    const imgData = canvas.toDataURL('image/png');
+                    const pdf = new jsPDF({
+                        orientation: 'portrait',
+                        unit: 'mm',
+                        format: 'a4'
+                    });
+                    
+                    const imgWidth = 210;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    
+                    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+                    
+                    // PDFダウンロード
+                    const fileName = '請求書_' + (invoice.invoice_number || 'unknown') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+                    pdf.save(fileName);
+                    
+                    // 3秒後にウィンドウを閉じる
+                    setTimeout(() => {
+                        window.close();
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('PDF生成エラー:', error);
+                    alert('PDF生成に失敗しました: ' + error.message);
+                    window.close();
+                }
+            }
+            
+            // ページロード後にPDF生成
+            window.addEventListener('load', generateInvoicePDF);
+        </script>
     </body>
     </html>
   `)
@@ -9474,19 +12834,35 @@ app.get('/contracts', async (c) => {
           AUTH_UTILS.checkAuth();
           AUTH_UTILS.setupAxios();
           const user = await AUTH_UTILS.getCurrentUser();
+          console.log('Contracts page - Current user:', user);
           if (user) {
             const navUserName = document.getElementById('nav-user-name');
             if (navUserName) {
               navUserName.textContent = user.name;
             }
-            const adminMenu = document.getElementById('admin-menu');
-            if (adminMenu && user.role === 'admin') {
-              adminMenu.style.display = '';
+            if (user.role === 'admin') {
+              console.log('User is admin, showing buttons');
+              const adminMenu = document.getElementById('admin-menu');
+              if (adminMenu) adminMenu.style.display = '';
               const csvExportButton = document.getElementById('csv-export-button');
               const csvImportButton = document.getElementById('csv-import-button');
-              if (csvExportButton) csvExportButton.style.display = '';
-              if (csvImportButton) csvImportButton.style.display = '';
+              if (csvExportButton) {
+                csvExportButton.style.display = '';
+                console.log('CSV export button shown');
+              } else {
+                console.log('CSV export button not found');
+              }
+              if (csvImportButton) {
+                csvImportButton.style.display = '';
+                console.log('CSV import button shown');
+              } else {
+                console.log('CSV import button not found');
+              }
+            } else {
+              console.log('User role:', user ? user.role : 'none');
             }
+          } else {
+            console.log('No user data received');
           }
         });
 
@@ -9684,11 +13060,8 @@ app.get('/contracts', async (c) => {
                 <a href="/contracts" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -9700,8 +13073,8 @@ app.get('/contracts', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -9943,10 +13316,13 @@ app.get('/monthly-details', async (c) => {
           
           const user = await AUTH_UTILS.getCurrentUser();
           if (user) {
-            document.getElementById('nav-user-name').textContent = user.email;
+            const navUserName = document.getElementById('nav-user-name');
+            if (navUserName) navUserName.textContent = user.name || user.email;
             if (user.role === 'admin') {
-              document.getElementById('admin-menu').style.display = 'inline-block';
-              document.getElementById('admin-csv-buttons').style.display = 'flex';
+              const adminMenu = document.getElementById('admin-menu');
+              if (adminMenu) adminMenu.style.display = 'inline-block';
+              const adminCsvButtons = document.getElementById('admin-csv-buttons');
+              if (adminCsvButtons) adminCsvButtons.style.display = 'flex';
             }
           }
 
@@ -10250,11 +13626,8 @@ app.get('/monthly-details', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -10266,8 +13639,8 @@ app.get('/monthly-details', async (c) => {
               <a href="/profile" class="text-sm text-gray-600 hover:text-blue-600">
                 <i class="fas fa-user-cog mr-1"></i>プロフィール
               </a>
-              <a href="/admin/users" id="admin-menu" class="text-sm text-gray-600 hover:text-blue-600" style="display:none;">
-                <i class="fas fa-users-cog mr-1"></i>ユーザー管理
+              <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                <i class="fas fa-cog mr-1"></i>設定
               </a>
               <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
                 <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
@@ -11477,11 +14850,8 @@ app.get('/members', async (c) => {
                 <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
                   <i class="fas fa-file-contract mr-2"></i>契約
                 </a>
-                <a href="/monthly-details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-calendar-alt mr-2"></i>明細
-                </a>
-                <a href="/members" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2">
-                  <i class="fas fa-user-friends mr-2"></i>メンバー
+                <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-list-alt mr-2"></i>詳細一覧
                 </a>
               </div>
             </div>
@@ -12900,5 +16270,2600 @@ async function insertRecord(db: D1Database, type: string, record: any): Promise<
       break
   }
 }
+
+// ========================================
+// 自社情報管理 API
+// ========================================
+
+// 自社情報取得API（認証必須）
+app.get('/api/company-info', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  const companyInfo = await DB.prepare('SELECT * FROM company_info WHERE id = 1').first()
+  
+  if (!companyInfo) {
+    return c.json({ success: false, error: '自社情報が見つかりません' }, 404)
+  }
+  
+  return c.json({ success: true, data: companyInfo })
+})
+
+// 自社情報更新API（can_edit_company_info権限必要）
+app.put('/api/company-info', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  // 権限チェック
+  const userRecord = await DB.prepare('SELECT can_edit_company_info FROM users WHERE id = ?')
+    .bind(user.userId).first()
+  
+  if (!userRecord || !(userRecord as any).can_edit_company_info) {
+    return c.json({ success: false, error: '自社情報を編集する権限がありません' }, 403)
+  }
+  
+  const body = await c.req.json()
+  const {
+    company_name,
+    postal_code,
+    address,
+    registration_number,
+    bank_name,
+    bank_branch,
+    account_type,
+    account_number,
+    account_holder
+  } = body
+  
+  if (!company_name) {
+    return c.json({ success: false, error: '会社名は必須です' }, 400)
+  }
+  
+  await DB.prepare(`
+    UPDATE company_info 
+    SET company_name = ?,
+        postal_code = ?,
+        address = ?,
+        registration_number = ?,
+        bank_name = ?,
+        bank_branch = ?,
+        account_type = ?,
+        account_number = ?,
+        account_holder = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = 1
+  `).bind(
+    company_name,
+    postal_code || null,
+    address || null,
+    registration_number || null,
+    bank_name || null,
+    bank_branch || null,
+    account_type || null,
+    account_number || null,
+    account_holder || null
+  ).run()
+  
+  await logAction(
+    DB,
+    user.userId,
+    'update_company_info',
+    'company_info',
+    1,
+    body,
+    c.req.header('CF-Connecting-IP') || null
+  )
+  
+  return c.json({ success: true, message: '自社情報を更新しました' })
+})
+
+// ロゴ画像アップロードAPI（can_edit_company_info権限必要）
+app.post('/api/company-info/upload-logo', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  // 権限チェック
+  const userRecord = await DB.prepare('SELECT can_edit_company_info FROM users WHERE id = ?')
+    .bind(user.userId).first()
+  
+  if (!userRecord || !(userRecord as any).can_edit_company_info) {
+    return c.json({ success: false, error: '自社情報を編集する権限がありません' }, 403)
+  }
+  
+  try {
+    const formData = await c.req.formData()
+    const file = formData.get('logo') as File
+    
+    if (!file) {
+      return c.json({ success: false, error: 'ファイルが見つかりません' }, 400)
+    }
+    
+    // ファイルサイズチェック（1MB）
+    const maxSize = 1 * 1024 * 1024
+    if (file.size > maxSize) {
+      return c.json({ success: false, error: 'ファイルサイズが大きすぎます（最大1MB）' }, 400)
+    }
+    
+    // ファイルをBase64に変換（大きなファイルでもスタックオーバーフローしないようチャンク処理）
+    const arrayBuffer = await file.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    let binary = ''
+    const chunkSize = 8192
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length))
+      binary += String.fromCharCode.apply(null, Array.from(chunk))
+    }
+    const base64 = btoa(binary)
+    const dataUrl = `data:${file.type};base64,${base64}`
+    
+    // DBを更新
+    await DB.prepare(`
+      UPDATE company_info 
+      SET logo_base64 = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `).bind(dataUrl).run()
+    
+    await logAction(
+      DB,
+      user.userId,
+      'upload_logo',
+      'company_info',
+      1,
+      { file_type: file.type },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ success: true, message: 'ロゴをアップロードしました' })
+  } catch (error: any) {
+    return c.json({ success: false, error: 'アップロードに失敗しました: ' + error.message }, 500)
+  }
+})
+
+// 会社印画像アップロードAPI（can_edit_company_info権限必要）
+app.post('/api/company-info/upload-seal', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  // 権限チェック
+  const userRecord = await DB.prepare('SELECT can_edit_company_info FROM users WHERE id = ?')
+    .bind(user.userId).first()
+  
+  if (!userRecord || !(userRecord as any).can_edit_company_info) {
+    return c.json({ success: false, error: '自社情報を編集する権限がありません' }, 403)
+  }
+  
+  try {
+    const formData = await c.req.formData()
+    const file = formData.get('seal') as File
+    
+    if (!file) {
+      return c.json({ success: false, error: 'ファイルが見つかりません' }, 400)
+    }
+    
+    // ファイルサイズチェック（1MB）
+    const maxSize = 1 * 1024 * 1024
+    if (file.size > maxSize) {
+      return c.json({ success: false, error: 'ファイルサイズが大きすぎます（最大1MB）' }, 400)
+    }
+    
+    // ファイルをBase64に変換（大きなファイルでもスタックオーバーフローしないようチャンク処理）
+    const arrayBuffer = await file.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    let binary = ''
+    const chunkSize = 8192
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length))
+      binary += String.fromCharCode.apply(null, Array.from(chunk))
+    }
+    const base64 = btoa(binary)
+    const dataUrl = `data:${file.type};base64,${base64}`
+    
+    // DBを更新
+    await DB.prepare(`
+      UPDATE company_info 
+      SET seal_base64 = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `).bind(dataUrl).run()
+    
+    await logAction(
+      DB,
+      user.userId,
+      'upload_seal',
+      'company_info',
+      1,
+      { file_type: file.type },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ success: true, message: '会社印をアップロードしました' })
+  } catch (error: any) {
+    return c.json({ success: false, error: 'アップロードに失敗しました: ' + error.message }, 500)
+  }
+})
+
+// Base64画像取得API（認証必須）
+app.get('/api/company-info/image/:type', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const type = c.req.param('type') // 'logo' or 'seal'
+  
+  const companyInfo = await DB.prepare('SELECT * FROM company_info WHERE id = 1').first() as any
+  
+  if (!companyInfo) {
+    return c.json({ success: false, error: '自社情報が見つかりません' }, 404)
+  }
+  
+  const base64Data = type === 'logo' ? companyInfo.logo_base64 : companyInfo.seal_base64
+  
+  if (!base64Data) {
+    return c.json({ success: false, error: '画像が登録されていません' }, 404)
+  }
+  
+  try {
+    // data:image/png;base64,... 形式から画像データを抽出
+    const matches = base64Data.match(/^data:([^;]+);base64,(.+)$/)
+    if (!matches) {
+      return c.json({ success: false, error: '画像データの形式が不正です' }, 400)
+    }
+    
+    const contentType = matches[1]
+    const base64 = matches[2]
+    
+    // Base64をバイナリに変換
+    const binaryString = atob(base64)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+    
+    return new Response(bytes, {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000'
+      }
+    })
+  } catch (error: any) {
+    return c.json({ success: false, error: '画像の取得に失敗しました: ' + error.message }, 500)
+  }
+})
+
+// ========================================
+// 見積書管理 API
+// ========================================
+
+// 見積書一覧取得API（認証必須）
+app.get('/api/quotes', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  const { results } = await DB.prepare(`
+    SELECT 
+      q.*,
+      p.project_name,
+      l.company_name,
+      l.honorific
+    FROM quotes q
+    LEFT JOIN projects p ON q.project_id = p.id
+    LEFT JOIN leads l ON q.lead_id = l.id
+    ORDER BY q.created_at DESC
+  `).all()
+  
+  return c.json({ success: true, data: results })
+})
+
+// 見積書詳細取得API（認証必須）
+app.get('/api/quotes/:id', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  const quote = await DB.prepare(`
+    SELECT 
+      q.*,
+      p.project_name,
+      l.company_name,
+      l.honorific,
+      l.billing_postal_code as postal_code,
+      l.billing_address as address
+    FROM quotes q
+    LEFT JOIN projects p ON q.project_id = p.id
+    LEFT JOIN leads l ON q.lead_id = l.id
+    WHERE q.id = ?
+  `).bind(id).first()
+  
+  if (!quote) {
+    return c.json({ success: false, error: '見積書が見つかりません' }, 404)
+  }
+  
+  // 見積明細を取得
+  const { results: items } = await DB.prepare(`
+    SELECT 
+      qi.*,
+      m.name as member_name
+    FROM quote_items qi
+    LEFT JOIN members m ON qi.member_id = m.id
+    WHERE qi.quote_id = ?
+    ORDER BY qi.sort_order ASC
+  `).bind(id).all()
+  
+  return c.json({ success: true, data: { ...quote, items } })
+})
+
+// プロジェクトの見積書一覧取得API（認証必須）
+app.get('/api/projects/:projectId/quotes', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const projectId = c.req.param('projectId')
+  
+  const { results } = await DB.prepare(`
+    SELECT 
+      q.*,
+      l.company_name,
+      l.honorific
+    FROM quotes q
+    LEFT JOIN leads l ON q.lead_id = l.id
+    WHERE q.project_id = ?
+    ORDER BY q.created_at DESC
+  `).bind(projectId).all()
+  
+  return c.json({ success: true, data: results })
+})
+
+// 見積書作成API（lead_manage権限必要）
+app.post('/api/projects/:projectId/quotes', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const projectId = c.req.param('projectId')
+  const body = await c.req.json()
+  
+  const { issue_date, expiry_date, subject, items, notes } = body
+  
+  // プロジェクトの存在確認
+  const project = await DB.prepare(`
+    SELECT p.*, l.id as lead_id, l.company_name
+    FROM projects p
+    LEFT JOIN leads l ON p.lead_id = l.id
+    WHERE p.id = ?
+  `).bind(projectId).first() as any
+  
+  if (!project) {
+    return c.json({ success: false, error: '案件が見つかりません' }, 404)
+  }
+  
+  // 小計・消費税・合計を計算
+  const subtotal = items.reduce((sum: number, item: any) => sum + item.amount, 0)
+  const tax = Math.floor(subtotal * 0.1)
+  const total = subtotal + tax
+  
+  // 見積番号を生成（YYYYMMDD-XXX形式）
+  const today = new Date()
+  const datePrefix = today.toISOString().split('T')[0].replace(/-/g, '').substring(2) // YYMMDD
+  
+  // 同日の見積書数を取得
+  const { results: todayQuotes } = await DB.prepare(`
+    SELECT id FROM quotes WHERE quote_number LIKE ?
+  `).bind(`${datePrefix}-%`).all()
+  
+  const sequenceNumber = String(todayQuotes.length + 1).padStart(3, '0')
+  const quoteNumber = `${datePrefix}-${sequenceNumber}`
+  
+  try {
+    // 見積書を作成
+    const result = await DB.prepare(`
+      INSERT INTO quotes (
+        quote_number, project_id, lead_id, issue_date, expiry_date,
+        subject, subtotal, tax_rate, tax, total, notes, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      quoteNumber,
+      projectId,
+      project.lead_id,
+      issue_date,
+      expiry_date || null,
+      subject,
+      subtotal,
+      10.0,
+      tax,
+      total,
+      notes || null,
+      user.userId
+    ).run()
+    
+    const quoteId = result.meta.last_row_id
+    
+    // 見積明細を作成
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      await DB.prepare(`
+        INSERT INTO quote_items (
+          quote_id, member_id, item_description, quantity,
+          unit, unit_price, amount, note, sort_order
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        quoteId,
+        item.member_id || null,
+        item.item_description,
+        item.quantity,
+        item.unit || '人月',
+        item.unit_price,
+        item.amount,
+        item.note || null,
+        i
+      ).run()
+    }
+    
+    // 監査ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'create_quote',
+      'quotes',
+      Number(quoteId),
+      { quote_number: quoteNumber, project_id: projectId, total },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({
+      success: true,
+      data: { id: quoteId, quote_number: quoteNumber },
+      message: '見積書を作成しました'
+    })
+  } catch (error: any) {
+    return c.json({ success: false, error: '見積書の作成に失敗しました: ' + error.message }, 500)
+  }
+})
+
+// 見積書更新API（lead_manage権限必要）
+app.put('/api/quotes/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  
+  const { issue_date, expiry_date, subject, notes } = body
+  
+  // 見積書の存在確認
+  const quote = await DB.prepare('SELECT * FROM quotes WHERE id = ?').bind(id).first()
+  
+  if (!quote) {
+    return c.json({ success: false, error: '見積書が見つかりません' }, 404)
+  }
+  
+  try {
+    await DB.prepare(`
+      UPDATE quotes 
+      SET issue_date = ?,
+          expiry_date = ?,
+          subject = ?,
+          notes = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      issue_date,
+      expiry_date || null,
+      subject,
+      notes || null,
+      id
+    ).run()
+    
+    await logAction(
+      DB,
+      user.userId,
+      'update_quote',
+      'quotes',
+      parseInt(id),
+      body,
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ success: true, message: '見積書を更新しました' })
+  } catch (error: any) {
+    return c.json({ success: false, error: '見積書の更新に失敗しました: ' + error.message }, 500)
+  }
+})
+
+// 見積書ステータス変更API（lead_manage権限必要）
+app.put('/api/quotes/:id/status', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  
+  const { status, comment } = body
+  
+  // ステータスのバリデーション
+  const validStatuses = ['draft', 'pending', 'approved', 'rejected', 'expired']
+  if (!validStatuses.includes(status)) {
+    return c.json({ success: false, error: '無効なステータスです' }, 400)
+  }
+  
+  // 見積書の存在確認
+  const quote = await DB.prepare('SELECT * FROM quotes WHERE id = ?').bind(id).first()
+  
+  if (!quote) {
+    return c.json({ success: false, error: '見積書が見つかりません' }, 404)
+  }
+  
+  try {
+    // 現在のステータス
+    const fromStatus = quote.status || 'draft'
+    
+    // ステータスを更新
+    await DB.prepare(`
+      UPDATE quotes 
+      SET status = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(status, id).run()
+    
+    // ステータス変更履歴を記録
+    await DB.prepare(`
+      INSERT INTO quote_status_changes (quote_id, from_status, to_status, changed_by, comment)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(
+      id,
+      fromStatus,
+      status,
+      user.userId,
+      comment || null
+    ).run()
+    
+    // アクションログに記録
+    await logAction(
+      DB,
+      user.userId,
+      'change_quote_status',
+      'quotes',
+      parseInt(id),
+      { from: fromStatus, to: status, comment },
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ success: true, message: 'ステータスを更新しました' })
+  } catch (error: any) {
+    return c.json({ success: false, error: 'ステータスの更新に失敗しました: ' + error.message }, 500)
+  }
+})
+
+// 見積書ステータス変更履歴取得API（認証必須）
+app.get('/api/quotes/:id/status-history', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  const { results } = await DB.prepare(`
+    SELECT 
+      qsc.*,
+      COALESCE(m.name, u.email) as changed_by_name
+    FROM quote_status_changes qsc
+    LEFT JOIN users u ON qsc.changed_by = u.id
+    LEFT JOIN members m ON u.member_id = m.id
+    WHERE qsc.quote_id = ?
+    ORDER BY qsc.changed_at DESC
+  `).bind(id).all()
+  
+  return c.json({ success: true, data: results || [] })
+})
+
+// 見積書削除API（lead_manage権限必要）
+app.delete('/api/quotes/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const id = c.req.param('id')
+  
+  // 見積書の存在確認
+  const quote = await DB.prepare('SELECT * FROM quotes WHERE id = ?').bind(id).first()
+  
+  if (!quote) {
+    return c.json({ success: false, error: '見積書が見つかりません' }, 404)
+  }
+  
+  try {
+    // 明細を削除
+    await DB.prepare('DELETE FROM quote_items WHERE quote_id = ?').bind(id).run()
+    
+    // 見積書を削除
+    await DB.prepare('DELETE FROM quotes WHERE id = ?').bind(id).run()
+    
+    await logAction(
+      DB,
+      user.userId,
+      'delete_quote',
+      'quotes',
+      parseInt(id),
+      quote,
+      c.req.header('CF-Connecting-IP') || null
+    )
+    
+    return c.json({ success: true, message: '見積書を削除しました' })
+  } catch (error: any) {
+    return c.json({ success: false, error: '見積書の削除に失敗しました: ' + error.message }, 500)
+  }
+})
+
+// PDF生成用データ取得API（認証必須）
+app.get('/api/quotes/:id/pdf-data', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  // 見積書情報取得
+  const quote = await DB.prepare(`
+    SELECT 
+      q.*,
+      p.project_name,
+      l.company_name,
+      l.honorific,
+      l.billing_postal_code as customer_postal_code,
+      l.billing_address as customer_address
+    FROM quotes q
+    LEFT JOIN projects p ON q.project_id = p.id
+    LEFT JOIN leads l ON q.lead_id = l.id
+    WHERE q.id = ?
+  `).bind(id).first() as any
+  
+  if (!quote) {
+    return c.json({ success: false, error: '見積書が見つかりません' }, 404)
+  }
+  
+  // 見積明細取得
+  const { results: items } = await DB.prepare(`
+    SELECT 
+      qi.*,
+      m.name as member_name
+    FROM quote_items qi
+    LEFT JOIN members m ON qi.member_id = m.id
+    WHERE qi.quote_id = ?
+    ORDER BY qi.sort_order ASC
+  `).bind(id).all()
+  
+  // 自社情報取得
+  const companyInfo = await DB.prepare('SELECT * FROM company_info WHERE id = 1').first()
+  
+  return c.json({
+    success: true,
+    data: {
+      quote,
+      items,
+      companyInfo
+    }
+  })
+})
+
+// ========================================
+// 請求書管理 API
+// ========================================
+
+// 請求書一覧取得API（認証必須）
+app.get('/api/invoices', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  const { results } = await DB.prepare(`
+    SELECT 
+      i.*,
+      l.company_name,
+      l.honorific
+    FROM invoices i
+    LEFT JOIN leads l ON i.lead_id = l.id
+    ORDER BY i.created_at DESC
+  `).all()
+  
+  return c.json({ success: true, data: results })
+})
+
+// 請求書詳細取得API（認証必須）
+app.get('/api/invoices/:id', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  const invoice = await DB.prepare(`
+    SELECT 
+      i.*,
+      l.company_name,
+      l.honorific,
+      l.billing_postal_code,
+      l.billing_address,
+      l.billing_contact_name
+    FROM invoices i
+    LEFT JOIN leads l ON i.lead_id = l.id
+    WHERE i.id = ?
+  `).bind(id).first() as any
+  
+  if (!invoice) {
+    return c.json({ success: false, error: '請求書が見つかりません' }, 404)
+  }
+  
+  // 請求明細取得
+  const { results: items } = await DB.prepare(`
+    SELECT 
+      ii.*,
+      m.name as member_name
+    FROM invoice_items ii
+    LEFT JOIN members m ON ii.member_id = m.id
+    WHERE ii.invoice_id = ?
+    ORDER BY ii.sort_order ASC
+  `).bind(id).all()
+  
+  return c.json({ success: true, data: { ...invoice, items } })
+})
+
+// 月次明細から請求書作成API（lead_manage権限必要）
+app.post('/api/monthly-details/:monthlyDetailId/invoice', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const monthlyDetailId = c.req.param('monthlyDetailId')
+  
+  try {
+    const body = await c.req.json()
+    
+    // 月次明細情報取得
+    const monthlyDetail = await DB.prepare(`
+      SELECT 
+        md.*,
+        c.project_id,
+        p.lead_id,
+        l.company_name
+      FROM monthly_details md
+      JOIN contracts c ON md.contract_id = c.id
+      JOIN projects p ON c.project_id = p.id
+      JOIN leads l ON p.lead_id = l.id
+      WHERE md.id = ?
+    `).bind(monthlyDetailId).first() as any
+    
+    if (!monthlyDetail) {
+      return c.json({ success: false, error: '月次明細が見つかりません' }, 404)
+    }
+  
+  // 請求書番号を生成（INV-YYYYMM-XXX形式）
+  const now = new Date()
+  const yearMonth = now.toISOString().slice(0, 7).replace('-', '')
+  const { results: existingInvoices } = await DB.prepare(
+    'SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY invoice_number DESC LIMIT 1'
+  ).bind(`INV-${yearMonth}-%`).all()
+  
+  let nextNumber = 1
+  if (existingInvoices.length > 0) {
+    const lastNumber = existingInvoices[0].invoice_number.split('-')[2]
+    nextNumber = parseInt(lastNumber) + 1
+  }
+  const invoiceNumber = `INV-${yearMonth}-${String(nextNumber).padStart(3, '0')}`
+  
+  // 請求書作成
+  const { issue_date, payment_due_date, subject, notes } = body
+  const subtotal = monthlyDetail.amount
+  const tax = Math.floor(subtotal * 0.1)
+  const total = subtotal + tax
+  
+  // すべての値を確認
+  const invoiceValues = {
+    invoiceNumber,
+    monthlyDetailId,
+    lead_id: monthlyDetail.lead_id,
+    issue_date,
+    payment_due_date: payment_due_date ? payment_due_date : null,
+    subject,
+    subtotal,
+    tax,
+    total,
+    tax_rate: 10,
+    notes: notes ? notes : null,
+    payment_status: '未入金',
+    created_by: user.userId  // user.id ではなく user.userId
+  }
+  
+  // undefinedの値を検出
+  for (const [key, value] of Object.entries(invoiceValues)) {
+    if (value === undefined) {
+      throw new Error(`Invoice value '${key}' is undefined`)
+    }
+  }
+  
+  const invoiceResult = await DB.prepare(`
+    INSERT INTO invoices (
+      invoice_number, monthly_detail_id, lead_id,
+      issue_date, payment_due_date, subject,
+      subtotal, tax, total, tax_rate,
+      notes, payment_status, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    invoiceNumber,
+    monthlyDetailId,
+    monthlyDetail.lead_id,
+    issue_date,
+    payment_due_date ? payment_due_date : null,
+    subject,
+    subtotal,
+    tax,
+    total,
+    10,
+    notes ? notes : null,
+    '未入金',
+    user.userId  // user.id ではなく user.userId
+  ).run()
+  
+  const invoiceId = invoiceResult.meta.last_row_id
+  console.log('[DEBUG] Invoice created successfully, ID:', invoiceId)
+  
+    // 月次明細のアサインメンバーから請求明細を作成
+    const { results: monthlyMembers } = await DB.prepare(`
+      SELECT 
+        mma.id,
+        mma.member_id,
+        mma.allocation_ratio,
+        mma.unit_price,
+        mma.notes,
+        m.name as member_name
+      FROM monthly_member_assignments mma
+      JOIN members m ON mma.member_id = m.id
+      WHERE mma.monthly_detail_id = ?
+    `).bind(monthlyDetailId).all()
+    
+    console.log('[DEBUG] Monthly members count:', monthlyMembers.length)
+    
+    let sortOrder = 1
+    for (const member of monthlyMembers) {
+      // allocation_ratioは既に0.0〜1.0の範囲（例: 0.2=20%, 0.5=50%）
+      const quantity = member.allocation_ratio
+      const amount = Math.floor(monthlyDetail.amount * member.allocation_ratio)
+      
+      await DB.prepare(`
+        INSERT INTO invoice_items (
+          invoice_id, member_id, item_description,
+          quantity, unit, unit_price, amount, sort_order
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        invoiceId,
+        member.member_id,
+        `${member.member_name} 稼働費用（${monthlyDetail.target_month}）`,
+        quantity,
+        '人月',
+        member.unit_price,
+        amount,
+        sortOrder++
+      ).run()
+    }
+    
+    console.log('[DEBUG] All invoice items created successfully')
+    
+    // 月次明細の請求情報を更新
+    await DB.prepare(`
+      UPDATE monthly_details 
+      SET billing_status = '請求済',
+          billing_date = ?,
+          invoice_number = ?
+      WHERE id = ?
+    `).bind(issue_date, invoiceNumber, monthlyDetailId).run()
+    
+    console.log('[DEBUG] Monthly details updated successfully')
+    
+    // 変更履歴を記録
+    await DB.prepare(`
+      INSERT INTO status_change_histories (
+        table_name, record_id, field_name, 
+        old_value, new_value, reason, changed_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      'monthly_details',
+      monthlyDetailId,
+      'billing_status',
+      monthlyDetail.billing_status,
+      '請求済',
+      `請求書作成: ${invoiceNumber}`,
+      user.email
+    ).run()
+    
+    console.log('[DEBUG] History recorded successfully')
+    
+    return c.json({
+      success: true,
+      data: {
+        invoice_id: invoiceId,
+        invoice_number: invoiceNumber
+      }
+    })
+  } catch (error) {
+    console.error('Invoice creation error:', error)
+    // エラーの詳細情報を出力
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+    return c.json({ 
+      success: false, 
+      error: `請求書の作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+    }, 500)
+  }
+})
+
+// 請求書更新API（lead_manage権限必要）
+app.put('/api/invoices/:id', authMiddleware, requirePermission('lead_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  const body = await c.req.json()
+  
+  const { payment_status, payment_date, notes } = body
+  
+  await DB.prepare(`
+    UPDATE invoices 
+    SET payment_status = ?,
+        payment_date = ?,
+        notes = ?
+    WHERE id = ?
+  `).bind(payment_status, payment_date || null, notes || null, id).run()
+  
+  return c.json({ success: true })
+})
+
+// 請求書削除API（admin権限必要）
+app.delete('/api/invoices/:id', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  // 請求書が存在するか確認
+  const invoice = await DB.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first()
+  if (!invoice) {
+    return c.json({ success: false, error: '請求書が見つかりません' }, 404)
+  }
+  
+  // 請求明細を削除
+  await DB.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').bind(id).run()
+  
+  // 請求書を削除
+  await DB.prepare('DELETE FROM invoices WHERE id = ?').bind(id).run()
+  
+  return c.json({ success: true })
+})
+
+// 請求書PDF用データ取得API（認証必須）
+app.get('/api/invoices/:id/pdf-data', authMiddleware, async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+  
+  // 請求書情報取得
+  const invoice = await DB.prepare(`
+    SELECT 
+      i.*,
+      l.company_name,
+      l.honorific,
+      l.billing_postal_code,
+      l.billing_address,
+      l.billing_contact_name
+    FROM invoices i
+    LEFT JOIN leads l ON i.lead_id = l.id
+    WHERE i.id = ?
+  `).bind(id).first() as any
+  
+  if (!invoice) {
+    return c.json({ success: false, error: '請求書が見つかりません' }, 404)
+  }
+  
+  // 請求明細取得
+  const { results: items } = await DB.prepare(`
+    SELECT 
+      ii.*,
+      m.name as member_name
+    FROM invoice_items ii
+    LEFT JOIN members m ON ii.member_id = m.id
+    WHERE ii.invoice_id = ?
+    ORDER BY ii.sort_order ASC
+  `).bind(id).all()
+  
+  // 自社情報取得
+  const companyInfo = await DB.prepare('SELECT * FROM company_info WHERE id = 1').first()
+  
+  return c.json({
+    success: true,
+    data: {
+      invoice,
+      items,
+      companyInfo
+    }
+  })
+})
+
+// ========================================
+// データバックアップ・リストア API（管理者のみ）
+// ========================================
+
+// テーブル定義とエクスポート順序（外部キー制約を考慮）
+const EXPORT_TABLES = [
+  // 独立テーブル（外部キーなし）
+  { name: 'system_settings', label: 'システム設定' },
+  { name: 'members', label: 'メンバー' },
+  { name: 'leads', label: 'リード' },
+  { name: 'users', label: 'ユーザー' },
+  { name: 'company_info', label: '自社情報' },
+  // 第1レベル依存
+  { name: 'user_permissions', label: 'ユーザー権限' },
+  { name: 'projects', label: '案件' },
+  // 第2レベル依存
+  { name: 'contracts', label: '契約' },
+  { name: 'meeting_notes', label: '議事録' },
+  // 第3レベル依存
+  { name: 'monthly_details', label: '月次明細' },
+  { name: 'contract_member_assignments', label: '契約メンバーアサイン' },
+  { name: 'monthly_member_assignments', label: '月次メンバーアサイン' },
+  { name: 'quotes', label: '見積' },
+  { name: 'invoices', label: '請求書' },
+  // 第4レベル依存
+  { name: 'payment_histories', label: '入金履歴' },
+  { name: 'quote_items', label: '見積明細' },
+  { name: 'invoice_items', label: '請求書明細' },
+  // ログテーブル（最後）
+  { name: 'status_change_histories', label: 'ステータス変更履歴' },
+  { name: 'audit_logs', label: '監査ログ' }
+]
+
+// CSVエスケープ関数
+function escapeCsvValue(value: any): string {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  const str = String(value)
+  // ダブルクォートをエスケープ
+  const escaped = str.replace(/"/g, '""')
+  // カンマ、改行、ダブルクォートを含む場合はクォートで囲む
+  if (escaped.includes(',') || escaped.includes('\n') || escaped.includes('"')) {
+    return `"${escaped}"`
+  }
+  return escaped
+}
+
+// テーブルデータをCSV形式で取得
+async function exportTableToCsv(DB: D1Database, tableName: string): Promise<string> {
+  try {
+    // テーブル情報を取得
+    const { results: tableInfo } = await DB.prepare(
+      `PRAGMA table_info(${tableName})`
+    ).all()
+    
+    if (!tableInfo || tableInfo.length === 0) {
+      return '' // テーブルが存在しない
+    }
+    
+    // カラム名を取得
+    const columns = tableInfo.map((col: any) => col.name)
+    
+    // データを取得（パスワードは除外）
+    let query = `SELECT * FROM ${tableName}`
+    let exportColumns = columns
+    
+    if (tableName === 'users') {
+      // ユーザーテーブルの場合、パスワードハッシュは除外
+      exportColumns = columns.filter(col => col !== 'password_hash')
+      query = `SELECT ${exportColumns.join(', ')} FROM ${tableName}`
+    }
+    
+    const { results } = await DB.prepare(query).all()
+    
+    // CSVヘッダー（エクスポート対象のカラムのみ）
+    let csv = exportColumns.join(',') + '\n'
+    
+    // データ行
+    if (results) {
+      for (const row of results) {
+        const values = exportColumns.map(col => {
+          const value = (row as any)[col]
+          return escapeCsvValue(value)
+        })
+        csv += values.join(',') + '\n'
+      }
+    }
+    
+    return csv
+  } catch (error) {
+    console.error(`Error exporting table ${tableName}:`, error)
+    return ''
+  }
+}
+
+// 全データエクスポートAPI
+app.get('/api/admin/data/export/all', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  try {
+    // メタデータ作成
+    const metadata = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      exported_by: user.email || 'unknown',
+      database_schema_version: '0024',
+      tables: [] as any[],
+      options: {
+        include_users: true,
+        include_system_settings: true,
+        anonymize_data: false
+      }
+    }
+    
+    // ZIP用のファイル辞書を作成
+    const zipFiles: { [key: string]: Uint8Array } = {}
+    
+    // 各テーブルをCSVに変換
+    for (const table of EXPORT_TABLES) {
+      const csv = await exportTableToCsv(DB, table.name)
+      if (csv) {
+        // CSVをUint8Arrayに変換
+        zipFiles[`${table.name}.csv`] = strToU8(csv)
+        
+        // 行数をカウント
+        const lines = csv.split('\n').filter(line => line.trim())
+        const rowCount = Math.max(0, lines.length - 1) // ヘッダーを除く
+        
+        metadata.tables.push({
+          name: table.name,
+          label: table.label,
+          row_count: rowCount,
+          file: `${table.name}.csv`
+        })
+      }
+    }
+    
+    // メタデータをJSON文字列に変換してZIPに追加
+    zipFiles['metadata.json'] = strToU8(JSON.stringify(metadata, null, 2))
+    
+    // ZIPファイルを生成
+    const zippedData = zipSync(zipFiles, { level: 6 })
+    
+    // タイムスタンプを生成
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `backup_all_${timestamp}.zip`
+    
+    // ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'data_export',
+      'backup',
+      null,
+      `Exported all tables (${metadata.tables.length} tables)`,
+      null
+    )
+    
+    // ZIPファイルをレスポンスとして返す
+    return new Response(zippedData, {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': zippedData.length.toString()
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('Export error:', error)
+    return c.json({ 
+      success: false, 
+      error: 'エクスポートに失敗しました: ' + error.message 
+    }, 500)
+  }
+})
+
+// テーブル選択エクスポートAPI
+app.post('/api/admin/data/export/selective', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  const { tables, anonymize_data } = await c.req.json()
+  
+  if (!tables || !Array.isArray(tables) || tables.length === 0) {
+    return c.json({ error: 'テーブルを選択してください' }, 400)
+  }
+  
+  try {
+    // 選択されたテーブルのみエクスポート
+    const selectedTables = EXPORT_TABLES.filter(t => tables.includes(t.name))
+    
+    const metadata = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      exported_by: user.email || 'unknown',
+      database_schema_version: '0024',
+      tables: [] as any[],
+      options: {
+        include_users: tables.includes('users'),
+        include_system_settings: tables.includes('system_settings'),
+        anonymize_data: anonymize_data || false
+      }
+    }
+    
+    // ZIP用のファイル辞書を作成
+    const zipFiles: { [key: string]: Uint8Array } = {}
+    
+    for (const table of selectedTables) {
+      const csv = await exportTableToCsv(DB, table.name)
+      if (csv) {
+        // CSVをUint8Arrayに変換
+        zipFiles[`${table.name}.csv`] = strToU8(csv)
+        
+        const lines = csv.split('\n').filter(line => line.trim())
+        const rowCount = Math.max(0, lines.length - 1)
+        
+        metadata.tables.push({
+          name: table.name,
+          label: table.label,
+          row_count: rowCount,
+          file: `${table.name}.csv`
+        })
+      }
+    }
+    
+    // メタデータをJSON文字列に変換してZIPに追加
+    zipFiles['metadata.json'] = strToU8(JSON.stringify(metadata, null, 2))
+    
+    // ZIPファイルを生成
+    const zippedData = zipSync(zipFiles, { level: 6 })
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `backup_selective_${timestamp}.zip`
+    
+    // ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'data_export',
+      'backup',
+      null,
+      `Exported ${selectedTables.length} selected tables`,
+      null
+    )
+    
+    // ZIPファイルをレスポンスとして返す
+    return new Response(zippedData, {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': zippedData.length.toString()
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('Export error:', error)
+    return c.json({ 
+      success: false, 
+      error: 'エクスポートに失敗しました: ' + error.message 
+    }, 500)
+  }
+})
+
+// インポートプレビューAPI
+app.post('/api/admin/data/import/preview', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  
+  try {
+    // multipart/form-dataからファイルを取得
+    const formData = await c.req.formData()
+    const file = formData.get('file') as File
+    
+    if (!file) {
+      return c.json({ error: 'ファイルが選択されていません' }, 400)
+    }
+    
+    console.log('File received:', file.name, 'Size:', file.size, 'Type:', file.type)
+    
+    // ファイルをArrayBufferとして読み込み
+    const arrayBuffer = await file.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    
+    console.log('ArrayBuffer size:', arrayBuffer.byteLength)
+    
+    // ZIPファイルを解凍
+    let unzipped: any
+    try {
+      unzipped = unzipSync(uint8Array)
+      console.log('Unzipped files:', Object.keys(unzipped))
+    } catch (error: any) {
+      console.error('Unzip error:', error)
+      return c.json({ error: 'ZIPファイルの解凍に失敗しました: ' + error.message }, 400)
+    }
+    
+    // ファイルパスを正規化する関数（ディレクトリ構造を無視）
+    const findFile = (filename: string): Uint8Array | undefined => {
+      // 直接ルートにある場合
+      if (unzipped[filename]) return unzipped[filename]
+      
+      // ディレクトリ内を検索（__MACOSX を除外）
+      for (const path of Object.keys(unzipped)) {
+        if (path.includes('__MACOSX')) continue
+        if (path.endsWith('/' + filename) || path.endsWith('\\' + filename)) {
+          return unzipped[path]
+        }
+      }
+      return undefined
+    }
+    
+    // metadata.jsonを読み込み
+    const metadataData = findFile('metadata.json')
+    if (!metadataData) {
+      console.error('metadata.json not found. Available files:', Object.keys(unzipped))
+      return c.json({ 
+        error: 'metadata.jsonが見つかりません。ZIPファイルに含まれるファイル: ' + Object.keys(unzipped).join(', ') 
+      }, 400)
+    }
+    
+    const metadataStr = strFromU8(metadataData)
+    const metadata = JSON.parse(metadataStr)
+    
+    // バックアップファイルの検証
+    const tablesFound = []
+    const warnings = []
+    
+    for (const table of metadata.tables) {
+      const csvData = findFile(table.file)
+      if (csvData) {
+        const csv = strFromU8(csvData)
+        const lines = csv.split('\n').filter((line: string) => line.trim())
+        const dataRows = Math.max(0, lines.length - 1)
+        
+        // 既存データの件数を確認
+        try {
+          const { results } = await DB.prepare(`SELECT COUNT(*) as count FROM ${table.name}`).all()
+          const existingRows = results && results[0] ? (results[0] as any).count : 0
+          
+          tablesFound.push({
+            name: table.name,
+            label: table.label,
+            row_count: dataRows,
+            existing_rows: existingRows,
+            will_import: true,
+            has_data: existingRows > 0
+          })
+          
+          if (existingRows > 0) {
+            warnings.push(`${table.label}に既存データ${existingRows}件があります`)
+          }
+        } catch (error) {
+          tablesFound.push({
+            name: table.name,
+            label: table.label,
+            row_count: dataRows,
+            existing_rows: 0,
+            will_import: true,
+            has_data: false,
+            error: 'テーブルが存在しません'
+          })
+        }
+      }
+    }
+    
+    return c.json({
+      success: true,
+      metadata,
+      tables_found: tablesFound,
+      warnings: warnings.length > 0 ? warnings : ['既存データが削除される可能性があります']
+    })
+    
+  } catch (error: any) {
+    console.error('Preview error:', error)
+    return c.json({ 
+      success: false, 
+      error: 'プレビューに失敗しました: ' + error.message 
+    }, 500)
+  }
+})
+
+// インポート実行API
+app.post('/api/admin/data/import/execute', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  try {
+    // multipart/form-dataからファイルとモードを取得
+    const formData = await c.req.formData()
+    const file = formData.get('file') as File
+    const mode = formData.get('mode') as string || 'append'
+    
+    if (!file) {
+      return c.json({ error: 'ファイルが選択されていません' }, 400)
+    }
+    
+    if (!['replace', 'append', 'merge'].includes(mode)) {
+      return c.json({ error: '無効なインポートモードです' }, 400)
+    }
+    
+    // ファイルをArrayBufferとして読み込み
+    const arrayBuffer = await file.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    
+    // ZIPファイルを解凍
+    let unzipped: any
+    try {
+      unzipped = unzipSync(uint8Array)
+    } catch (error) {
+      return c.json({ error: 'ZIPファイルの解凍に失敗しました' }, 400)
+    }
+    
+    // ファイルパスを正規化する関数（ディレクトリ構造を無視）
+    const findFile = (filename: string): Uint8Array | undefined => {
+      // 直接ルートにある場合
+      if (unzipped[filename]) return unzipped[filename]
+      
+      // ディレクトリ内を検索（__MACOSX を除外）
+      for (const path of Object.keys(unzipped)) {
+        if (path.includes('__MACOSX')) continue
+        if (path.endsWith('/' + filename) || path.endsWith('\\' + filename)) {
+          return unzipped[path]
+        }
+      }
+      return undefined
+    }
+    
+    // metadata.jsonを読み込み
+    const metadataData = findFile('metadata.json')
+    if (!metadataData) {
+      return c.json({ error: 'metadata.jsonが見つかりません' }, 400)
+    }
+    
+    const metadataStr = strFromU8(metadataData)
+    const metadata = JSON.parse(metadataStr)
+    
+    const results = []
+    const deleteQueries = []  // DELETE用（逆順で実行）
+    const insertQueries = []  // INSERT用（正順で実行）
+    const queryInfo = [] // デバッグ用：各クエリの情報を記録
+    
+    console.log('Starting import process. Mode:', mode, 'Tables:', metadata.tables.length)
+    
+    // Replaceモード: 既存データを削除（外部キー依存の逆順）
+    if (mode === 'replace') {
+      console.log('Replace mode: preparing DELETE queries in reverse order')
+      const reversedTables = [...metadata.tables].reverse()
+      for (const table of reversedTables) {
+        const deleteQuery = DB.prepare(`DELETE FROM ${table.name}`)
+        deleteQueries.push(deleteQuery)
+        queryInfo.push({ type: 'DELETE', sql: `DELETE FROM ${table.name}`, table: table.name })
+        console.log(`Added DELETE query for table: ${table.name}`)
+      }
+    }
+    
+    // データインポート（外部キー依存順）
+    for (const table of metadata.tables) {
+      const csvData = findFile(table.file)
+      if (!csvData) {
+        console.log(`CSV file not found for table: ${table.name}`)
+        continue
+      }
+      
+      const csv = strFromU8(csvData)
+      const lines = csv.split('\n').filter((line: string) => line.trim())
+      if (lines.length < 2) {
+        console.log(`No data rows for table: ${table.name}`)
+        continue
+      }
+      
+      console.log(`Processing table: ${table.name}, rows: ${lines.length - 1}`)
+      
+      let inserted = 0
+      let updated = 0
+      let errors = 0
+      
+      try {
+        // ヘッダー行からカラム名を取得
+        let headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+        console.log(`Table ${table.name} headers:`, headers)
+        
+        // usersテーブルの特別処理: password_hashが欠けている場合はデフォルト値を追加
+        const isUsersTable = table.name === 'users'
+        const hasPasswordHash = headers.includes('password_hash')
+        if (isUsersTable && !hasPasswordHash) {
+          headers.push('password_hash')
+          console.log(`Added password_hash column for users table`)
+        }
+        
+        // データ行をインポート
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i]
+          const values = []
+          let current = ''
+          let inQuotes = false
+          
+          // CSVパース（クォート対応）
+          for (let j = 0; j < line.length; j++) {
+            const char = line[j]
+            if (char === '"') {
+              inQuotes = !inQuotes
+            } else if (char === ',' && !inQuotes) {
+              values.push(current.trim())
+              current = ''
+            } else {
+              current += char
+            }
+          }
+          values.push(current.trim())
+          
+          // 値の整形（クォート除去、空文字列をnullに変換）
+          const cleanValues = values.map(v => {
+            if (v === '') return null
+            if (v.startsWith('"') && v.endsWith('"')) {
+              return v.slice(1, -1).replace(/""/g, '"')
+            }
+            return v
+          })
+          
+          // usersテーブルでpassword_hashが欠けている場合、デフォルトのハッシュ値を追加
+          if (isUsersTable && !hasPasswordHash) {
+            // デフォルトパスワード 'admin123' のPBKDF2ハッシュ
+            cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
+          }
+          
+          // usersテーブルでpassword_hashがNULLまたは空の場合、デフォルト値に置き換える
+          if (isUsersTable && hasPasswordHash) {
+            const passwordHashIndex = headers.indexOf('password_hash')
+            if (passwordHashIndex !== -1 && (!cleanValues[passwordHashIndex] || cleanValues[passwordHashIndex] === '')) {
+              cleanValues[passwordHashIndex] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
+              console.log(`Replaced empty password_hash with default for row ${i}`)
+            }
+          }
+          
+          if (mode === 'merge') {
+            // Mergeモード: UPSERT（ON CONFLICT）
+            const placeholders = headers.map(() => '?').join(', ')
+            const updateSet = headers
+              .filter(h => h !== 'id')
+              .map(h => `${h} = excluded.${h}`)
+              .join(', ')
+            
+            const sql = `INSERT INTO ${table.name} (${headers.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateSet}`
+            insertQueries.push(DB.prepare(sql).bind(...cleanValues))
+            queryInfo.push({ 
+              type: 'MERGE', 
+              sql, 
+              table: table.name, 
+              row: i, 
+              values: cleanValues.slice(0, 3) // 最初の3つの値のみ記録
+            })
+            updated++
+          } else {
+            // Replace/Appendモード: INSERT
+            // IDカラムがある場合、appendモードではIDを除外
+            let insertHeaders = headers
+            let insertValues = cleanValues
+            
+            if (mode === 'append' && headers.includes('id')) {
+              const idIndex = headers.indexOf('id')
+              insertHeaders = headers.filter((_, idx) => idx !== idIndex)
+              insertValues = cleanValues.filter((_, idx) => idx !== idIndex)
+            }
+            
+            const placeholders = insertHeaders.map(() => '?').join(', ')
+            const sql = `INSERT INTO ${table.name} (${insertHeaders.join(', ')}) VALUES (${placeholders})`
+            insertQueries.push(DB.prepare(sql).bind(...insertValues))
+            queryInfo.push({ 
+              type: 'INSERT', 
+              sql, 
+              table: table.name, 
+              row: i, 
+              values: insertValues.slice(0, 3) // 最初の3つの値のみ記録
+            })
+            inserted++
+          }
+        }
+        
+        console.log(`Table ${table.name}: prepared ${inserted + updated} queries`)
+        
+        results.push({
+          table: table.name,
+          label: table.label,
+          inserted,
+          updated: mode === 'merge' ? updated : 0,
+          errors
+        })
+        
+      } catch (error: any) {
+        console.error(`Import error for table ${table.name}:`, error)
+        results.push({
+          table: table.name,
+          label: table.label,
+          inserted: 0,
+          updated: 0,
+          errors: 1,
+          error: error.message
+        })
+      }
+    }
+    
+    console.log(`Total DELETE queries: ${deleteQueries.length}`)
+    console.log(`Total INSERT queries: ${insertQueries.length}`)
+    console.log(`Query info summary:`, queryInfo.slice(0, 10)) // 最初の10件のみログ出力
+    
+    // バッチ実行: DELETEとINSERTを1つのバッチにまとめる
+    // これにより、バッチ全体が成功または失敗するため、データ消失を防ぐ
+    try {
+      const allQueries = []
+      
+      if (mode === 'replace' && deleteQueries.length > 0) {
+        // Replaceモード: DELETEを先に追加（逆順）
+        console.log('Replace mode: Adding DELETE queries to batch (reverse order)')
+        allQueries.push(...deleteQueries)
+      }
+      
+      // INSERTを追加（正順）
+      if (insertQueries.length > 0) {
+        console.log('Adding INSERT queries to batch (forward order)')
+        allQueries.push(...insertQueries)
+      }
+      
+      // 1つのバッチとして実行
+      if (allQueries.length > 0) {
+        console.log(`Executing batch with ${allQueries.length} queries...`)
+        await DB.batch(allQueries)
+        console.log('Batch execution successful')
+      }
+    } catch (batchError: any) {
+      console.error('Batch execution failed:', batchError)
+      console.error('Error details:', {
+        message: batchError.message,
+        cause: batchError.cause,
+        stack: batchError.stack
+      })
+      
+      // より詳細なエラー情報を返す
+      return c.json({ 
+        success: false, 
+        error: 'バッチ実行に失敗しました',
+        details: {
+          message: batchError.message,
+          deleteQueries: deleteQueries.length,
+          insertQueries: insertQueries.length,
+          mode: mode,
+          tables: metadata.tables.map((t: any) => t.name),
+          queryInfoSample: queryInfo.slice(0, 20) // 最初の20クエリの情報
+        }
+      }, 500)
+    }
+    
+    // ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'data_import',
+      'backup',
+      null,
+      `Imported ${results.length} tables in ${mode} mode`,
+      null
+    )
+    
+    return c.json({
+      success: true,
+      mode,
+      results
+    })
+    
+  } catch (error: any) {
+    console.error('Import error:', error)
+    console.error('Error stack:', error.stack)
+    return c.json({ 
+      success: false, 
+      error: 'インポートに失敗しました: ' + error.message,
+      details: {
+        stack: error.stack,
+        cause: error.cause
+      }
+    }, 500)
+  }
+})
+
+// CSV単体インポートAPI（管理者専用）
+app.post('/api/admin/data/import/csv', authMiddleware, requireAdmin, async (c) => {
+  const { DB } = c.env
+  const user = c.get('user')
+  
+  try {
+    // multipart/form-dataからファイル、テーブル名、モードを取得
+    const formData = await c.req.formData()
+    const file = formData.get('file') as File
+    const tableName = formData.get('table_name') as string
+    const mode = formData.get('mode') as string || 'append'
+    
+    if (!file) {
+      return c.json({ error: 'CSVファイルが選択されていません' }, 400)
+    }
+    
+    if (!tableName) {
+      return c.json({ error: 'テーブル名が指定されていません' }, 400)
+    }
+    
+    if (!['replace', 'append', 'merge'].includes(mode)) {
+      return c.json({ error: '無効なインポートモードです' }, 400)
+    }
+    
+    // テーブルが存在するか確認
+    const tableConfig = EXPORT_TABLES.find(t => t.name === tableName)
+    if (!tableConfig) {
+      return c.json({ error: '指定されたテーブルが見つかりません' }, 400)
+    }
+    
+    // ファイルをテキストとして読み込み
+    const csvText = await file.text()
+    const lines = csvText.split('\n').filter((line: string) => line.trim())
+    
+    if (lines.length < 2) {
+      return c.json({ error: 'CSVファイルにデータがありません' }, 400)
+    }
+    
+    console.log(`CSV Import - Table: ${tableName}, Mode: ${mode}, Rows: ${lines.length - 1}`)
+    
+    let inserted = 0
+    let updated = 0
+    let errors = 0
+    
+    const deleteQueries = []
+    const insertQueries = []
+    
+    try {
+      // Replaceモード: テーブルのデータを削除
+      if (mode === 'replace') {
+        console.log(`Replace mode: preparing DELETE for table ${tableName}`)
+        const deleteQuery = DB.prepare(`DELETE FROM ${tableName}`)
+        deleteQueries.push(deleteQuery)
+      }
+      
+      // ヘッダー行からカラム名を取得
+      let headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+      console.log(`Table ${tableName} headers:`, headers)
+      
+      // usersテーブルの特別処理: password_hashが欠けている場合はデフォルト値を追加
+      const isUsersTable = tableName === 'users'
+      const hasPasswordHash = headers.includes('password_hash')
+      if (isUsersTable && !hasPasswordHash) {
+        headers.push('password_hash')
+        console.log(`Added password_hash column for users table`)
+      }
+      
+      // データ行をインポート
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]
+        const values = []
+        let current = ''
+        let inQuotes = false
+        
+        // CSVパース（クォート対応）
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j]
+          if (char === '"') {
+            inQuotes = !inQuotes
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim())
+            current = ''
+          } else {
+            current += char
+          }
+        }
+        values.push(current.trim())
+        
+        // 値の整形（クォート除去、空文字列をnullに変換）
+        const cleanValues = values.map(v => {
+          if (v === '') return null
+          if (v.startsWith('"') && v.endsWith('"')) {
+            return v.slice(1, -1).replace(/""/g, '"')
+          }
+          return v
+        })
+        
+        // usersテーブルでpassword_hashが欠けている場合、デフォルトのハッシュ値を追加
+        if (isUsersTable && !hasPasswordHash) {
+          cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
+        }
+        
+        // usersテーブルでpassword_hashがNULLまたは空の場合、デフォルト値に置き換える
+        if (isUsersTable && hasPasswordHash) {
+          const passwordHashIndex = headers.indexOf('password_hash')
+          if (passwordHashIndex !== -1 && (!cleanValues[passwordHashIndex] || cleanValues[passwordHashIndex] === '')) {
+            cleanValues[passwordHashIndex] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
+            console.log(`Replaced empty password_hash with default for row ${i}`)
+          }
+        }
+        
+        if (mode === 'merge') {
+          // Mergeモード: UPSERT（ON CONFLICT）
+          const placeholders = headers.map(() => '?').join(', ')
+          const updateSet = headers
+            .filter(h => h !== 'id')
+            .map(h => `${h} = excluded.${h}`)
+            .join(', ')
+          
+          const sql = `INSERT INTO ${tableName} (${headers.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateSet}`
+          insertQueries.push(DB.prepare(sql).bind(...cleanValues))
+          updated++
+        } else {
+          // Replace/Appendモード: INSERT
+          let insertHeaders = headers
+          let insertValues = cleanValues
+          
+          if (mode === 'append' && headers.includes('id')) {
+            const idIndex = headers.indexOf('id')
+            insertHeaders = headers.filter((_, idx) => idx !== idIndex)
+            insertValues = cleanValues.filter((_, idx) => idx !== idIndex)
+          }
+          
+          const placeholders = insertHeaders.map(() => '?').join(', ')
+          const sql = `INSERT INTO ${tableName} (${insertHeaders.join(', ')}) VALUES (${placeholders})`
+          insertQueries.push(DB.prepare(sql).bind(...insertValues))
+          inserted++
+        }
+      }
+      
+      console.log(`Prepared ${inserted + updated} queries for ${tableName}`)
+      
+      // バッチ実行: DELETEとINSERTを1つのバッチにまとめる
+      const allQueries = []
+      
+      if (mode === 'replace' && deleteQueries.length > 0) {
+        allQueries.push(...deleteQueries)
+      }
+      
+      if (insertQueries.length > 0) {
+        allQueries.push(...insertQueries)
+      }
+      
+      if (allQueries.length > 0) {
+        console.log(`Executing batch with ${allQueries.length} queries...`)
+        await DB.batch(allQueries)
+        console.log('Batch execution successful')
+      }
+      
+    } catch (error: any) {
+      console.error(`CSV Import error for table ${tableName}:`, error)
+      errors = 1
+      
+      return c.json({ 
+        success: false, 
+        error: 'CSVインポートに失敗しました',
+        details: {
+          message: error.message,
+          table: tableName,
+          mode: mode
+        }
+      }, 500)
+    }
+    
+    // ログ記録
+    await logAction(
+      DB,
+      user.userId,
+      'csv_import',
+      'backup',
+      null,
+      `CSV imported to ${tableName} table in ${mode} mode`,
+      null
+    )
+    
+    return c.json({
+      success: true,
+      mode,
+      result: {
+        table: tableName,
+        label: tableConfig.label,
+        inserted,
+        updated: mode === 'merge' ? updated : 0,
+        errors
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('CSV Import error:', error)
+    return c.json({ 
+      success: false, 
+      error: 'CSVインポートに失敗しました: ' + error.message,
+      details: {
+        message: error.message,
+        stack: error.stack
+      }
+    }, 500)
+  }
+})
+
+// エクスポート可能なテーブル一覧取得API
+app.get('/api/admin/data/tables', authMiddleware, requireAdmin, async (c) => {
+  return c.json({
+    success: true,
+    tables: EXPORT_TABLES
+  })
+})
+
+// データバックアップ・リストア画面
+app.get('/settings/data-backup', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>データバックアップ・リストア - SFA</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+      <!-- グローバルナビゲーション -->
+      <nav class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <div class="flex-shrink-0 flex items-center">
+                <a href="/" class="text-xl font-bold text-blue-600">
+                  <i class="fas fa-chart-line mr-2"></i>SFA
+                </a>
+              </div>
+              <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-home mr-2"></i>ダッシュボード
+                </a>
+                <a href="/settings" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                  <i class="fas fa-cog mr-2"></i>設定
+                </a>
+              </div>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="text-sm text-gray-700">
+                <i class="fas fa-user-circle mr-1"></i>
+                <span id="nav-user-name">読込中...</span>
+              </span>
+              <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- ページヘッダー -->
+        <div class="px-4 py-6 sm:px-0">
+          <div class="flex items-center justify-between mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">
+              <i class="fas fa-database mr-2"></i>データバックアップ・リストア
+            </h1>
+            <a href="/settings" class="text-blue-600 hover:text-blue-700">
+              <i class="fas fa-arrow-left mr-1"></i>設定に戻る
+            </a>
+          </div>
+
+          <!-- 警告メッセージ -->
+          <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+            <div class="flex">
+              <div class="flex-shrink-0">
+                <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+              </div>
+              <div class="ml-3">
+                <p class="text-sm text-yellow-700">
+                  <strong>注意:</strong> データのインポートは既存データに影響を与える可能性があります。本番環境での実行前に必ずバックアップを取得してください。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- エクスポートセクション -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-download mr-2 text-blue-600"></i>データエクスポート
+              </h2>
+              <p class="text-gray-600 mb-4 text-sm">
+                全テーブルのデータをZIP形式（複数CSV）でエクスポートします。
+              </p>
+
+              <!-- エクスポートオプション -->
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">エクスポート対象</label>
+                <div class="space-y-2">
+                  <label class="flex items-center">
+                    <input type="radio" name="export-type" value="all" checked class="mr-2">
+                    <span class="text-sm">すべてのテーブル</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input type="radio" name="export-type" value="selective" class="mr-2">
+                    <span class="text-sm">テーブルを選択</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- テーブル選択（初期非表示） -->
+              <div id="table-selection" class="mb-4" style="display:none;">
+                <label class="block text-sm font-medium text-gray-700 mb-2">エクスポートするテーブル</label>
+                <div id="table-checkboxes" class="space-y-1 max-h-64 overflow-y-auto border border-gray-300 rounded p-2">
+                  <!-- 動的に生成 -->
+                </div>
+              </div>
+
+              <button 
+                id="export-button"
+                onclick="exportData()" 
+                class="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                <i class="fas fa-download mr-2"></i>エクスポート開始
+              </button>
+
+              <!-- エクスポート進行状況 -->
+              <div id="export-progress" class="mt-4" style="display:none;">
+                <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                  <div class="flex items-center">
+                    <i class="fas fa-spinner fa-spin text-blue-600 mr-2"></i>
+                    <span class="text-sm text-blue-700">エクスポート中...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- インポートセクション -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-upload mr-2 text-green-600"></i>データインポート
+              </h2>
+              <p class="text-gray-600 mb-4 text-sm">
+                エクスポートしたZIPファイルからデータをインポートします。
+              </p>
+
+              <!-- ファイル選択 -->
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">ZIPファイルを選択</label>
+                <input 
+                  type="file" 
+                  id="import-file" 
+                  accept=".zip"
+                  class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  onchange="handleFileSelect()">
+              </div>
+
+              <!-- インポートモード -->
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">インポートモード</label>
+                <select id="import-mode" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                  <option value="append" selected>Append（追加）: 既存データを保持して新規追加（推奨）</option>
+                  <option value="merge">Merge（マージ）: ID一致時は更新、不一致時は追加</option>
+                  <option value="replace">Replace（上書き）: 既存データを削除して新規投入</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">
+                  <i class="fas fa-info-circle"></i> 
+                  Replaceモードは全データを削除後、新規投入します。実行前に必ずバックアップを取得してください。
+                </p>
+              </div>
+
+              <!-- プレビューボタン -->
+              <button 
+                id="preview-button"
+                onclick="previewImport()" 
+                class="w-full bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors mb-2"
+                disabled>
+                <i class="fas fa-eye mr-2"></i>プレビュー
+              </button>
+
+              <!-- インポート実行ボタン -->
+              <button 
+                id="import-button"
+                onclick="executeImport()" 
+                class="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
+                disabled>
+                <i class="fas fa-upload mr-2"></i>インポート実行
+              </button>
+
+              <!-- インポート進行状況 -->
+              <div id="import-progress" class="mt-4" style="display:none;">
+                <div class="bg-green-50 border border-green-200 rounded p-3">
+                  <div class="flex items-center">
+                    <i class="fas fa-spinner fa-spin text-green-600 mr-2"></i>
+                    <span class="text-sm text-green-700">インポート中...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CSV単体インポートセクション -->
+          <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">
+              <i class="fas fa-file-csv mr-2 text-purple-600"></i>CSV単体インポート
+            </h2>
+            <p class="text-gray-600 mb-4 text-sm">
+              単一テーブルのCSVファイルをインポートします。
+            </p>
+
+            <!-- テーブル選択 -->
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">インポート先テーブル</label>
+              <select id="csv-table-select" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                <option value="">テーブルを選択してください</option>
+              </select>
+            </div>
+
+            <!-- CSVファイル選択 -->
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">CSVファイルを選択</label>
+              <input 
+                type="file" 
+                id="csv-file" 
+                accept=".csv"
+                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                onchange="handleCsvFileSelect()">
+            </div>
+
+            <!-- CSVインポートモード -->
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-2">インポートモード</label>
+              <select id="csv-import-mode" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                <option value="append" selected>Append（追加）: 既存データを保持して新規追加（推奨）</option>
+                <option value="merge">Merge（マージ）: ID一致時は更新、不一致時は追加</option>
+                <option value="replace">Replace（上書き）: テーブルの全データを削除して新規投入</option>
+              </select>
+              <p class="text-xs text-gray-500 mt-1">
+                <i class="fas fa-exclamation-triangle text-yellow-600"></i> 
+                Replaceモードは選択したテーブルの全データを削除します。実行前にバックアップを取得してください。
+              </p>
+            </div>
+
+            <!-- CSVインポート実行ボタン -->
+            <button 
+              id="csv-import-button"
+              onclick="executeCsvImport()" 
+              class="w-full bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition-colors"
+              disabled>
+              <i class="fas fa-upload mr-2"></i>CSVインポート実行
+            </button>
+
+            <!-- CSVインポート進行状況 -->
+            <div id="csv-import-progress" class="mt-4" style="display:none;">
+              <div class="bg-purple-50 border border-purple-200 rounded p-3">
+                <div class="flex items-center">
+                  <i class="fas fa-spinner fa-spin text-purple-600 mr-2"></i>
+                  <span class="text-sm text-purple-700">CSVインポート中...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+      <script> 
+                  onclick="closePreviewModal(); executeImport();" 
+                  class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                  <i class="fas fa-upload mr-2"></i>インポート実行
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+      <script>
+        // AUTH_UTILS - 認証ユーティリティ
+        const AUTH_UTILS = {
+          getToken: () => localStorage.getItem('jwt_token'),
+          checkAuth: () => {
+            if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+              window.location.href = '/login';
+            }
+          },
+          logout: () => {
+            localStorage.removeItem('jwt_token');
+            document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+            window.location.href = '/login';
+          },
+          getCurrentUser: async function() {
+            try {
+              const token = this.getToken();
+              if (!token) return null;
+              const response = await axios.get('/api/auth/me', {
+                headers: { Authorization: \`Bearer \${token}\` }
+              });
+              return response.data.user;
+            } catch (error) {
+              console.error('Failed to get current user:', error);
+              return null;
+            }
+          }
+        };
+
+        // 認証チェック
+        AUTH_UTILS.checkAuth();
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + AUTH_UTILS.getToken();
+
+        // ユーザー情報を取得
+        async function loadUserInfo() {
+          try {
+            const user = await AUTH_UTILS.getCurrentUser();
+            if (user) {
+              document.getElementById('nav-user-name').textContent = user.name || user.email;
+            }
+          } catch (error) {
+            console.error('ユーザー情報の取得に失敗しました:', error);
+          }
+        }
+
+        // テーブル一覧を読み込み
+        let availableTables = [];
+        async function loadTables() {
+          try {
+            const response = await axios.get('/api/admin/data/tables');
+            if (response.data.success) {
+              availableTables = response.data.tables;
+              renderTableCheckboxes();
+              renderCsvTableSelect();
+            }
+          } catch (error) {
+            console.error('テーブル一覧の取得に失敗しました:', error);
+          }
+        }
+
+        // テーブルチェックボックスを描画
+        function renderTableCheckboxes() {
+          const container = document.getElementById('table-checkboxes');
+          container.innerHTML = availableTables.map(table => \`
+            <label class="flex items-center p-1 hover:bg-gray-50">
+              <input type="checkbox" value="\${table.name}" checked class="mr-2 table-checkbox">
+              <span class="text-sm">\${table.label}</span>
+            </label>
+          \`).join('');
+        }
+
+        // CSV単体インポート用のテーブルセレクトボックスを描画
+        function renderCsvTableSelect() {
+          const select = document.getElementById('csv-table-select');
+          select.innerHTML = '<option value="">テーブルを選択してください</option>' + 
+            availableTables.map(table => \`
+              <option value="\${table.name}">\${table.label} (\${table.name})</option>
+            \`).join('');
+        }
+
+        // エクスポートタイプの変更
+        document.addEventListener('DOMContentLoaded', () => {
+          loadUserInfo();
+          loadTables();
+
+          const exportTypeRadios = document.querySelectorAll('input[name="export-type"]');
+          exportTypeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+              const tableSelection = document.getElementById('table-selection');
+              if (e.target.value === 'selective') {
+                tableSelection.style.display = 'block';
+              } else {
+                tableSelection.style.display = 'none';
+              }
+            });
+          });
+        });
+
+        // エクスポート処理
+        let selectedFile = null;
+        async function exportData() {
+          const exportType = document.querySelector('input[name="export-type"]:checked').value;
+          const exportButton = document.getElementById('export-button');
+          const exportProgress = document.getElementById('export-progress');
+
+          try {
+            exportButton.disabled = true;
+            exportProgress.style.display = 'block';
+
+            let url = '/api/admin/data/export/all';
+            let params = {};
+
+            if (exportType === 'selective') {
+              const selectedTables = Array.from(document.querySelectorAll('.table-checkbox:checked'))
+                .map(cb => cb.value);
+              
+              if (selectedTables.length === 0) {
+                alert('エクスポートするテーブルを少なくとも1つ選択してください。');
+                return;
+              }
+
+              url = '/api/admin/data/export/selective';
+              const response = await axios.post(url, {
+                tables: selectedTables,
+                include_metadata: true
+              }, {
+                responseType: 'blob'
+              });
+
+              downloadBlob(response.data, \`backup_selective_\${new Date().toISOString().slice(0,10)}.zip\`);
+            } else {
+              const response = await axios.get(url, {
+                responseType: 'blob'
+              });
+
+              downloadBlob(response.data, \`backup_all_\${new Date().toISOString().slice(0,10)}.zip\`);
+            }
+
+            alert('エクスポートが完了しました！');
+          } catch (error) {
+            console.error('エクスポートエラー:', error);
+            alert('エクスポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          } finally {
+            exportButton.disabled = false;
+            exportProgress.style.display = 'none';
+          }
+        }
+
+        // ファイル選択時の処理
+        function handleFileSelect() {
+          const fileInput = document.getElementById('import-file');
+          const previewButton = document.getElementById('preview-button');
+          const importButton = document.getElementById('import-button');
+
+          if (fileInput.files && fileInput.files[0]) {
+            selectedFile = fileInput.files[0];
+            previewButton.disabled = false;
+            importButton.disabled = false;
+          } else {
+            selectedFile = null;
+            previewButton.disabled = true;
+            importButton.disabled = true;
+          }
+        }
+
+        // プレビュー処理
+        async function previewImport() {
+          if (!selectedFile) {
+            alert('ファイルを選択してください。');
+            return;
+          }
+
+          try {
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            const response = await axios.post('/api/admin/data/import/preview', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.data.success) {
+              displayPreview(response.data);
+              document.getElementById('preview-modal').classList.remove('hidden');
+            }
+          } catch (error) {
+            console.error('プレビューエラー:', error);
+            alert('プレビューに失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
+        // プレビュー表示
+        function displayPreview(data) {
+          const content = document.getElementById('preview-content');
+          const metadata = data.metadata;
+          const tables = data.tables_found || [];
+
+          let html = \`
+            <div class="mb-4 p-3 bg-gray-50 rounded">
+              <h4 class="font-semibold mb-2">メタデータ</h4>
+              <div class="text-sm space-y-1">
+                <p><strong>エクスポート日時:</strong> \${metadata.exported_at}</p>
+                <p><strong>エクスポート者:</strong> \${metadata.exported_by}</p>
+                <p><strong>バージョン:</strong> \${metadata.version}</p>
+              </div>
+            </div>
+          \`;
+
+          if (data.warnings && data.warnings.length > 0) {
+            html += \`
+              <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <h4 class="font-semibold text-yellow-800 mb-2">
+                  <i class="fas fa-exclamation-triangle mr-1"></i>警告
+                </h4>
+                <ul class="text-sm text-yellow-700 list-disc list-inside">
+                  \${data.warnings.map(w => \`<li>\${w}</li>\`).join('')}
+                </ul>
+              </div>
+            \`;
+          }
+
+          html += \`
+            <div class="mb-4">
+              <h4 class="font-semibold mb-2">インポート対象テーブル</h4>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-4 py-2 text-left">テーブル名</th>
+                      <th class="px-4 py-2 text-left">ラベル</th>
+                      <th class="px-4 py-2 text-right">件数</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200">
+                    \${tables.map(t => \`
+                      <tr>
+                        <td class="px-4 py-2">\${t.name}</td>
+                        <td class="px-4 py-2">\${t.label}</td>
+                        <td class="px-4 py-2 text-right">\${t.row_count}</td>
+                      </tr>
+                    \`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          \`;
+
+          content.innerHTML = html;
+        }
+
+        // プレビューモーダルを閉じる
+        function closePreviewModal() {
+          document.getElementById('preview-modal').classList.add('hidden');
+        }
+
+        // インポート実行
+        async function executeImport() {
+          if (!selectedFile) {
+            alert('ファイルを選択してください。');
+            return;
+          }
+
+          const mode = document.getElementById('import-mode').value;
+          const importButton = document.getElementById('import-button');
+          const importProgress = document.getElementById('import-progress');
+
+          // 確認ダイアログ
+          const modeLabels = {
+            'replace': 'Replace（上書き）',
+            'append': 'Append（追加）',
+            'merge': 'Merge（マージ）'
+          };
+
+          if (!confirm(\`\${modeLabels[mode]}モードでインポートを実行します。よろしいですか？\n\n※この操作は既存データに影響を与える可能性があります。\`)) {
+            return;
+          }
+
+          try {
+            importButton.disabled = true;
+            importProgress.style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('mode', mode);
+
+            const response = await axios.post('/api/admin/data/import/execute', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              timeout: 300000 // 5分タイムアウト
+            });
+
+            if (response.data.success) {
+              displayImportResults(response.data);
+            }
+          } catch (error) {
+            console.error('インポートエラー:', error);
+            alert('インポートに失敗しました: ' + (error.response?.data?.error || error.message));
+          } finally {
+            importButton.disabled = false;
+            importProgress.style.display = 'none';
+          }
+        }
+
+        // インポート結果を表示
+        function displayImportResults(data) {
+          const results = data.results || [];
+          let message = \`インポートが完了しました！\n\nモード: \${data.mode}\n\n\`;
+
+          results.forEach(r => {
+            message += \`\${r.label} (\${r.table}):\n\`;
+            message += \`  - 追加: \${r.inserted}件\n\`;
+            if (data.mode === 'merge') {
+              message += \`  - 更新: \${r.updated}件\n\`;
+            }
+            if (r.errors > 0) {
+              message += \`  - エラー: \${r.errors}件\n\`;
+              if (r.error) {
+                message += \`    エラー詳細: \${r.error}\n\`;
+              }
+            }
+            message += \`\n\`;
+          });
+
+          alert(message);
+          
+          // ページをリロードして最新データを表示
+          if (confirm('ページをリロードして最新のデータを表示しますか？')) {
+            window.location.reload();
+          }
+        }
+
+        // Blob をダウンロード
+        function downloadBlob(blob, filename) {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }
+
+        // CSV単体インポート: ファイル選択時の処理
+        let selectedCsvFile = null;
+        function handleCsvFileSelect() {
+          const fileInput = document.getElementById('csv-file');
+          const tableSelect = document.getElementById('csv-table-select');
+          const csvImportButton = document.getElementById('csv-import-button');
+
+          if (fileInput.files && fileInput.files[0] && tableSelect.value) {
+            selectedCsvFile = fileInput.files[0];
+            csvImportButton.disabled = false;
+          } else {
+            selectedCsvFile = null;
+            csvImportButton.disabled = true;
+          }
+        }
+
+        // CSV単体インポート: テーブル選択時の処理
+        document.addEventListener('DOMContentLoaded', () => {
+          const csvTableSelect = document.getElementById('csv-table-select');
+          csvTableSelect.addEventListener('change', handleCsvFileSelect);
+        });
+
+        // CSV単体インポート: 実行
+        async function executeCsvImport() {
+          const tableSelect = document.getElementById('csv-table-select');
+          const tableName = tableSelect.value;
+
+          if (!tableName) {
+            alert('インポート先のテーブルを選択してください。');
+            return;
+          }
+
+          if (!selectedCsvFile) {
+            alert('CSVファイルを選択してください。');
+            return;
+          }
+
+          const mode = document.getElementById('csv-import-mode').value;
+          const csvImportButton = document.getElementById('csv-import-button');
+          const csvImportProgress = document.getElementById('csv-import-progress');
+
+          // 確認ダイアログ
+          const modeLabels = {
+            'replace': 'Replace（上書き）',
+            'append': 'Append（追加）',
+            'merge': 'Merge（マージ）'
+          };
+
+          const tableLabel = availableTables.find(t => t.name === tableName)?.label || tableName;
+
+          if (!confirm(\`\${tableLabel}テーブルに\${modeLabels[mode]}モードでCSVインポートを実行します。よろしいですか？\n\n※この操作は既存データに影響を与える可能性があります。\`)) {
+            return;
+          }
+
+          try {
+            csvImportButton.disabled = true;
+            csvImportProgress.style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('file', selectedCsvFile);
+            formData.append('table_name', tableName);
+            formData.append('mode', mode);
+
+            const response = await axios.post('/api/admin/data/import/csv', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+              timeout: 300000 // 5分タイムアウト
+            });
+
+            if (response.data.success) {
+              const result = response.data.result;
+              let message = \`CSVインポートが完了しました！\n\nテーブル: \${result.label} (\${result.table})\nモード: \${modeLabels[mode]}\n\n\`;
+              message += \`  - 追加: \${result.inserted}件\n\`;
+              if (mode === 'merge') {
+                message += \`  - 更新: \${result.updated}件\n\`;
+              }
+              if (result.errors > 0) {
+                message += \`  - エラー: \${result.errors}件\n\`;
+                if (result.error) {
+                  message += \`    エラー詳細: \${result.error}\n\`;
+                }
+              }
+
+              alert(message);
+              
+              // ページをリロードして最新データを表示
+              if (confirm('ページをリロードして最新のデータを表示しますか？')) {
+                window.location.reload();
+              }
+            }
+          } catch (error) {
+            console.error('CSVインポートエラー:', error);
+            const errorMessage = error.response?.data?.details?.message || error.response?.data?.error || error.message;
+            alert('CSVインポートに失敗しました: ' + errorMessage);
+          } finally {
+            csvImportButton.disabled = false;
+            csvImportProgress.style.display = 'none';
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `)
+})
 
 export default app

@@ -13,5 +13,11 @@
       "database_name": "webapp-production",
       "database_id": "webapp-production-local"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "webapp-assets"
+    }
   ]
 }

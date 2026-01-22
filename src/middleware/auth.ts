@@ -39,12 +39,31 @@ export async function generateJWT(payload: Omit<JWTPayload, 'iat' | 'exp'>): Pro
  */
 export async function authMiddleware(c: Context, next: Next) {
   const authHeader = c.req.header('Authorization');
+  let token: string | undefined;
   
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ error: '認証が必要です' }, 401);
+  // Authorizationヘッダーからトークンを取得
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
   }
   
-  const token = authHeader.substring(7);
+  // Authorizationヘッダーにない場合はクッキーから取得
+  if (!token) {
+    const cookieHeader = c.req.header('Cookie');
+    if (cookieHeader) {
+      const cookies = cookieHeader.split(';');
+      for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'jwt_token') {
+          token = value;
+          break;
+        }
+      }
+    }
+  }
+  
+  if (!token) {
+    return c.json({ error: '認証が必要です' }, 401);
+  }
   
   try {
     const payload = await verify(token, JWT_SECRET) as JWTPayload;
