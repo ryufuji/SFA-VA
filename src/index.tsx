@@ -11079,9 +11079,9 @@ app.get('/quotes/:id/pdf', async (c) => {
                                 <div style="text-align: right; max-width: 280px;">
                                     \${companyInfo.logo_base64 ? '<div style="margin-bottom: 15px;"><img src="' + companyInfo.logo_base64 + '" style="max-width: 150px; max-height: 70px; object-fit: contain;"></div>' : ''}
                                     <div style="font-weight: bold; font-size: 13px; margin-bottom: 5px; color: #1a1a1a;">\${companyInfo.company_name}</div>
-                                    <div style="font-size: 9px; color: #666; line-height: 1.8; word-break: keep-all;">
+                                    <div style="font-size: 8px; color: #666; line-height: 1.6; word-break: break-all;">
                                         \${companyInfo.postal_code ? '<div>〒' + companyInfo.postal_code + '</div>' : ''}
-                                        \${companyInfo.address ? '<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + companyInfo.address + '</div>' : ''}
+                                        \${companyInfo.address ? '<div>' + companyInfo.address + '</div>' : ''}
                                         \${companyInfo.registration_number ? '<div style="margin-top: 5px;">登録番号: ' + companyInfo.registration_number + '</div>' : ''}
                                     </div>
                                     \${companyInfo.seal_base64 ? '<div style="margin-top: 10px;"><img src="' + companyInfo.seal_base64 + '" style="max-width: 70px; max-height: 70px; object-fit: contain;"></div>' : ''}
@@ -12381,11 +12381,12 @@ app.get('/invoices/:id/pdf', async (c) => {
             }
             .company-info {
                 text-align: right;
-                font-size: 9px;
+                font-size: 8px;
                 color: #4b5563;
-                line-height: 1.8;
+                line-height: 1.6;
                 max-width: 280px;
                 margin-left: auto;
+                word-break: break-all;
             }
             .company-name-right {
                 font-weight: bold;
@@ -12630,8 +12631,8 @@ app.get('/invoices/:id/pdf', async (c) => {
                     }
                     html += '<div class="company-name-right">' + (companyInfo.company_name || '') + '</div>';
                     if (companyInfo.postal_code && companyInfo.address) {
-                        html += '<div style="white-space: nowrap;">〒' + companyInfo.postal_code + '</div>';
-                        html += '<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + companyInfo.address + '</div>';
+                        html += '<div>〒' + companyInfo.postal_code + '</div>';
+                        html += '<div style="word-break: break-all;">' + companyInfo.address + '</div>';
                     }
                     if (companyInfo.registration_number) {
                         html += '<div style="margin-top: 4px;">登録番号: ' + companyInfo.registration_number + '</div>';
