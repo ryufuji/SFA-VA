@@ -3903,6 +3903,65 @@ app.put('/api/monthly-details/:id/amount', authMiddleware, requirePermission('co
   return c.json({ success: true })
 })
 
+// API: 月次明細一括検収
+app.post('/api/monthly-details/bulk-inspect', authMiddleware, requirePermission('inspection_manage'), async (c) => {
+  const { ids, inspection_date } = await c.req.json()
+  
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: '対象IDが指定されていません' }, 400)
+  }
+  
+  const { DB } = c.env
+  const today = inspection_date || new Date().toISOString().split('T')[0]
+  
+  let success_count = 0
+  let error_count = 0
+  const errors = []
+  
+  for (const id of ids) {
+    try {
+      const current = await DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
+      if (!current) {
+        errors.push({ id, error: '月次明細が見つかりません' })
+        error_count++
+        continue
+      }
+      
+      if (current.inspection_status === '検収済') {
+        errors.push({ id, error: 'すでに検収済みです' })
+        error_count++
+        continue
+      }
+      
+      // 変更履歴を記録
+      await DB.prepare(`
+        INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind('monthly_details', id, 'inspection_status', current.inspection_status, '検収済', '管理者').run()
+      
+      // 検収済に更新
+      await DB.prepare(`
+        UPDATE monthly_details 
+        SET inspection_status = ?, inspection_date = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind('検収済', today, id).run()
+      
+      success_count++
+    } catch (error) {
+      errors.push({ id, error: error.message })
+      error_count++
+    }
+  }
+  
+  return c.json({ 
+    success: true, 
+    success_count, 
+    error_count, 
+    errors,
+    message: `${success_count}件を検収済みに更新しました${error_count > 0 ? `（エラー: ${error_count}件）` : ''}`
+  })
+})
+
 // API: 入金履歴削除
 // 入金削除（payment_manage権限が必要）
 app.delete('/api/payment-histories/:id', authMiddleware, requirePermission('payment_manage'), async (c) => {
@@ -13618,6 +13677,62 @@ app.get('/monthly-details', async (c) => {
           document.getElementById('payment-import-button').disabled = true;
         }
 
+        // 一括検収機能
+        let selectedIds = new Set();
+
+        function toggleAll(checked) {
+          selectedIds.clear();
+          document.querySelectorAll('.detail-checkbox').forEach(checkbox => {
+            checkbox.checked = checked;
+            if (checked) selectedIds.add(parseInt(checkbox.value));
+          });
+          updateBulkActions();
+        }
+
+        function toggleDetail(id, checked) {
+          if (checked) {
+            selectedIds.add(id);
+          } else {
+            selectedIds.delete(id);
+          }
+          updateBulkActions();
+        }
+
+        function updateBulkActions() {
+          const bulkActions = document.getElementById('bulk-actions');
+          const selectedCount = document.getElementById('selected-count');
+          if (selectedIds.size > 0) {
+            bulkActions.classList.remove('hidden');
+            selectedCount.textContent = selectedIds.size;
+          } else {
+            bulkActions.classList.add('hidden');
+          }
+        }
+
+        async function bulkInspect() {
+          if (selectedIds.size === 0) {
+            alert('検収する月次明細を選択してください');
+            return;
+          }
+
+          if (!confirm(selectedIds.size + '件の月次明細を一括検収しますか？')) return;
+
+          try {
+            const token = AUTH_UTILS.getToken();
+            const response = await axios.post('/api/monthly-details/bulk-inspect',
+              { ids: Array.from(selectedIds), inspection_date: new Date().toISOString().split('T')[0] },
+              { headers: { 'Authorization': 'Bearer ' + token } }
+            );
+
+            alert(response.data.message);
+            if (response.data.success_count > 0) {
+              location.reload();
+            }
+          } catch (error) {
+            alert('一括検収に失敗しました: ' + (error.response?.data?.error || error.message));
+          }
+        }
+
         // 入金CSVインポート実行
         async function importPaymentHistoriesCSV() {
           const file = document.getElementById('payment-csv-file').files[0];
@@ -13734,11 +13849,26 @@ app.get('/monthly-details', async (c) => {
           </div>
         </div>
 
+        <!-- 一括操作バー -->
+        <div id="bulk-actions" class="hidden bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded-lg">
+          <div class="flex items-center justify-between">
+            <span class="text-blue-800 font-semibold">
+              <i class="fas fa-check-circle mr-2"></i><span id="selected-count">0</span>件選択中
+            </span>
+            <button onclick="bulkInspect()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+              <i class="fas fa-clipboard-check mr-2"></i>一括検収
+            </button>
+          </div>
+        </div>
+
         ${monthlyDetails.length > 0 ? `
         <div class="bg-white rounded-lg shadow overflow-hidden">
           <table class="min-w-full divide-y divide-gray-200" style="table-layout: auto;">
             <thead class="bg-gray-50">
               <tr>
+                <th class="px-6 py-3 text-center" style="width: 50px;">
+                  <input type="checkbox" onchange="toggleAll(this.checked)" class="w-4 h-4 text-blue-600 rounded">
+                </th>
                 <th data-sort="target_month" onclick="sortTable('target_month')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
                   対象月 <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
@@ -13768,37 +13898,40 @@ app.get('/monthly-details', async (c) => {
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
               ${monthlyDetails.map(detail => `
-                <tr class="hover:bg-blue-50 cursor-pointer transition-colors" onclick="window.location.href='/monthly/${detail.id}'">
-                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                <tr class="hover:bg-blue-50 transition-colors">
+                  <td class="px-6 py-4 whitespace-nowrap text-center" onclick="event.stopPropagation()">
+                    <input type="checkbox" value="${detail.id}" onchange="toggleDetail(${detail.id}, this.checked)" class="detail-checkbox w-4 h-4 text-blue-600 rounded">
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ${detail.target_month}
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ${detail.contract_name || '-'}
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ${detail.project_name || '-'}
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ${detail.company_name || '-'}
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ¥${detail.amount?.toLocaleString() || '0'}
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                  <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       detail.inspection_status === '検収済' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                     }">
                       ${detail.inspection_status || '未検収'}
                     </span>
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                  <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       detail.billing_status === '請求済' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
                     }">
                       ${detail.billing_status || '未請求'}
                     </span>
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                  <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       detail.payment_status === '入金済' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
                     }">
