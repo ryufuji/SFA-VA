@@ -4593,7 +4593,7 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   const today = now.toISOString().split('T')[0]
   
-  // 検収期限超過（月末+7日経過した未検収）
+  // 検収期限超過（月末を過ぎた未検収）
   const { results: overdueInspections } = await DB.prepare(`
     SELECT 
       md.id,
@@ -4607,7 +4607,7 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
     JOIN contracts c ON md.contract_id = c.id
     JOIN projects p ON c.project_id = p.id
     WHERE md.inspection_status = '未検収'
-      AND julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) > 7
+      AND julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) > 0
     ORDER BY days_overdue DESC
     LIMIT 10
   `).all()
