@@ -519,6 +519,11 @@ pm2 list
   - 税抜・税込の両方のカラムを追加
   - SQLクエリのGROUP BYに`amount_with_tax`を追加
 
+- ✅ **シードファイルの更新** ⭐ IMPORTANT!
+  - `seed_basic.sql`: 契約に`tax_rate`（10.0）、月次明細に`amount_with_tax`を追加
+  - `seed.sql`: 全契約に`tax_rate`（10.0）、全月次明細に`amount_with_tax`を追加
+  - データバックアップ・リストア時に税率と税込み額が含まれるように対応
+
 ### 2026-02-05: 契約登録時の税率管理機能を追加
 - ✅ **税率管理機能の実装** ⭐ NEW!
   - `contracts`テーブルに`tax_rate`カラムを追加（デフォルト10%）
