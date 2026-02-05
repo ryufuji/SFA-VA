@@ -6302,7 +6302,7 @@ app.get('/', async (c) => {
         <!-- 1行目: 売上関連 -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-5">
           <!-- 前月売上 -->
-          <a href="/monthly-details" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+          <a href="/monthly-list?filter=lastMonthInspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-history mr-1"></i>前月売上(確定)
@@ -10189,6 +10189,10 @@ app.get('/monthly-list', async (c) => {
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   
+  // 前月を計算
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
+  
   let whereClause = ''
   let title = '月次明細一覧'
   let icon = 'fa-calendar'
@@ -10198,6 +10202,11 @@ app.get('/monthly-list', async (c) => {
       whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '検収済'`
       title = '当月売上(確定)'
       icon = 'fa-yen-sign'
+      break
+    case 'lastMonthInspected':
+      whereClause = `WHERE md.target_month = '${lastMonth}' AND md.inspection_status = '検収済'`
+      title = '前月売上(確定)'
+      icon = 'fa-history'
       break
     case 'uninspected':
       whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '未検収'`
