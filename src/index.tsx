@@ -7709,7 +7709,7 @@ app.get('/contracts/:id', async (c) => {
     FROM monthly_details md
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
     WHERE md.contract_id = ?
-    GROUP BY md.id, md.target_month, md.contract_id, md.amount, md.inspection_status, 
+    GROUP BY md.id, md.target_month, md.contract_id, md.amount, md.amount_with_tax, md.inspection_status, 
              md.inspection_date, md.billing_status, md.billing_date, md.invoice_number, 
              md.expected_payment_date, md.payment_status, md.payment_date, 
              md.total_payment_amount, md.name, md.notes, md.created_at, md.updated_at
@@ -7985,7 +7985,8 @@ app.get('/contracts/:id', async (c) => {
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">月次明細</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額（税抜）</th>
+                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額（税込）</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">アサインメンバー</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
@@ -7998,6 +7999,7 @@ app.get('/contracts/:id', async (c) => {
                             <tr class="hover:bg-gray-50">
                                 <td class="px-4 py-3 font-medium">${md.name || md.target_month}</td>
                                 <td class="px-4 py-3">¥${(md.amount || 0).toLocaleString()}</td>
+                                <td class="px-4 py-3 font-semibold text-blue-600">¥${(md.amount_with_tax || 0).toLocaleString()}</td>
                                 <td class="px-4 py-3">
                                     ${md.assigned_members && md.assigned_members.length > 0 
                                       ? md.assigned_members.map(m => 
@@ -9068,7 +9070,7 @@ app.get('/monthly/:id', async (c) => {
 
   // 統計計算
   const totalPayment = payments.results.reduce((sum, p) => sum + (p.payment_amount || 0), 0)
-  const remainingAmount = (monthly.amount || 0) - totalPayment
+  const remainingAmount = (monthly.amount_with_tax || 0) - totalPayment
   const allocationTotal = members.results.reduce((sum, m) => sum + (m.allocation_ratio || 0), 0)
   
   // 想定売上の合計を計算
@@ -9157,7 +9159,10 @@ app.get('/monthly/:id', async (c) => {
                         </p>
                     </div>
                     <div class="text-right">
-                        <p class="text-3xl font-bold text-blue-600">¥${(monthly.amount || 0).toLocaleString()}</p>
+                        <p class="text-sm text-gray-500">金額（税抜）</p>
+                        <p class="text-2xl font-bold text-gray-700">¥${(monthly.amount || 0).toLocaleString()}</p>
+                        <p class="text-sm text-gray-500 mt-2">金額（税込）</p>
+                        <p class="text-3xl font-bold text-blue-600">¥${(monthly.amount_with_tax || 0).toLocaleString()}</p>
                         <button onclick="openEditAmountModal()" class="text-sm text-blue-600 hover:text-blue-800 mt-2">
                             <i class="fas fa-edit mr-1"></i>金額を編集
                         </button>
@@ -9337,6 +9342,10 @@ app.get('/monthly/:id', async (c) => {
                 <div class="bg-purple-50 rounded-lg p-4 mb-4">
                     <div class="flex justify-between items-center">
                         <div>
+                            <p class="text-sm text-gray-600">予定金額（税込）</p>
+                            <p class="text-xl font-semibold text-gray-700">¥${(monthly.amount_with_tax || 0).toLocaleString()}</p>
+                        </div>
+                        <div>
                             <p class="text-sm text-gray-600">合計入金額</p>
                             <p class="text-2xl font-bold text-purple-600">¥${totalPayment.toLocaleString()}</p>
                         </div>
@@ -9349,7 +9358,7 @@ app.get('/monthly/:id', async (c) => {
                     </div>
                     <div class="mt-2">
                         <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div class="bg-purple-600 h-2 rounded-full" style="width: ${Math.min(100, (totalPayment / monthly.amount) * 100)}%"></div>
+                            <div class="bg-purple-600 h-2 rounded-full" style="width: ${Math.min(100, (totalPayment / (monthly.amount_with_tax || 1)) * 100)}%"></div>
                         </div>
                     </div>
                 </div>
@@ -13681,7 +13690,7 @@ app.get('/monthly-details', async (c) => {
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
   // ソート可能なカラムのホワイトリスト
-  const allowedSortColumns = ['target_month', 'amount', 'contract_name', 'project_name', 'company_name', 'inspection_status', 'billing_status', 'payment_status']
+  const allowedSortColumns = ['target_month', 'amount', 'amount_with_tax', 'contract_name', 'project_name', 'company_name', 'inspection_status', 'billing_status', 'payment_status']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'target_month'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
@@ -13691,6 +13700,7 @@ app.get('/monthly-details', async (c) => {
       md.id,
       md.target_month,
       md.amount,
+      md.amount_with_tax,
       md.inspection_status,
       md.billing_status,
       md.payment_status,
@@ -14211,7 +14221,10 @@ app.get('/monthly-details', async (c) => {
                   会社名 <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
                 <th data-sort="amount" onclick="sortTable('amount')" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
-                  金額 <i class="sort-icon fas fa-sort ml-1"></i>
+                  金額（税抜） <i class="sort-icon fas fa-sort ml-1"></i>
+                </th>
+                <th data-sort="amount_with_tax" onclick="sortTable('amount_with_tax')" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                  金額（税込） <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
                 <th data-sort="inspection_status" onclick="sortTable('inspection_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
                   検収 <i class="sort-icon fas fa-sort ml-1"></i>
@@ -14245,6 +14258,9 @@ app.get('/monthly-details', async (c) => {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ¥${detail.amount?.toLocaleString() || '0'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-medium cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
+                    ¥${detail.amount_with_tax?.toLocaleString() || '0'}
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
