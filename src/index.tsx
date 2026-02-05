@@ -6302,7 +6302,7 @@ app.get('/', async (c) => {
         <!-- 1行目: 売上関連 -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-5">
           <!-- 前月売上 -->
-          <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+          <a href="/monthly-details" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-history mr-1"></i>前月売上(確定)
