@@ -7,37 +7,39 @@
 
 ## 🌐 公開URL (サンドボックス環境)
 
-**ダッシュボード**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/
+**ダッシュボード**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/
 
-**リード一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/leads
+**リード一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/leads
 
-**リード詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/leads/1
+**リード詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/leads/1
 
-**案件詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/projects/detail/1
+**案件詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/projects/detail/1
 
-**詳細一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/details
+**詳細一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/details
 
-**見積書一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/quotes
+**見積書一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/quotes
 
-**見積書詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/quotes/1
+**見積書詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/quotes/1
 
-**契約一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/contracts
+**契約一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts
 
-**契約詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/contracts/2
+**契約詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts/2
 
-**月次明細一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/monthly-details
+**月次明細一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/monthly-details
 
-**月次明細詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/monthly/4
+**月次明細詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/monthly/4
 
-**契約作成 (例)**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/projects/detail/1/contracts/new
+**契約作成 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/projects/detail/1/contracts/new
 
-**請求書一覧**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/invoices
+**請求書一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/invoices
 
-**メンバー管理**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/members
+**入金一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/payments
 
-**自社情報管理**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/settings/company
+**メンバー管理**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/members
 
-**システムステータス**: https://3000-iv7sqp6gryhcbuljunite-b9b802c4.sandbox.novita.ai/health
+**自社情報管理**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/settings/company
+
+**システムステータス**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/health
 
 ## 現在の実装状況
 
@@ -99,9 +101,14 @@
     - 全請求書の一覧表示
     - PDF出力機能
   - ✅ **詳細一覧ハブ画面** ⭐ NEW
-    - 月次明細一覧、見積書一覧、請求書一覧への統合ハブページ
+    - 月次明細一覧、見積書一覧、請求書一覧、入金一覧への統合ハブページ
     - カード形式のナビゲーション
     - トップメニューバーから簡単にアクセス可能
+  - ✅ **入金一覧画面** ⭐ NEW (2026-02-05)
+    - リード（会社）単位で月毎の入金総額を表示
+    - 予定金額（税抜）、予定金額（税込）、入金総額（税込）を一覧表示
+    - 入金状況（未入金、部分入金、入金完了）をバッジで視覚的に表示
+    - 税込み金額（税抜き × 1.1）での入金判定に対応
   - ✅ **契約作成機能**
     - 契約情報入力フォーム
     - 任意期間対応（単月〜12ヶ月）
@@ -153,6 +160,11 @@
     - 請求書更新
     - 請求書削除
     - PDF用データ取得
+  - **入金管理** ⭐ NEW (2026-02-05)
+    - 入金一覧取得（リード単位で月毎の集計）
+    - 税込み金額（税抜き × 1.1）での入金判定
+    - 入金履歴追加・削除
+    - 入金ステータスの自動更新
   - 契約管理 (詳細取得、月次明細・メンバー含む)
   - **月次明細管理**
     - 検収情報更新
@@ -231,7 +243,8 @@
 2. **契約作成時**: 月次明細を自動生成 (均等割)
 3. **ステータス変更**: 双方向遷移を許容、変更履歴を記録
 4. **入金管理**: 分割入金に対応、過入金も許容(警告表示)
-5. **削除不可**: リード、案件、契約、月次明細は削除禁止 (ステータス管理)
+5. **税金処理** ⭐ NEW: 月次明細の金額は税抜き、入金判定は税込み（税抜き × 1.1）で実施
+6. **削除不可**: リード、案件、契約、月次明細は削除禁止 (ステータス管理)
 
 ## CSVインポート機能
 
@@ -349,12 +362,14 @@ curl http://localhost:3000/api/dashboard/summary
 ### 主要なエンドポイント
 - `GET /` - トップダッシュボード
 - `GET /leads` - リード一覧
+- `GET /payments` - 入金一覧 ⭐ NEW
 - `GET /api/leads` - リードAPI (一覧)
 - `POST /api/leads` - リード作成
 - `GET /api/contracts/:id` - 契約詳細
 - `POST /api/contracts` - 契約作成 (月次明細自動生成)
 - `PUT /api/monthly-details/:id` - 月次明細更新
 - `POST /api/payment-histories` - 入金履歴追加
+- `GET /api/payment-summary` - 入金一覧取得 (リード単位集計) ⭐ NEW
 - `GET /api/dashboard/summary` - ダッシュボードサマリー
 - `GET /api/dashboard/sales-trend` - 月次売上推移
 
@@ -471,11 +486,32 @@ pm2 list
 ```
 
 ## 最終更新日
-2026-02-03
+2026-02-05
 
 ## 最近の更新内容
 
-### 2026-02-03 (最新): Phase 1 & Phase 2 機能実装完了
+### 2026-02-05 (最新): 入金機能の税金対応
+- ✅ **入金判定ロジックの税金対応** ⭐ NEW!
+  - 月次明細の金額を税抜きとして扱い、入金判定時に税込み金額（税抜き × 1.1）で比較
+  - 入金ステータス（未入金、部分入金、入金完了）の判定を税込み金額ベースに変更
+  - 契約完了判定も税込み金額ベースに更新
+  
+- ✅ **入金一覧画面の追加** ⭐ NEW!
+  - リード（会社）単位で月毎の入金総額を集計
+  - 予定金額（税抜）、予定金額（税込）、入金総額（税込）を一覧表示
+  - 入金状況をバッジで視覚的に表示（未入金、部分入金、入金完了）
+  - `/payments` エンドポイントで画面にアクセス可能
+  
+- ✅ **入金一覧APIエンドポイント** ⭐ NEW!
+  - `GET /api/payment-summary` - リード単位で月毎の入金総額を集計
+  - 会社名、部署名、年月、税抜き金額、税込み金額、入金総額を返却
+  - 認証必須（authMiddleware）
+  
+- ✅ **詳細一覧ハブページの拡張**
+  - 入金一覧カードを追加（4列レイアウトに変更）
+  - 月次明細一覧、見積書一覧、請求書一覧、入金一覧の4つの機能にアクセス可能
+
+### 2026-02-03: Phase 1 & Phase 2 機能実装完了
 - ✅ **月次明細の一括検収機能** ⭐ NEW!
   - チェックボックスによる複数選択UI実装
   - 一括検収APIエンドポイント追加 (`POST /api/monthly-details/bulk-inspect`)

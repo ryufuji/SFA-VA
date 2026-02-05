@@ -44,10 +44,12 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
   }
 
   // すべての月次明細が条件を満たすかチェック
+  // 月次明細の金額は税抜きなので、税込み金額(税抜き × 1.1)で比較する
   const allCompleted = monthlyDetails.every((detail: any) => {
+    const expectedPaymentWithTax = Math.round(detail.amount * 1.1)
     return detail.inspection_status === '検収済' &&
            detail.billing_status === '請求済' &&
-           detail.amount === detail.total_payment
+           detail.total_payment >= expectedPaymentWithTax
   })
 
   // すべて完了している場合、契約ステータスを「completed」に更新
@@ -1072,7 +1074,7 @@ app.get('/details', (c) => {
           </h1>
           
           <!-- 詳細一覧メニュー -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <!-- 月次明細一覧 -->
             <a href="/monthly-details" class="block">
               <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-blue-500">
@@ -1123,6 +1125,24 @@ app.get('/details', (c) => {
                 </div>
                 <p class="text-gray-600 text-sm">
                   月次明細から発行した請求書を一覧で確認できます。PDF出力や入金管理も可能です。
+                </p>
+              </div>
+            </a>
+
+            <!-- 入金一覧 -->
+            <a href="/payments" class="block">
+              <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-teal-500">
+                <div class="flex items-center mb-4">
+                  <div class="bg-teal-100 rounded-full p-3 mr-4">
+                    <i class="fas fa-money-bill-wave text-2xl text-teal-600"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-xl font-semibold text-gray-900">入金一覧</h2>
+                    <p class="text-sm text-gray-500">リード単位の入金状況</p>
+                  </div>
+                </div>
+                <p class="text-gray-600 text-sm">
+                  リード（会社）単位で月毎の入金総額を一覧で確認できます。税込み金額での入金状況を把握できます。
                 </p>
               </div>
             </a>
@@ -3237,8 +3257,10 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   const totalPayment = (histories[0] as any)?.total || 0
   
   // 入金ステータスの判定
+  // 月次明細の金額は税抜きなので、税込み金額(税抜き × 1.1)で比較する
+  const expectedPaymentWithTax = Math.round(monthlyAmount * 1.1)
   let paymentStatus = '未入金'
-  if (totalPayment >= monthlyAmount) {
+  if (totalPayment >= expectedPaymentWithTax) {
     paymentStatus = '入金完了'
   } else if (totalPayment > 0) {
     paymentStatus = '部分入金'
@@ -3261,6 +3283,35 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   }
   
   return c.json({ success: true, message: 'Payment added successfully', totalPayment, paymentStatus })
+})
+
+// 入金一覧API（リード単位で月毎の入金総額を取得）
+app.get('/api/payment-summary', authMiddleware, async (c) => {
+  const { DB } = c.env
+  
+  // リード単位で月毎の入金総額を集計
+  const { results: paymentSummary } = await DB.prepare(`
+    SELECT 
+      l.id as lead_id,
+      l.company_name,
+      l.department,
+      md.target_month,
+      SUM(COALESCE(ph.payment_amount, 0)) as total_payment,
+      SUM(md.amount) as total_amount_before_tax,
+      SUM(ROUND(md.amount * 1.1)) as total_amount_with_tax
+    FROM leads l
+    INNER JOIN projects p ON l.id = p.lead_id
+    INNER JOIN contracts c ON p.id = c.project_id
+    INNER JOIN monthly_details md ON c.id = md.contract_id
+    LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
+    GROUP BY l.id, l.company_name, l.department, md.target_month
+    ORDER BY md.target_month DESC, l.company_name ASC
+  `).all()
+  
+  return c.json({
+    success: true,
+    data: paymentSummary
+  })
 })
 
 // --- 認証 API ---
@@ -12857,6 +12908,243 @@ app.get('/invoices/:id/pdf', async (c) => {
             
             // ページロード後にPDF生成
             window.addEventListener('load', generateInvoicePDF);
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+// 入金一覧画面
+app.get('/payments', async (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>入金一覧 - SFA</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-gray-100">
+        <!-- グローバルナビゲーション -->
+        <nav class="bg-white shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+              <div class="flex">
+                <div class="flex-shrink-0 flex items-center">
+                  <a href="/" class="text-xl font-bold text-blue-600">
+                    <i class="fas fa-chart-line mr-2"></i>SFA
+                  </a>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                  <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-home mr-2"></i>ダッシュボード
+                  </a>
+                  <a href="/leads" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-users mr-2"></i>リード
+                  </a>
+                  <a href="/projects" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-briefcase mr-2"></i>案件
+                  </a>
+                  <a href="/contracts" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-file-contract mr-2"></i>契約
+                  </a>
+                  <a href="/details" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2">
+                    <i class="fas fa-list-alt mr-2"></i>詳細一覧
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-700">
+                  <i class="fas fa-user-circle mr-1"></i>
+                  <span id="nav-user-name">読込中...</span>
+                </span>
+                <a href="/settings" class="text-sm text-gray-600 hover:text-blue-600">
+                  <i class="fas fa-cog mr-1"></i>設定
+                </a>
+                <button onclick="AUTH_UTILS.logout()" class="text-sm text-red-600 hover:text-red-700">
+                  <i class="fas fa-sign-out-alt mr-1"></i>ログアウト
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="px-4 py-6 sm:px-0">
+                <!-- ヘッダー -->
+                <div class="mb-6">
+                    <h1 class="text-3xl font-bold text-gray-900">
+                        <i class="fas fa-money-bill-wave mr-2"></i>入金一覧
+                    </h1>
+                    <p class="mt-2 text-sm text-gray-600">
+                        リード（会社）単位で月毎の入金総額を表示します
+                    </p>
+                </div>
+
+                <!-- 入金一覧テーブル -->
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    会社名
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    部署名
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    年月
+                                </th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    予定金額（税抜）
+                                </th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    予定金額（税込）
+                                </th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    入金総額（税込）
+                                </th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    入金状況
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="payment-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- JavaScript で動的に生成 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ローディング表示 -->
+                <div id="loading" class="text-center py-12">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
+                    <p class="mt-4 text-gray-600">読み込み中...</p>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+          // AUTH_UTILS - 認証ユーティリティ
+          const AUTH_UTILS = {
+            getToken: () => localStorage.getItem('jwt_token'),
+            checkAuth: () => {
+              if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
+                window.location.href = '/login';
+              }
+            },
+            logout: () => {
+              localStorage.removeItem('jwt_token');
+              document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+              window.location.href = '/login';
+            }
+          };
+
+          // 認証チェック
+          AUTH_UTILS.checkAuth();
+
+          // Axiosのデフォルト設定
+          axios.defaults.headers.common['Authorization'] = 'Bearer ' + AUTH_UTILS.getToken();
+
+          // ユーザー情報を取得
+          async function loadUserInfo() {
+            try {
+              const response = await axios.get('/api/auth/me');
+              if (response.data && response.data.success) {
+                const user = response.data.user;
+                if (user && user.name) {
+                  document.getElementById('nav-user-name').textContent = user.name;
+                }
+              }
+            } catch (error) {
+              console.error('ユーザー情報の取得に失敗しました:', error);
+            }
+          }
+
+          // 入金一覧を読み込む
+          async function loadPayments() {
+            try {
+              const response = await axios.get('/api/payment-summary');
+              const payments = response.data.data;
+
+              const tbody = document.getElementById('payment-table-body');
+              
+              if (payments.length === 0) {
+                tbody.innerHTML = \`
+                  <tr>
+                    <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                      <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                      入金データがありません
+                    </td>
+                  </tr>
+                \`;
+              } else {
+                tbody.innerHTML = payments.map(payment => {
+                  const amountBeforeTax = payment.total_amount_before_tax || 0;
+                  const amountWithTax = payment.total_amount_with_tax || 0;
+                  const totalPayment = payment.total_payment || 0;
+                  
+                  // 入金状況の判定
+                  let statusBadge = '';
+                  let statusColor = '';
+                  if (totalPayment >= amountWithTax) {
+                    statusBadge = '入金完了';
+                    statusColor = 'bg-green-100 text-green-800';
+                  } else if (totalPayment > 0) {
+                    statusBadge = '部分入金';
+                    statusColor = 'bg-yellow-100 text-yellow-800';
+                  } else {
+                    statusBadge = '未入金';
+                    statusColor = 'bg-gray-100 text-gray-800';
+                  }
+
+                  return \`
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">\${payment.company_name || '-'}</div>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        \${payment.department || '-'}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        \${payment.target_month}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        ¥\${amountBeforeTax.toLocaleString()}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
+                        ¥\${amountWithTax.toLocaleString()}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
+                        ¥\${totalPayment.toLocaleString()}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full \${statusColor}">
+                          \${statusBadge}
+                        </span>
+                      </td>
+                    </tr>
+                  \`;
+                }).join('');
+              }
+
+              document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+              console.error('入金一覧の読み込みに失敗しました:', error);
+              document.getElementById('loading').innerHTML = \`
+                <div class="text-center py-12">
+                  <i class="fas fa-exclamation-triangle text-4xl text-red-600"></i>
+                  <p class="mt-4 text-gray-600">データの読み込みに失敗しました</p>
+                </div>
+              \`;
+            }
+          }
+
+          // 初期化
+          loadUserInfo();
+          loadPayments();
         </script>
     </body>
     </html>
