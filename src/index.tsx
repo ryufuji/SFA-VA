@@ -28,6 +28,7 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
     SELECT 
       md.id,
       md.amount,
+      md.amount_with_tax,
       md.inspection_status,
       md.billing_status,
       md.payment_status,
@@ -35,7 +36,7 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
     FROM monthly_details md
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
     WHERE md.contract_id = ?
-    GROUP BY md.id, md.amount, md.inspection_status, md.billing_status, md.payment_status
+    GROUP BY md.id, md.amount, md.amount_with_tax, md.inspection_status, md.billing_status, md.payment_status
   `).bind(contractId).all()
 
   // 月次明細が存在しない場合は何もしない
@@ -44,12 +45,11 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
   }
 
   // すべての月次明細が条件を満たすかチェック
-  // 月次明細の金額は税抜きなので、税込み金額(税抜き × 1.1)で比較する
+  // 月次明細の税込み金額で比較する
   const allCompleted = monthlyDetails.every((detail: any) => {
-    const expectedPaymentWithTax = Math.round(detail.amount * 1.1)
     return detail.inspection_status === '検収済' &&
            detail.billing_status === '請求済' &&
-           detail.total_payment >= expectedPaymentWithTax
+           detail.total_payment >= detail.amount_with_tax
   })
 
   // すべて完了している場合、契約ステータスを「completed」に更新
@@ -3257,10 +3257,12 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   const totalPayment = (histories[0] as any)?.total || 0
   
   // 入金ステータスの判定
-  // 月次明細の金額は税抜きなので、税込み金額(税抜き × 1.1)で比較する
-  const expectedPaymentWithTax = Math.round(monthlyAmount * 1.1)
+  // 月次明細の税込み金額で比較する
+  const monthlyDetailForTax = await DB.prepare('SELECT amount_with_tax FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
+  const expectedPaymentAmount = monthlyDetailForTax?.amount_with_tax || monthlyAmount
+  
   let paymentStatus = '未入金'
-  if (totalPayment >= expectedPaymentWithTax) {
+  if (totalPayment >= expectedPaymentAmount) {
     paymentStatus = '入金完了'
   } else if (totalPayment > 0) {
     paymentStatus = '部分入金'
@@ -3276,10 +3278,10 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   `).bind(totalPayment, paymentStatus, payment_date, monthly_detail_id).run()
   
   // 月次明細の契約IDを取得
-  const monthlyDetail = await DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
-  if (monthlyDetail?.contract_id) {
+  const monthlyDetailForContract = await DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(monthly_detail_id).first() as any
+  if (monthlyDetailForContract?.contract_id) {
     // 契約ステータスを自動更新
-    await updateContractStatusIfCompleted(DB, monthlyDetail.contract_id)
+    await updateContractStatusIfCompleted(DB, monthlyDetailForContract.contract_id)
   }
   
   return c.json({ success: true, message: 'Payment added successfully', totalPayment, paymentStatus })
@@ -3298,7 +3300,7 @@ app.get('/api/payment-summary', authMiddleware, async (c) => {
       md.target_month,
       SUM(COALESCE(ph.payment_amount, 0)) as total_payment,
       SUM(md.amount) as total_amount_before_tax,
-      SUM(ROUND(md.amount * 1.1)) as total_amount_with_tax
+      SUM(md.amount_with_tax) as total_amount_with_tax
     FROM leads l
     INNER JOIN projects p ON l.id = p.lead_id
     INNER JOIN contracts c ON p.id = c.project_id
@@ -3676,12 +3678,15 @@ app.get('/api/members/export/csv', authMiddleware, requireAdmin, async (c) => {
 
 // API: 契約作成（contract_manage権限が必要）
 app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'), async (c) => {
-  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, notes, payment_type, monthly_breakdown, member_assignments } = await c.req.json()
+  const { project_id, contract_name, contract_type, contract_date, start_date, end_date, contract_amount, tax_rate, notes, payment_type, monthly_breakdown, member_assignments } = await c.req.json()
 
   // バリデーション
   if (!project_id || !contract_name || !start_date || !end_date || !contract_amount) {
     return c.json({ error: '必須項目が入力されていません' }, 400)
   }
+  
+  // 税率のデフォルト値（10%）
+  const taxRateValue = tax_rate !== undefined ? parseFloat(tax_rate) : 10.0
   
   // 支払種別のデフォルト値
   const paymentTypeValue = payment_type || '毎月支払'
@@ -3748,11 +3753,11 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
     const contractResult = await c.env.DB.prepare(`
       INSERT INTO contracts (
         project_id, contract_name, contract_type, contract_date, contract_start_date, contract_end_date, 
-        contract_amount, payment_type, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        contract_amount, tax_rate, payment_type, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       project_id, contract_name, contract_type || '準委任', contract_date || null, start_date, end_date, 
-      contract_amount, paymentTypeValue, 'active'
+      contract_amount, taxRateValue, paymentTypeValue, 'active'
     ).run()
 
     const contractId = contractResult.meta.last_row_id
@@ -3768,6 +3773,9 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
         monthAmount = parseInt(monthly_breakdown[i].amount)
         monthNote = monthly_breakdown[i].note || ''
       }
+      
+      // 税込み金額を計算
+      const monthAmountWithTax = Math.round(monthAmount * (1 + taxRateValue / 100))
       
       // 月次明細の名称を生成: 案件名_YYYYMM
       const yearMonth = months[i].replace('-', '') // 2026-01 → 202601
@@ -3790,13 +3798,13 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
       
       const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
-          contract_id, target_month, amount, name, notes,
+          contract_id, target_month, amount, amount_with_tax, name, notes,
           inspection_status, inspection_date, 
           billing_status, billing_date,
           payment_status, expected_payment_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        contractId, months[i], monthAmount, monthlyName, monthNote,
+        contractId, months[i], monthAmount, monthAmountWithTax, monthlyName, monthNote,
         '未検収', inspectionDateStr,
         '未請求', billingDateStr,
         '未入金', expectedPaymentDateStr
@@ -8479,14 +8487,33 @@ app.get('/projects/detail/:projectId/contracts/new', async (c) => {
                         </div>
                     </div>
 
-                    <!-- 契約金額 -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            契約金額（円） <span class="text-red-500">*</span>
-                        </label>
-                        <input type="number" id="contract_amount" name="contract_amount" required min="0" step="1"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                               placeholder="3000000">
+                    <!-- 契約金額と税率 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                契約金額（税抜・円） <span class="text-red-500">*</span>
+                            </label>
+                            <input type="number" id="contract_amount" name="contract_amount" required min="0" step="1"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                   placeholder="3000000">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                税率（%） <span class="text-red-500">*</span>
+                            </label>
+                            <input type="number" id="tax_rate" name="tax_rate" required min="0" max="100" step="0.1" value="10.0"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                   placeholder="10.0">
+                            <p class="text-xs text-gray-500 mt-1">通常は10%（消費税）</p>
+                        </div>
+                    </div>
+
+                    <!-- 税込み金額の表示 -->
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm font-medium text-gray-700">契約金額（税込）</span>
+                            <span class="text-xl font-bold text-blue-600" id="contract_amount_with_tax">¥0</span>
+                        </div>
                     </div>
 
                     <!-- 月次明細の金額配分 -->
@@ -8646,11 +8673,24 @@ app.get('/projects/detail/:projectId/contracts/new', async (c) => {
             // 月次明細データを保持
             let monthlyBreakdownData = []
             
-            // 契約期間・金額・支払種別変更時に月次明細テーブルを生成
+            // 契約期間・金額・支払種別・税率変更時に月次明細テーブルを生成
             document.querySelector('input[name="start_date"]').addEventListener('change', generateMonthlyBreakdown)
             document.querySelector('input[name="end_date"]').addEventListener('change', generateMonthlyBreakdown)
-            document.getElementById('contract_amount').addEventListener('change', generateMonthlyBreakdown)
+            document.getElementById('contract_amount').addEventListener('change', updateTaxAmountAndBreakdown)
+            document.getElementById('tax_rate').addEventListener('change', updateTaxAmountAndBreakdown)
             document.getElementById('payment_type').addEventListener('change', generateMonthlyBreakdown)
+            
+            // 税込み金額を更新する関数
+            function updateTaxAmountAndBreakdown() {
+                const contractAmount = parseInt(document.getElementById('contract_amount').value) || 0
+                const taxRate = parseFloat(document.getElementById('tax_rate').value) || 0
+                const amountWithTax = Math.round(contractAmount * (1 + taxRate / 100))
+                
+                document.getElementById('contract_amount_with_tax').textContent = '¥' + amountWithTax.toLocaleString()
+                
+                // 月次明細も再生成
+                generateMonthlyBreakdown()
+            }
             
             function generateMonthlyBreakdown() {
                 const startDate = document.querySelector('input[name="start_date"]').value
@@ -8947,6 +8987,7 @@ app.get('/projects/detail/:projectId/contracts/new', async (c) => {
                     start_date: formData.get('start_date'),
                     end_date: formData.get('end_date'),
                     contract_amount: parseInt(formData.get('contract_amount')),
+                    tax_rate: parseFloat(formData.get('tax_rate')) || 10.0,
                     payment_type: formData.get('payment_type'),
                     notes: formData.get('notes') || '',
                     monthly_breakdown: monthlyBreakdownData,
