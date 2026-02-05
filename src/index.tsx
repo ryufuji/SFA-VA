@@ -4631,7 +4631,7 @@ app.get('/api/dashboard/sales-trend', authMiddleware, async (c) => {
   const { results } = await DB.prepare(`
     SELECT 
       strftime('%Y-%m', inspection_date) as target_month,
-      SUM(amount) as confirmed_sales
+      SUM(amount_with_tax) as confirmed_sales
     FROM monthly_details
     WHERE inspection_status = '検収済'
       AND inspection_date IS NOT NULL
@@ -6088,32 +6088,32 @@ app.get('/', async (c) => {
   
   // 当月売上（確定）
   const { results: currentMonthSales } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(currentMonth, '検収済').all()
   
   // 前月売上（確定）
   const { results: lastMonthSales } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(lastMonth, '検収済').all()
   
   // 当月売上（予定） - 検収ステータスに関係なく当月の全売上
   const { results: currentMonthPlanned } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
   ).bind(currentMonth).all()
   
   // 未検収金額（当月のみ）
   const { results: uninspected } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
   ).bind(currentMonth, '未検収').all()
   
   // 未請求金額（検収済のみ）
   const { results: unbilled } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE billing_status = ? AND inspection_status = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ? AND inspection_status = ?'
   ).bind('未請求', '検収済').all()
   
   // 未入金金額（請求済のみ）
   const { results: unpaid } = await DB.prepare(
-    'SELECT SUM(amount - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?) AND billing_status = ?'
+    'SELECT SUM(amount_with_tax - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?) AND billing_status = ?'
   ).bind('未入金', '部分入金', '請求済').all()
   
   // メンバー稼働率（当月）
