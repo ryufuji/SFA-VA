@@ -172,19 +172,6 @@ app.get('/login', (c) => {
               <i class="fas fa-sign-in-alt mr-2"></i>ログイン
             </button>
           </form>
-
-          <!-- 初期ログイン情報 -->
-          <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <p class="text-xs text-blue-800 mb-2">
-              <i class="fas fa-info-circle mr-1"></i>
-              <strong>初回ログイン情報</strong>
-            </p>
-            <div class="text-xs text-blue-700 space-y-1">
-              <p><strong>一般ユーザー:</strong> メンバーのメールアドレス</p>
-              <p><strong>デフォルトパスワード:</strong> {メールアドレスのローカル部分}1234</p>
-              <p class="text-xs text-blue-600 italic">例: john@example.com → john1234</p>
-            </div>
-          </div>
         </div>
 
         <!-- フッター -->
