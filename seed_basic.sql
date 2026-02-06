@@ -47,3 +47,15 @@ INSERT OR IGNORE INTO payment_histories (monthly_detail_id, payment_date, paymen
 -- 自社情報
 INSERT OR REPLACE INTO company_info (id, company_name, postal_code, address, registration_number, updated_at) VALUES 
   (1, 'VALUE ARCHITECTS株式会社', '1410022', '東京都品川区東五反田3-17-21 ダモビル 401', 'T6011001108247', datetime('now'));
+
+-- ユーザー（管理者）
+-- パスワード: va1234
+INSERT OR IGNORE INTO users (id, email, password_hash, role, is_active, member_id) VALUES 
+  (1, 'admin@system.local', '6ClIqG+Y63TyavHx4SbhIpbw9rxSN8TOq59fD4levSB0nbaWKgEwcLW6+fXrupxp', 'admin', 1, NULL);
+
+-- ユーザー（一般メンバー）
+-- パスワード: va1234
+INSERT OR IGNORE INTO users (email, password_hash, role, is_active, member_id)
+SELECT email, '6ClIqG+Y63TyavHx4SbhIpbw9rxSN8TOq59fD4levSB0nbaWKgEwcLW6+fXrupxp', 'user', 1, id
+FROM members
+WHERE status = 'active';
