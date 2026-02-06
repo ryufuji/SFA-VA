@@ -4,8 +4,27 @@
 - **名前**: SFA (Sales Force Automation)
 - **目的**: 見込み顧客から継続取引までを一気通貫で管理
 - **技術スタック**: Hono + Cloudflare Pages + D1 Database + TailwindCSS
+- **GitHubリポジトリ**: https://github.com/VALUEARCHITECTS/VA-SFA
 
-## 🌐 公開URL (サンドボックス環境)
+## 🌐 本番環境URL
+
+**プロジェクトURL**: https://webapp-85s.pages.dev/
+
+**ダッシュボード**: https://webapp-85s.pages.dev/
+
+**ログイン**: https://webapp-85s.pages.dev/login
+
+**月次明細一覧**: https://webapp-85s.pages.dev/monthly-details
+
+**契約一覧**: https://webapp-85s.pages.dev/contracts
+
+**ヘルスチェック**: https://webapp-85s.pages.dev/health
+
+### 🔐 ログイン情報
+- **メールアドレス**: admin@system.local
+- **パスワード**: va1234
+
+## 🌐 開発環境URL (サンドボックス環境)
 
 **ダッシュボード**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/
 
@@ -700,3 +719,64 @@ pm2 restart webapp
 - エラーハンドリングの強化
 - フロントエンドのコンポーネント化
 - TypeScript型定義の整備
+
+## 🚀 デプロイ方法
+
+### ローカル開発環境
+
+```bash
+# 依存関係のインストール
+npm install
+
+# データベースのセットアップ
+npm run db:reset
+
+# 開発サーバーの起動
+npm run build
+pm2 start ecosystem.config.cjs
+
+# サーバーの確認
+curl http://localhost:3000/health
+```
+
+### 本番環境（Cloudflare Pages）
+
+```bash
+# ビルド
+npm run build
+
+# デプロイ
+npx wrangler pages deploy dist --project-name webapp --commit-message "Update" --commit-dirty=true
+```
+
+### データベースマイグレーション
+
+```bash
+# ローカル環境
+npx wrangler d1 migrations apply webapp-production --local
+
+# 本番環境（リモート）
+npx wrangler d1 migrations apply webapp-production --remote
+```
+
+### データ投入
+
+```bash
+# ローカル環境
+npx wrangler d1 execute webapp-production --local --file=./seed_basic.sql
+
+# 本番環境（リモート）
+npx wrangler d1 execute webapp-production --remote --file=./seed_basic.sql
+```
+
+## 📊 プロジェクト統計
+
+- **コミット数**: 148件
+- **ファイル数**: 54件
+- **コード行数**: 23,609行
+- **マイグレーション数**: 29個
+- **テーブル数**: 21個
+
+## 📝 ライセンス
+
+このプロジェクトは VALUE ARCHITECTS によって開発されています。
