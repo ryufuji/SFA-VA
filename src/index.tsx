@@ -6076,15 +6076,23 @@ app.get('/leads/:id', async (c) => {
 })
 // トップダッシュボード
 app.get('/', async (c) => {
-  const { DB } = c.env
-  
-  // ダッシュボードデータを取得
-  const now = new Date()
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  
-  // 前月を計算
-  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
+  try {
+    const { DB } = c.env
+    
+    // ダッシュボードデータを取得
+    const now = new Date()
+    const year = now.getUTCFullYear()
+    const month = now.getUTCMonth() + 1
+    const currentMonth = `${year}-${String(month).padStart(2, '0')}`
+    
+    // 前月を計算
+    let lastYear = year
+    let lastMonthNum = month - 1
+    if (lastMonthNum === 0) {
+      lastYear -= 1
+      lastMonthNum = 12
+    }
+    const lastMonth = `${lastYear}-${String(lastMonthNum).padStart(2, '0')}`
   
   // 当月売上（確定）
   const { results: currentMonthSales } = await DB.prepare(
@@ -6728,6 +6736,25 @@ app.get('/', async (c) => {
     </body>
     </html>
   `)
+  } catch (error) {
+    console.error('Dashboard error:', error)
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Error - SFA</title>
+      </head>
+      <body>
+        <h1>Error</h1>
+        <p>An error occurred while loading the dashboard.</p>
+        <pre>${error instanceof Error ? error.message : 'Unknown error'}</pre>
+        <pre>${error instanceof Error && error.stack ? error.stack : ''}</pre>
+        <p><a href="/login">Go to Login</a></p>
+      </body>
+      </html>
+    `, 500)
+  }
 })
 
 
