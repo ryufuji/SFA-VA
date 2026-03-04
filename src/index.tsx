@@ -4724,23 +4724,23 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
   `).all()
   
   // 入金不一致（入金総額が0より大きく、月次明細金額と異なる場合）
-  // payment_historiesから実際の入金額を集計して比較
+  // payment_historiesから実際の入金額を集計して比較（税込み額で比較）
   const { results: paymentMismatches } = await DB.prepare(`
     SELECT 
       md.id,
       md.target_month,
       c.contract_name,
       p.project_name,
-      md.amount,
+      md.amount_with_tax,
       COALESCE(SUM(ph.payment_amount), 0) as total_payment_amount,
-      ABS(md.amount - COALESCE(SUM(ph.payment_amount), 0)) as difference
+      ABS(md.amount_with_tax - COALESCE(SUM(ph.payment_amount), 0)) as difference
     FROM monthly_details md
     JOIN contracts c ON md.contract_id = c.id
     JOIN projects p ON c.project_id = p.id
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
-    GROUP BY md.id, md.target_month, c.contract_name, p.project_name, md.amount
+    GROUP BY md.id, md.target_month, c.contract_name, p.project_name, md.amount_with_tax
     HAVING COALESCE(SUM(ph.payment_amount), 0) > 0 
-      AND md.amount != COALESCE(SUM(ph.payment_amount), 0)
+      AND md.amount_with_tax != COALESCE(SUM(ph.payment_amount), 0)
     ORDER BY difference DESC
     LIMIT 10
   `).all()
@@ -6154,12 +6154,12 @@ app.get('/', async (c) => {
   `).all()
   
   // 入金不一致の月次明細を取得（入金総額が0より大きく、月次明細金額と異なる場合）
-  // payment_historiesから実際の入金額を集計して比較
+  // payment_historiesから実際の入金額を集計して比較（税込み額で比較）
   const { results: paymentMismatches } = await DB.prepare(`
     SELECT 
       md.id,
       md.target_month,
-      md.amount,
+      md.amount_with_tax,
       COALESCE(SUM(ph.payment_amount), 0) as total_payment_amount,
       c.contract_name,
       p.project_name,
@@ -6169,9 +6169,9 @@ app.get('/', async (c) => {
     LEFT JOIN projects p ON c.project_id = p.id
     LEFT JOIN leads l ON p.lead_id = l.id
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
-    GROUP BY md.id, md.target_month, md.amount, c.contract_name, p.project_name, l.company_name
+    GROUP BY md.id, md.target_month, md.amount_with_tax, c.contract_name, p.project_name, l.company_name
     HAVING COALESCE(SUM(ph.payment_amount), 0) > 0 
-      AND md.amount != COALESCE(SUM(ph.payment_amount), 0)
+      AND md.amount_with_tax != COALESCE(SUM(ph.payment_amount), 0)
     ORDER BY md.target_month DESC
     LIMIT 10
   `).all()
@@ -6640,7 +6640,7 @@ app.get('/', async (c) => {
                       <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
                       <div class="text-xs text-gray-600">\${task.target_month}</div>
                       <div class="text-xs text-pink-600 mt-1">
-                        請求金額: ¥\${task.amount.toLocaleString()}
+                        請求金額(税込): ¥\${task.amount_with_tax.toLocaleString()}
                       </div>
                       <div class="text-xs text-pink-600">
                         入金総額: ¥\${(task.total_payment_amount || 0).toLocaleString()}
