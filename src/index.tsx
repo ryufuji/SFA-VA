@@ -11356,14 +11356,15 @@ app.get('/quotes/:id/pdf', async (c) => {
                                     見積明細
                                 </div>
                                 <!-- ★ 改善③：table-layout:fixed + 行paddingを削減してコンパクトに -->
+                                <!-- ★ 金額列: 7桁以上対応のため 100px→130px、単価も 96px→120px に拡大 -->
                                 <table style="width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed;">
                                     <colgroup>
                                         <col style="width: auto;">
+                                        <col style="width: 48px;">
+                                        <col style="width: 40px;">
+                                        <col style="width: 120px;">
                                         <col style="width: 52px;">
-                                        <col style="width: 44px;">
-                                        <col style="width: 96px;">
-                                        <col style="width: 56px;">
-                                        <col style="width: 100px;">
+                                        <col style="width: 130px;">
                                     </colgroup>
                                     <thead>
                                         <tr style="background: #4a90e2; color: white;">
@@ -11384,24 +11385,24 @@ app.get('/quotes/:id/pdf', async (c) => {
                                                 </td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: center; color: #666;">\${item.unit || ''}</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500; white-space: nowrap; overflow: visible;">¥\${(item.unit_price || 0).toLocaleString()}</td>
                                                 <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #1a1a1a; white-space: nowrap; overflow: visible;">¥\${(item.amount || 0).toLocaleString()}</td>
                                             </tr>
                                         \`).join('')}
                                     </tbody>
                                     <tfoot>
                                         <tr style="background: #f8f9fa;">
                                             <td colspan="5" style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
-                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #1a1a1a;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #1a1a1a; white-space: nowrap; overflow: visible;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #f8f9fa;">
                                             <td colspan="5" style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
-                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #666;">¥\${(quote.tax || 0).toLocaleString()}</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #666; white-space: nowrap; overflow: visible;">¥\${(quote.tax || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #4a90e2; color: white;">
                                             <td colspan="5" style="border: 1px solid #3a7bc8; padding: 9px 8px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
-                                            <td style="border: 1px solid #3a7bc8; padding: 9px 8px; text-align: right; font-weight: 700; font-size: 14px;">¥\${(quote.total || 0).toLocaleString()}</td>
+                                            <td style="border: 1px solid #3a7bc8; padding: 9px 8px; text-align: right; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: visible;">¥\${(quote.total || 0).toLocaleString()}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
