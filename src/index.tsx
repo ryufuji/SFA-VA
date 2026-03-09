@@ -12597,461 +12597,270 @@ app.get('/invoices/:id/pdf', async (c) => {
         <title>請求書PDF - SFA</title>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         <style>
-            body { 
-                margin: 0; 
-                padding: 20px;
-                background-color: #f5f5f5;
-            }
-            .pdf-container {
-                width: 794px;
-                background: white;
-                padding: 40px;
-                margin: 0 auto;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            }
-            .invoice-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 30px;
-                padding-bottom: 20px;
-                border-bottom: 2px solid #22c55e;
-            }
-            .customer-info {
-                flex: 1;
-            }
-            .customer-name {
-                font-size: 20px;
-                font-weight: bold;
-                color: #1f2937;
-                margin-bottom: 8px;
-            }
-            .customer-address {
-                font-size: 12px;
-                color: #6b7280;
-                line-height: 1.6;
-            }
-            .company-info {
-                text-align: right;
-                font-size: 8px;
-                color: #4b5563;
-                line-height: 1.6;
-                max-width: 280px;
-                margin-left: auto;
-                word-break: break-all;
-            }
-            .company-name-right {
-                font-weight: bold;
-                font-size: 13px;
-                color: #1f2937;
-                margin-bottom: 4px;
-            }
-            .invoice-title {
-                text-align: center;
-                font-size: 32px;
-                font-weight: bold;
-                color: #1f2937;
-                margin: 20px 0 30px 0;
-                letter-spacing: 8px;
-            }
-            .metadata {
-                display: flex;
-                justify-content: flex-end;
-                gap: 30px;
-                margin-bottom: 30px;
-                font-size: 12px;
-            }
-            .metadata-item {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .metadata-label {
-                color: #6b7280;
-                font-weight: 500;
-            }
-            .metadata-value {
-                color: #1f2937;
-                font-weight: 600;
-            }
-            .amount-summary {
-                background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-                border-radius: 12px;
-                padding: 24px;
-                margin: 30px 0;
-                box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-            }
-            .amount-label {
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 14px;
-                font-weight: 500;
-                margin-bottom: 8px;
-            }
-            .amount-value {
-                color: white;
-                font-size: 32px;
-                font-weight: bold;
-                letter-spacing: 1px;
-            }
-            .subject-section {
-                background-color: #f0fdf4;
-                border-left: 4px solid #22c55e;
-                padding: 16px 20px;
-                margin: 25px 0;
-                border-radius: 4px;
-            }
-            .subject-label {
-                color: #16a34a;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin-bottom: 6px;
-            }
-            .subject-text {
-                color: #1f2937;
-                font-size: 15px;
-                font-weight: 500;
-                line-height: 1.6;
-            }
-            .items-table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 25px 0;
-                font-size: 12px;
-            }
-            .items-table thead {
-                background-color: #22c55e;
-                color: white;
-            }
-            .items-table th {
-                padding: 12px;
-                text-align: left;
-                font-weight: 600;
-                font-size: 11px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .items-table td {
-                padding: 12px;
-                border-bottom: 1px solid #e0e0e0;
-                color: #374151;
-            }
-            .items-table tbody tr:nth-child(even) {
-                background-color: #f9fafb;
-            }
-            .items-table tbody tr:hover {
-                background-color: #f0fdf4;
-            }
-            .items-table td:last-child,
-            .items-table th:last-child {
-                text-align: right;
-                font-weight: 600;
-            }
-            .item-note {
-                border-left: 2px solid #22c55e;
-                padding-left: 10px;
-                font-size: 10px;
-                color: #6b7280;
-                font-style: italic;
-                margin-top: 4px;
-            }
-            .summary-row {
-                background-color: #22c55e !important;
-                color: white !important;
-                font-weight: bold !important;
-                font-size: 13px !important;
-            }
-            .summary-row td {
-                padding: 14px 12px !important;
-                border-bottom: none !important;
-            }
-            .bank-info {
-                background-color: #f9fafb;
-                border: 1px solid #e5e7eb;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 25px 0;
-            }
-            .bank-title {
-                color: #16a34a;
-                font-size: 12px;
-                font-weight: 600;
-                margin-bottom: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .bank-details {
-                font-size: 12px;
-                color: #374151;
-                line-height: 1.8;
-            }
-            .notes-section {
-                background-color: #fffbeb;
-                border: 1px solid #fde68a;
-                border-radius: 8px;
-                padding: 16px 20px;
-                margin-top: 25px;
-            }
-            .notes-title {
-                color: #92400e;
-                font-size: 11px;
-                font-weight: 600;
-                margin-bottom: 8px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .notes-text {
-                color: #78350f;
-                font-size: 12px;
-                line-height: 1.7;
-                white-space: pre-wrap;
-            }
+            body { margin: 0; padding: 20px; background-color: #f5f5f5;
+                   font-family: 'メイリオ', 'Meiryo', 'MS Pゴシック', sans-serif; }
         </style>
     </head>
     <body>
-        <div class="text-center" style="padding: 20px;">
-            <i class="fas fa-spinner fa-spin text-4xl text-green-600"></i>
-            <p class="text-gray-700" style="margin-top: 16px;">請求書PDFを生成中...</p>
+        <div style="text-align:center; padding: 20px;">
+            <p style="color:#16a34a; font-size:18px;">請求書PDFを生成中...</p>
         </div>
-        
-        <div id="pdf-content" class="pdf-container" style="position: absolute; left: -9999px;">
-            <!-- PDFコンテンツはJavaScriptで動的生成 -->
+
+        <!-- ★ A4幅(794px)固定・画面外配置 -->
+        <div id="pdf-content" style="position: fixed; left: -99999px; width: 794px; background: white;">
         </div>
-        
+
         <script>
             const invoiceId = ${id};
-            
+
+            // =====================================================================
+            // ★ ①改ページ対応: canvasをA4高さ単位でスライスして複数ページに追加
+            // =====================================================================
+            async function addCanvasToPdfWithPageBreaks(doc, canvas, imgWidthMM) {
+                const A4_HEIGHT_MM  = 297;
+                const PAGE_MARGIN_MM = 0;
+                const pxToMM = imgWidthMM / canvas.width;
+                const pageHeightPx = Math.floor((A4_HEIGHT_MM - PAGE_MARGIN_MM * 2) / pxToMM);
+                const totalPages = Math.ceil(canvas.height / pageHeightPx);
+
+                for (let page = 0; page < totalPages; page++) {
+                    if (page > 0) doc.addPage();
+                    const srcY      = page * pageHeightPx;
+                    const srcHeight = Math.min(pageHeightPx, canvas.height - srcY);
+                    const slice = document.createElement('canvas');
+                    slice.width  = canvas.width;
+                    slice.height = srcHeight;
+                    slice.getContext('2d').drawImage(
+                        canvas, 0, srcY, canvas.width, srcHeight,
+                                0, 0,   canvas.width, srcHeight
+                    );
+                    doc.addImage(slice.toDataURL('image/png'), 'PNG',
+                                 PAGE_MARGIN_MM, PAGE_MARGIN_MM,
+                                 imgWidthMM - PAGE_MARGIN_MM * 2,
+                                 srcHeight * pxToMM);
+                }
+            }
+
             async function generateInvoicePDF() {
                 try {
                     // トークン取得
                     let token = localStorage.getItem('jwt_token');
                     if (!token) {
                         const cookies = document.cookie.split(';');
-                        for (let cookie of cookies) {
-                            const [name, value] = cookie.trim().split('=');
-                            if (name === 'jwt_token') {
-                                token = value;
-                                break;
-                            }
+                        for (let c of cookies) {
+                            const [n, v] = c.trim().split('=');
+                            if (n === 'jwt_token') { token = v; break; }
                         }
                     }
-                    
                     if (!token) {
                         alert('ログインが必要です。ログイン画面に戻ります。');
                         window.location.href = '/login';
                         return;
                     }
-                    
+
                     // データ取得
                     const response = await fetch('/api/invoices/' + invoiceId + '/pdf-data', {
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
-                    
-                    if (!response.ok) {
-                        throw new Error('HTTPエラー: ' + response.status);
-                    }
-                    
+                    if (!response.ok) throw new Error('HTTPエラー: ' + response.status);
+
                     const result = await response.json();
                     if (!result.success) {
                         alert('データの取得に失敗しました: ' + (result.error || '不明なエラー'));
-                        window.close();
-                        return;
+                        window.close(); return;
                     }
-                    
+
                     const { invoice, items, companyInfo } = result.data;
-                    
-                    // PDFコンテンツ生成
-                    const pdfContent = document.getElementById('pdf-content');
+                    const GRN = '#22c55e';   // テーマカラー（緑）
+
+                    // =====================================================================
+                    // ★ ②ヘッダーのコンパクト化・上寄り化
+                    //   変更点（見積書と同じアプローチ）:
+                    //   - ロゴ(左)＋タイトル(中央)＋自社情報(右) を横3列に統合
+                    //   - 請求番号・発行日・支払期限を横一列バーへ
+                    //   - 各margin/paddingを旧比40〜50%削減
+                    //   - 金額カードを横並び1行に圧縮
+                    //   - テーブル行padding: 12px → 7px に削減
+                    // =====================================================================
                     let html = '';
-                    
-                    // ヘッダー
-                    html += '<div class="invoice-header">';
-                    html += '<div class="customer-info">';
-                    html += '<div class="customer-name">' + (invoice.company_name || '') + ' ' + (invoice.honorific || '御中') + '</div>';
-                    if (invoice.billing_postal_code && invoice.billing_address) {
-                        html += '<div class="customer-address">';
-                        html += '〒' + invoice.billing_postal_code + '<br>';
-                        html += invoice.billing_address;
-                        html += '</div>';
-                    }
-                    html += '</div>';
-                    
-                    html += '<div class="company-info">';
+                    html += '<div style="padding: 20px 40px 30px 40px;">';
+
+                    // --- ヘッダー行: ロゴ(左) ＋ タイトル(中央) ＋ 自社情報(右) ---
+                    html += '<div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px;">';
+
+                    // 左: ロゴ
+                    html += '<div style="min-width:130px;">';
                     if (companyInfo.logo_base64) {
-                        html += '<img src="' + companyInfo.logo_base64 + '" style="max-width: 120px; max-height: 40px; margin-bottom: 8px;" /><br>';
+                        html += '<img src="' + companyInfo.logo_base64 + '" style="max-width:130px; max-height:55px; object-fit:contain;">';
                     }
-                    html += '<div class="company-name-right">' + (companyInfo.company_name || '') + '</div>';
-                    if (companyInfo.postal_code && companyInfo.address) {
-                        html += '<div>〒' + companyInfo.postal_code + '</div>';
-                        html += '<div style="word-break: break-all;">' + companyInfo.address + '</div>';
-                    }
-                    if (companyInfo.registration_number) {
-                        html += '<div style="margin-top: 4px;">登録番号: ' + companyInfo.registration_number + '</div>';
-                    }
+                    html += '</div>';
+
+                    // 中央: タイトル
+                    html += '<div style="flex:1; text-align:center; padding:0 12px;">';
+                    html += '<h1 style="font-size:26px; font-weight:bold; color:#1a1a1a; letter-spacing:4px; margin:0;">請求書</h1>';
+                    html += '</div>';
+
+                    // 右: 自社情報
+                    html += '<div style="text-align:right; min-width:180px; max-width:220px;">';
+                    html += '<div style="font-weight:bold; font-size:12px; color:#1a1a1a; margin-bottom:3px;">' + (companyInfo.company_name || '') + '</div>';
+                    html += '<div style="font-size:9px; color:#555; line-height:1.55; word-break:break-all;">';
+                    if (companyInfo.postal_code)  html += '<div>〒' + companyInfo.postal_code + '</div>';
+                    if (companyInfo.address)      html += '<div>' + companyInfo.address + '</div>';
+                    if (companyInfo.registration_number) html += '<div style="margin-top:3px;">登録番号: ' + companyInfo.registration_number + '</div>';
+                    html += '</div>';
                     if (companyInfo.seal_base64) {
-                        html += '<img src="' + companyInfo.seal_base64 + '" style="max-width: 60px; max-height: 60px; margin-top: 8px;" />';
+                        html += '<div style="margin-top:6px;"><img src="' + companyInfo.seal_base64 + '" style="max-width:55px; max-height:55px; object-fit:contain;"></div>';
                     }
                     html += '</div>';
-                    html += '</div>';
-                    
-                    // タイトル
-                    html += '<div class="invoice-title">請求書</div>';
-                    
-                    // メタデータ
-                    html += '<div class="metadata">';
-                    html += '<div class="metadata-item">';
-                    html += '<span class="metadata-label">請求書番号:</span>';
-                    html += '<span class="metadata-value">' + (invoice.invoice_number || '') + '</span>';
-                    html += '</div>';
-                    html += '<div class="metadata-item">';
-                    html += '<span class="metadata-label">発行日:</span>';
-                    html += '<span class="metadata-value">' + (invoice.issue_date || '') + '</span>';
-                    html += '</div>';
+                    html += '</div>'; // ヘッダー行end
+
+                    // --- 請求番号・発行日・支払期限 横一列バー ---
+                    html += '<div style="display:flex; gap:24px; margin-bottom:10px; padding:6px 10px; background:#f8f9fa; border-radius:4px; border:1px solid #e8e8e8;">';
+                    html += '<div><span style="font-size:9px; color:#888; font-weight:500; display:block;">請求書番号</span>';
+                    html += '<span style="font-size:12px; color:#1a1a1a; font-weight:700;">' + (invoice.invoice_number || '') + '</span></div>';
+                    html += '<div><span style="font-size:9px; color:#888; font-weight:500; display:block;">発行日</span>';
+                    html += '<span style="font-size:12px; color:#1a1a1a;">' + (invoice.issue_date || '') + '</span></div>';
                     if (invoice.payment_due_date) {
-                        html += '<div class="metadata-item">';
-                        html += '<span class="metadata-label">支払期限:</span>';
-                        html += '<span class="metadata-value">' + invoice.payment_due_date + '</span>';
-                        html += '</div>';
+                        html += '<div><span style="font-size:9px; color:#888; font-weight:500; display:block;">支払期限</span>';
+                        html += '<span style="font-size:12px; color:#1a1a1a;">' + invoice.payment_due_date + '</span></div>';
                     }
                     html += '</div>';
-                    
-                    // 金額サマリー
-                    html += '<div class="amount-summary">';
-                    html += '<div class="amount-label">ご請求金額</div>';
-                    html += '<div class="amount-value">¥' + (invoice.total || 0).toLocaleString() + '</div>';
+
+                    // --- 発行先 ---
+                    html += '<div style="margin-bottom:10px; border-bottom:1.5px solid #e0e0e0; padding-bottom:8px;">';
+                    html += '<span style="font-size:10px; color:#666; font-weight:500; display:block; margin-bottom:3px;">発行先</span>';
+                    html += '<span style="font-size:18px; font-weight:bold; color:#1a1a1a; display:block;">' + (invoice.company_name || '') + '</span>';
+                    html += '<span style="font-size:14px; color:#333;">' + (invoice.honorific || '御中') + '</span>';
+                    if (invoice.billing_postal_code && invoice.billing_address) {
+                        html += '<div style="font-size:11px; color:#6b7280; margin-top:3px;">〒' + invoice.billing_postal_code + '　' + invoice.billing_address + '</div>';
+                    }
                     html += '</div>';
-                    
-                    // 件名
+
+                    // --- 件名 ---
                     if (invoice.subject) {
-                        html += '<div class="subject-section">';
-                        html += '<div class="subject-label">件名</div>';
-                        html += '<div class="subject-text">' + invoice.subject + '</div>';
+                        html += '<div style="margin-bottom:12px; padding:7px 12px; background:#f0fdf4; border-left:4px solid ' + GRN + '; border-radius:4px;">';
+                        html += '<span style="font-size:9px; color:#16a34a; font-weight:600; display:block; margin-bottom:2px;">件名</span>';
+                        html += '<span style="font-size:13px; color:#1a1a1a; font-weight:600;">' + invoice.subject + '</span>';
                         html += '</div>';
                     }
-                    
-                    // 明細テーブル
-                    html += '<table class="items-table">';
+
+                    // --- 金額サマリー（横並び1行）---
+                    html += '<div style="background:linear-gradient(135deg,#22c55e 0%,#16a34a 100%); padding:12px 20px; margin-bottom:14px; border-radius:6px;">';
+                    html += '<div style="display:flex; align-items:center; justify-content:space-between;">';
+                    html += '<span style="font-size:12px; color:rgba(255,255,255,0.9); font-weight:500;">ご請求金額（消費税込み）</span>';
+                    html += '<span style="font-size:26px; font-weight:bold; color:#fff; white-space:nowrap;">¥' + (invoice.total || 0).toLocaleString() + '</span>';
+                    html += '</div></div>';
+
+                    // =====================================================================
+                    // ★ 明細テーブル
+                    //   ③ 金額見切れ対策: 金額列130px・単価列120px・white-space:nowrap
+                    //   行padding: 12px → 7px に削減
+                    // =====================================================================
+                    html += '<div style="margin-bottom:16px;">';
+                    html += '<div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:#1a1a1a; padding-bottom:6px; border-bottom:2px solid ' + GRN + ';">請求明細</div>';
+                    html += '<table style="width:100%; border-collapse:collapse; font-size:11px; table-layout:fixed;">';
+                    html += '<colgroup>';
+                    html += '<col style="width:auto;">';
+                    html += '<col style="width:48px;">';
+                    html += '<col style="width:40px;">';
+                    html += '<col style="width:120px;">';  // 単価
+                    html += '<col style="width:130px;">';  // 金額（★7桁以上対応）
+                    html += '</colgroup>';
                     html += '<thead>';
-                    html += '<tr>';
-                    html += '<th style="width: 35%;">品目・品名</th>';
-                    html += '<th style="width: 12%; text-align: center;">数量</th>';
-                    html += '<th style="width: 10%; text-align: center;">単位</th>';
-                    html += '<th style="width: 18%; text-align: right;">単価</th>';
-                    html += '<th style="width: 25%; text-align: right;">金額</th>';
-                    html += '</tr>';
-                    html += '</thead>';
-                    html += '<tbody>';
-                    
-                    items.forEach(item => {
-                        html += '<tr>';
-                        html += '<td>';
-                        html += item.item_description || '';
-                        if (item.note) {
-                            html += '<div class="item-note">' + item.note + '</div>';
-                        }
+                    html += '<tr style="background:' + GRN + '; color:white;">';
+                    html += '<th style="border:1px solid #16a34a; padding:7px 10px; text-align:left; font-weight:600;">品目・品名</th>';
+                    html += '<th style="border:1px solid #16a34a; padding:7px 6px; text-align:right; font-weight:600;">数量</th>';
+                    html += '<th style="border:1px solid #16a34a; padding:7px 6px; text-align:center; font-weight:600;">単位</th>';
+                    html += '<th style="border:1px solid #16a34a; padding:7px 6px; text-align:right; font-weight:600;">単価</th>';
+                    html += '<th style="border:1px solid #16a34a; padding:7px 8px; text-align:right; font-weight:600;">金額</th>';
+                    html += '</tr></thead><tbody>';
+
+                    items.forEach((item, idx) => {
+                        const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
+                        html += '<tr style="background:' + bg + ';">';
+                        html += '<td style="border:1px solid #e0e0e0; padding:7px 10px; line-height:1.5; word-break:break-word;">';
+                        html += '<div style="font-weight:500; color:#1a1a1a;">' + (item.item_description || '') + '</div>';
+                        if (item.note) html += '<div style="font-size:9px; color:#666; margin-top:2px; padding-left:6px; border-left:2px solid #ddd;">' + item.note + '</div>';
                         html += '</td>';
-                        html += '<td style="text-align: center;">' + (item.quantity || 0).toLocaleString() + '</td>';
-                        html += '<td style="text-align: center;">' + (item.unit || '') + '</td>';
-                        html += '<td style="text-align: right;">¥' + (item.unit_price || 0).toLocaleString() + '</td>';
-                        html += '<td style="text-align: right;">¥' + (item.amount || 0).toLocaleString() + '</td>';
+                        html += '<td style="border:1px solid #e0e0e0; padding:7px 6px; text-align:right; font-weight:500;">' + (item.quantity || 0).toLocaleString() + '</td>';
+                        html += '<td style="border:1px solid #e0e0e0; padding:7px 6px; text-align:center; color:#666;">' + (item.unit || '') + '</td>';
+                        html += '<td style="border:1px solid #e0e0e0; padding:7px 6px; text-align:right; font-weight:500; white-space:nowrap;">¥' + (item.unit_price || 0).toLocaleString() + '</td>';
+                        html += '<td style="border:1px solid #e0e0e0; padding:7px 8px; text-align:right; font-weight:600; color:#1a1a1a; white-space:nowrap;">¥' + (item.amount || 0).toLocaleString() + '</td>';
                         html += '</tr>';
                     });
-                    
-                    // 小計・税・合計
-                    html += '<tr>';
-                    html += '<td colspan="4" style="text-align: right; font-weight: 600;">小計</td>';
-                    html += '<td style="text-align: right; font-weight: 600;">¥' + (invoice.subtotal || 0).toLocaleString() + '</td>';
+
+                    // 小計・消費税・合計
+                    html += '<tr style="background:#f8f9fa;">';
+                    html += '<td colspan="4" style="border:1px solid #e0e0e0; padding:7px 8px; text-align:right; font-weight:600; color:#1a1a1a;">小計</td>';
+                    html += '<td style="border:1px solid #e0e0e0; padding:7px 8px; text-align:right; font-weight:700; color:#1a1a1a; white-space:nowrap;">¥' + (invoice.subtotal || 0).toLocaleString() + '</td>';
                     html += '</tr>';
-                    html += '<tr>';
-                    html += '<td colspan="4" style="text-align: right; font-weight: 600;">消費税 (' + (invoice.tax_rate || 10) + '%)</td>';
-                    html += '<td style="text-align: right; font-weight: 600;">¥' + (invoice.tax || 0).toLocaleString() + '</td>';
+                    html += '<tr style="background:#f8f9fa;">';
+                    html += '<td colspan="4" style="border:1px solid #e0e0e0; padding:7px 8px; text-align:right; font-weight:600; color:#666;">消費税(' + (invoice.tax_rate || 10) + '%)</td>';
+                    html += '<td style="border:1px solid #e0e0e0; padding:7px 8px; text-align:right; font-weight:700; color:#666; white-space:nowrap;">¥' + (invoice.tax || 0).toLocaleString() + '</td>';
                     html += '</tr>';
-                    html += '<tr class="summary-row">';
-                    html += '<td colspan="4" style="text-align: right;">合計金額</td>';
-                    html += '<td style="text-align: right;">¥' + (invoice.total || 0).toLocaleString() + '</td>';
+                    html += '<tr style="background:' + GRN + '; color:white;">';
+                    html += '<td colspan="4" style="border:1px solid #16a34a; padding:9px 8px; text-align:right; font-weight:700; font-size:13px;">合計金額</td>';
+                    html += '<td style="border:1px solid #16a34a; padding:9px 8px; text-align:right; font-weight:700; font-size:13px; white-space:nowrap;">¥' + (invoice.total || 0).toLocaleString() + '</td>';
                     html += '</tr>';
-                    
-                    html += '</tbody>';
-                    html += '</table>';
-                    
+                    html += '</tbody></table></div>';
+
                     // 振込先情報
                     if (companyInfo.bank_name) {
-                        html += '<div class="bank-info">';
-                        html += '<div class="bank-title">お振込先</div>';
-                        html += '<div class="bank-details">';
+                        html += '<div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:14px 16px; margin-bottom:14px;">';
+                        html += '<div style="color:#16a34a; font-size:11px; font-weight:600; margin-bottom:8px;">お振込先</div>';
+                        html += '<div style="font-size:11px; color:#374151; line-height:1.8;">';
                         html += '銀行名: ' + (companyInfo.bank_name || '') + '<br>';
-                        if (companyInfo.bank_branch) {
-                            html += '支店名: ' + companyInfo.bank_branch + '<br>';
-                        }
-                        if (companyInfo.account_type) {
-                            html += '口座種別: ' + companyInfo.account_type + '<br>';
-                        }
-                        if (companyInfo.account_number) {
-                            html += '口座番号: ' + companyInfo.account_number + '<br>';
-                        }
-                        if (companyInfo.account_holder) {
-                            html += '口座名義: ' + companyInfo.account_holder;
-                        }
-                        html += '</div>';
-                        html += '</div>';
+                        if (companyInfo.bank_branch)    html += '支店名: ' + companyInfo.bank_branch + '<br>';
+                        if (companyInfo.account_type)   html += '口座種別: ' + companyInfo.account_type + '<br>';
+                        if (companyInfo.account_number) html += '口座番号: ' + companyInfo.account_number + '<br>';
+                        if (companyInfo.account_holder) html += '口座名義: ' + companyInfo.account_holder;
+                        html += '</div></div>';
                     }
-                    
+
                     // 備考
                     if (invoice.notes) {
-                        html += '<div class="notes-section">';
-                        html += '<div class="notes-title">備考</div>';
-                        html += '<div class="notes-text">' + invoice.notes + '</div>';
+                        html += '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:10px 14px; margin-top:14px;">';
+                        html += '<div style="color:#92400e; font-size:11px; font-weight:600; margin-bottom:5px;">備考</div>';
+                        html += '<div style="color:#78350f; font-size:11px; line-height:1.7; white-space:pre-wrap;">' + invoice.notes + '</div>';
                         html += '</div>';
                     }
-                    
+
+                    html += '</div>'; // padding wrapper end
+
+                    const pdfContent = document.getElementById('pdf-content');
                     pdfContent.innerHTML = html;
-                    pdfContent.style.position = 'static';
-                    pdfContent.style.left = '0';
-                    
+
                     // html2canvasでキャンバス生成
                     const canvas = await html2canvas(pdfContent, {
                         scale: 2,
                         useCORS: true,
                         logging: false,
                         backgroundColor: '#ffffff',
-                        windowWidth: 794
+                        windowWidth: 794,
+                        windowHeight: pdfContent.scrollHeight
                     });
-                    
+
                     // jsPDFでPDF生成
                     const { jsPDF } = window.jspdf;
-                    const imgData = canvas.toDataURL('image/png');
-                    const pdf = new jsPDF({
-                        orientation: 'portrait',
-                        unit: 'mm',
-                        format: 'a4'
-                    });
-                    
-                    const imgWidth = 210;
-                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                    
-                    pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-                    
+                    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+                    // ★ ①改ページ対応: 複数ページに自動分割
+                    await addCanvasToPdfWithPageBreaks(pdf, canvas, 210);
+
                     // PDFダウンロード
                     const fileName = '請求書_' + (invoice.invoice_number || 'unknown') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
                     pdf.save(fileName);
-                    
-                    // 3秒後にウィンドウを閉じる
-                    setTimeout(() => {
-                        window.close();
-                    }, 3000);
-                    
+
+                    setTimeout(() => { window.close(); }, 3000);
+
                 } catch (error) {
                     console.error('PDF生成エラー:', error);
                     alert('PDF生成に失敗しました: ' + error.message);
                     window.close();
                 }
             }
-            
-            // ページロード後にPDF生成
+
             window.addEventListener('load', generateInvoicePDF);
         </script>
     </body>
