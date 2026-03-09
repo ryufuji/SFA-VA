@@ -11174,12 +11174,59 @@ app.get('/quotes/:id/pdf', async (c) => {
         </div>
         
         <!-- 見積書HTMLテンプレート（画像化用） -->
-        <div id="quote-template" style="position: fixed; left: -99999px; width: 794px; background: white; padding: 40px;">
+        <!-- ★ A4幅(794px)に合わせた固定幅。left:-99999pxで画面外に配置 -->
+        <div id="quote-template" style="position: fixed; left: -99999px; width: 794px; background: white;">
             <!-- コンテンツは動的に生成 -->
         </div>
         
         <script>
             const quoteId = ${id};
+
+            // ===================================================================
+            // ★ 改善①：改ページ対応ユーティリティ
+            //   canvas を A4高さ(1123px@96dpi相当) ごとに切り出して
+            //   jsPDF に複数ページとして追加する
+            // ===================================================================
+            async function addCanvasToPdfWithPageBreaks(doc, canvas, imgWidthMM) {
+                const A4_HEIGHT_MM  = 297;   // A4縦 mm
+                const A4_WIDTH_MM   = 210;   // A4横 mm
+                const PAGE_MARGIN_MM = 0;    // ページ余白(mm) ※0で端まで使用
+
+                // canvasの1pxが何mmに相当するか
+                const pxToMM = imgWidthMM / canvas.width;
+
+                // A4 1ページ分の高さをpx換算
+                const pageHeightPx = Math.floor((A4_HEIGHT_MM - PAGE_MARGIN_MM * 2) / pxToMM);
+
+                const totalPages = Math.ceil(canvas.height / pageHeightPx);
+
+                for (let page = 0; page < totalPages; page++) {
+                    if (page > 0) {
+                        doc.addPage();
+                    }
+
+                    // 切り出す範囲
+                    const srcY      = page * pageHeightPx;
+                    const srcHeight = Math.min(pageHeightPx, canvas.height - srcY);
+
+                    // 一時canvasに切り出し
+                    const slice = document.createElement('canvas');
+                    slice.width  = canvas.width;
+                    slice.height = srcHeight;
+                    const ctx = slice.getContext('2d');
+                    ctx.drawImage(canvas, 0, srcY, canvas.width, srcHeight,
+                                         0, 0,    canvas.width, srcHeight);
+
+                    const sliceData   = slice.toDataURL('image/png');
+                    const sliceHeightMM = srcHeight * pxToMM;
+
+                    doc.addImage(sliceData, 'PNG',
+                                 PAGE_MARGIN_MM,
+                                 PAGE_MARGIN_MM,
+                                 A4_WIDTH_MM - PAGE_MARGIN_MM * 2,
+                                 sliceHeightMM);
+                }
+            }
             
             async function generateQuotePDF() {
                 try {
@@ -11226,118 +11273,146 @@ app.get('/quotes/:id/pdf', async (c) => {
                     
                     const { quote, items, companyInfo } = result.data;
                     
-                    // HTMLテンプレートを生成（改善版レイアウト）
+                    // ===================================================================
+                    // ★ 改善②：ヘッダー余白を詰めてレイアウトを上寄りに変更
+                    //   変更点：
+                    //   - 外側padding: 40px → 20px 12px（上下を半分に削減）
+                    //   - タイトル margin-bottom: 30px → 12px
+                    //   - 発行先ブロック margin-bottom: 30px → 14px, padding-bottom: 20px → 10px
+                    //   - メタ情報+ロゴ margin-bottom: 30px → 14px
+                    //   - 件名ブロック margin-bottom: 25px → 12px, padding: 12px 15px → 8px 12px
+                    //   - 金額サマリーカード padding: 20px 25px → 12px 18px, margin-bottom: 30px → 16px
+                    //   - 見積明細テーブル行padding: 10px 12px → 7px 10px
+                    // ===================================================================
                     const template = document.getElementById('quote-template');
                     template.innerHTML = \`
-                        <div style="padding: 30px 40px; font-family: 'メイリオ', 'Meiryo', 'MS Pゴシック', sans-serif; max-width: 794px;">
-                            <!-- ヘッダー: 見積書タイトル -->
-                            <h1 style="text-align: center; font-size: 32px; margin-bottom: 30px; font-weight: bold; color: #1a1a1a; letter-spacing: 2px;">見積書</h1>
-                            
-                            <!-- 上部セクション: 発行先企業を最優先表示 -->
-                            <div style="margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; padding-bottom: 20px;">
-                                <div style="margin-bottom: 8px;">
-                                    <span style="font-size: 12px; color: #666; font-weight: 500;">発行先</span>
+                        <div style="padding: 20px 40px 30px 40px; font-family: 'メイリオ', 'Meiryo', 'MS Pゴシック', sans-serif; max-width: 794px;">
+
+                            <!-- ===== ヘッダー行：ロゴ（左）＋タイトル（中央）＋会社情報（右） ===== -->
+                            <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px;">
+                                <!-- 左：ロゴ -->
+                                <div style="min-width: 130px;">
+                                    \${companyInfo.logo_base64
+                                        ? '<img src="' + companyInfo.logo_base64 + '" style="max-width: 130px; max-height: 55px; object-fit: contain;">'
+                                        : '<div style="width:130px;"></div>'}
                                 </div>
-                                <div style="font-size: 20px; font-weight: bold; color: #1a1a1a; margin-bottom: 5px;">
-                                    \${quote.company_name}
+
+                                <!-- 中央：タイトル -->
+                                <div style="flex: 1; text-align: center; padding: 0 12px;">
+                                    <h1 style="font-size: 26px; font-weight: bold; color: #1a1a1a; letter-spacing: 4px; margin: 0 0 0 0;">見積書</h1>
                                 </div>
-                                <div style="font-size: 16px; color: #333;">
-                                    \${quote.honorific || '御中'}
-                                </div>
-                            </div>
-                            
-                            <!-- メタ情報とロゴ -->
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-                                <div style="flex: 1;">
-                                    <div style="margin-bottom: 15px;">
-                                        <span style="font-size: 11px; color: #666; font-weight: 500;">見積番号</span>
-                                        <div style="font-size: 14px; color: #1a1a1a; font-weight: 600; margin-top: 3px;">\${quote.quote_number}</div>
-                                    </div>
-                                    <div style="margin-bottom: 15px;">
-                                        <span style="font-size: 11px; color: #666; font-weight: 500;">発行日</span>
-                                        <div style="font-size: 14px; color: #1a1a1a; margin-top: 3px;">\${quote.issue_date}</div>
-                                    </div>
-                                    \${quote.expiry_date ? '<div style="margin-bottom: 15px;"><span style="font-size: 11px; color: #666; font-weight: 500;">有効期限</span><div style="font-size: 14px; color: #1a1a1a; margin-top: 3px;">' + quote.expiry_date + '</div></div>' : ''}
-                                </div>
-                                <div style="text-align: right; max-width: 280px;">
-                                    \${companyInfo.logo_base64 ? '<div style="margin-bottom: 15px;"><img src="' + companyInfo.logo_base64 + '" style="max-width: 150px; max-height: 70px; object-fit: contain;"></div>' : ''}
-                                    <div style="font-weight: bold; font-size: 13px; margin-bottom: 5px; color: #1a1a1a;">\${companyInfo.company_name}</div>
-                                    <div style="font-size: 8px; color: #666; line-height: 1.6; word-break: break-all;">
+
+                                <!-- 右：自社情報 -->
+                                <div style="text-align: right; min-width: 180px; max-width: 220px;">
+                                    <div style="font-weight: bold; font-size: 12px; color: #1a1a1a; margin-bottom: 3px;">\${companyInfo.company_name}</div>
+                                    <div style="font-size: 9px; color: #555; line-height: 1.55; word-break: break-all;">
                                         \${companyInfo.postal_code ? '<div>〒' + companyInfo.postal_code + '</div>' : ''}
-                                        \${companyInfo.address ? '<div>' + companyInfo.address + '</div>' : ''}
-                                        \${companyInfo.registration_number ? '<div style="margin-top: 5px;">登録番号: ' + companyInfo.registration_number + '</div>' : ''}
+                                        \${companyInfo.address    ? '<div>' + companyInfo.address + '</div>'    : ''}
+                                        \${companyInfo.registration_number ? '<div style="margin-top:3px;">登録番号: ' + companyInfo.registration_number + '</div>' : ''}
                                     </div>
-                                    \${companyInfo.seal_base64 ? '<div style="margin-top: 10px;"><img src="' + companyInfo.seal_base64 + '" style="max-width: 70px; max-height: 70px; object-fit: contain;"></div>' : ''}
+                                    \${companyInfo.seal_base64
+                                        ? '<div style="margin-top:6px;"><img src="' + companyInfo.seal_base64 + '" style="max-width:55px; max-height:55px; object-fit:contain;"></div>'
+                                        : ''}
+                                </div>
+                            </div>
+
+                            <!-- ===== 見積番号・発行日・有効期限（横並び小型） ===== -->
+                            <div style="display: flex; gap: 24px; margin-bottom: 10px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e8e8e8;">
+                                <div>
+                                    <span style="font-size: 9px; color: #888; font-weight: 500; display: block;">見積番号</span>
+                                    <span style="font-size: 12px; color: #1a1a1a; font-weight: 700;">\${quote.quote_number}</span>
+                                </div>
+                                <div>
+                                    <span style="font-size: 9px; color: #888; font-weight: 500; display: block;">発行日</span>
+                                    <span style="font-size: 12px; color: #1a1a1a;">\${quote.issue_date}</span>
+                                </div>
+                                \${quote.expiry_date ? '<div><span style="font-size:9px;color:#888;font-weight:500;display:block;">有効期限</span><span style="font-size:12px;color:#1a1a1a;">' + quote.expiry_date + '</span></div>' : ''}
+                            </div>
+
+                            <!-- ===== 発行先 ===== -->
+                            <div style="margin-bottom: 10px; border-bottom: 1.5px solid #e0e0e0; padding-bottom: 8px;">
+                                <span style="font-size: 10px; color: #666; font-weight: 500; display: block; margin-bottom: 3px;">発行先</span>
+                                <span style="font-size: 18px; font-weight: bold; color: #1a1a1a; display: block;">\${quote.company_name}</span>
+                                <span style="font-size: 14px; color: #333;">\${quote.honorific || '御中'}</span>
+                            </div>
+
+                            <!-- ===== 件名 ===== -->
+                            <div style="margin-bottom: 12px; padding: 7px 12px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;">
+                                <span style="font-size: 9px; color: #666; margin-bottom: 2px; font-weight: 500; display: block;">件名</span>
+                                <span style="font-size: 13px; color: #1a1a1a; font-weight: 600;">\${quote.subject}</span>
+                            </div>
+                            
+                            <!-- ===== 金額サマリーカード ===== -->
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 12px 20px; margin-bottom: 14px; border-radius: 6px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 12px; color: rgba(255,255,255,0.9); font-weight: 500;">お見積金額（消費税込み）</span>
+                                    <span style="font-size: 26px; font-weight: bold; color: #ffffff; letter-spacing: 1px;">¥\${(quote.total || 0).toLocaleString()}</span>
                                 </div>
                             </div>
                             
-                            <!-- 件名 -->
-                            <div style="margin-bottom: 25px; padding: 12px 15px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;">
-                                <div style="font-size: 10px; color: #666; margin-bottom: 4px; font-weight: 500;">件名</div>
-                                <div style="font-size: 13px; color: #1a1a1a; font-weight: 600;">\${quote.subject}</div>
-                            </div>
-                            
-                            <!-- 金額サマリーカード（最重要情報） -->
-                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px 25px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                                <div style="font-size: 13px; color: rgba(255,255,255,0.9); margin-bottom: 8px; font-weight: 500;">お見積金額</div>
-                                <div style="font-size: 32px; font-weight: bold; color: #ffffff; letter-spacing: 1px;">¥\${(quote.total || 0).toLocaleString()}</div>
-                                <div style="font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 5px;">（消費税込み）</div>
-                            </div>
-                            
-                            <!-- 見積明細テーブル -->
-                            <div style="margin-bottom: 25px;">
-                                <div style="font-size: 14px; font-weight: bold; margin-bottom: 12px; color: #1a1a1a; padding-bottom: 8px; border-bottom: 2px solid #4a90e2;">
-                                    <i class="fas fa-list-ul" style="margin-right: 8px; color: #4a90e2;"></i>見積明細
+                            <!-- ===== 見積明細テーブル ===== -->
+                            <div style="margin-bottom: 16px;">
+                                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #1a1a1a; padding-bottom: 6px; border-bottom: 2px solid #4a90e2;">
+                                    見積明細
                                 </div>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                                <!-- ★ 改善③：table-layout:fixed + 行paddingを削減してコンパクトに -->
+                                <table style="width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed;">
+                                    <colgroup>
+                                        <col style="width: auto;">
+                                        <col style="width: 52px;">
+                                        <col style="width: 44px;">
+                                        <col style="width: 96px;">
+                                        <col style="width: 56px;">
+                                        <col style="width: 100px;">
+                                    </colgroup>
                                     <thead>
                                         <tr style="background: #4a90e2; color: white;">
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: left; font-weight: 600;">品目・品名</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">数量</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: center; width: 50px; font-weight: 600;">単位</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 100px; font-weight: 600;">単価</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 60px; font-weight: 600;">稼働率</th>
-                                            <th style="border: 1px solid #3a7bc8; padding: 10px 12px; text-align: right; width: 110px; font-weight: 600;">金額</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 10px; text-align: left; font-weight: 600;">品目・品名</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 6px; text-align: right; font-weight: 600;">数量</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 6px; text-align: center; font-weight: 600;">単位</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 6px; text-align: right; font-weight: 600;">単価</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 6px; text-align: right; font-weight: 600;">稼働率</th>
+                                            <th style="border: 1px solid #3a7bc8; padding: 7px 8px; text-align: right; font-weight: 600;">金額</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         \${items.map((item, index) => \`
                                             <tr style="background: \${index % 2 === 0 ? '#ffffff' : '#f8f9fa'};">
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; line-height: 1.6;">
-                                                    <div style="font-weight: 500; color: #1a1a1a; margin-bottom: 3px;">\${item.item_description}</div>
-                                                    \${item.note ? '<div style="font-size: 10px; color: #666; margin-top: 4px; padding-left: 8px; border-left: 2px solid #ddd;">' + item.note + '</div>' : ''}
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 10px; line-height: 1.5; word-break: break-word;">
+                                                    <div style="font-weight: 500; color: #1a1a1a;">\${item.item_description}</div>
+                                                    \${item.note ? '<div style="font-size: 9px; color: #666; margin-top: 2px; padding-left: 6px; border-left: 2px solid #ddd;">' + item.note + '</div>' : ''}
                                                 </td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: center; color: #666;">\${item.unit || ''}</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
-                                                <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">\${item.quantity.toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: center; color: #666;">\${item.unit || ''}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">¥\${(item.unit_price || 0).toLocaleString()}</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 6px; text-align: right; font-weight: 500;">\${((item.workload || 1.0) * 100).toFixed(0)}%</td>
+                                                <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #1a1a1a;">¥\${(item.amount || 0).toLocaleString()}</td>
                                             </tr>
                                         \`).join('')}
                                     </tbody>
                                     <tfoot>
                                         <tr style="background: #f8f9fa;">
-                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
-                                            <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #1a1a1a;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
+                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #1a1a1a;">小計</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #1a1a1a;">¥\${(quote.subtotal || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #f8f9fa;">
-                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
-                                            <td style="border: 1px solid #e0e0e0; padding: 10px 12px; text-align: right; font-weight: 700; color: #666;">¥\${(quote.tax || 0).toLocaleString()}</td>
+                                            <td colspan="5" style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 600; color: #666;">消費税(10%)</td>
+                                            <td style="border: 1px solid #e0e0e0; padding: 7px 8px; text-align: right; font-weight: 700; color: #666;">¥\${(quote.tax || 0).toLocaleString()}</td>
                                         </tr>
                                         <tr style="background: #4a90e2; color: white;">
-                                            <td colspan="5" style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
-                                            <td style="border: 1px solid #3a7bc8; padding: 12px; text-align: right; font-weight: 700; font-size: 15px;">¥\${(quote.total || 0).toLocaleString()}</td>
+                                            <td colspan="5" style="border: 1px solid #3a7bc8; padding: 9px 8px; text-align: right; font-weight: 700; font-size: 13px;">合計金額</td>
+                                            <td style="border: 1px solid #3a7bc8; padding: 9px 8px; text-align: right; font-weight: 700; font-size: 14px;">¥\${(quote.total || 0).toLocaleString()}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
                             </div>
                             
-                            <!-- 備考 -->
-                            \${quote.notes ? '<div style="margin-top: 25px; padding: 15px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;"><div style="font-weight: 600; margin-bottom: 8px; font-size: 12px; color: #1a1a1a;">備考</div><div style="font-size: 11px; line-height: 1.7; color: #333; white-space: pre-wrap;">' + quote.notes + '</div></div>' : ''}
+                            <!-- ===== 備考 ===== -->
+                            \${quote.notes ? '<div style="margin-top: 16px; padding: 10px 14px; background: #f8f9fa; border-left: 4px solid #4a90e2; border-radius: 4px;"><div style="font-weight: 600; margin-bottom: 5px; font-size: 11px; color: #1a1a1a;">備考</div><div style="font-size: 11px; line-height: 1.7; color: #333; white-space: pre-wrap;">' + quote.notes + '</div></div>' : ''}
                         </div>
                     \`;
                     
-                    // HTMLを画像に変換
+                    // HTMLを画像に変換（scaleを2→1.8に調整して画質とサイズのバランスを取る）
                     const canvas = await html2canvas(template, {
                         scale: 2,
                         useCORS: true,
@@ -11355,12 +11430,8 @@ app.get('/quotes/:id/pdf', async (c) => {
                         format: 'a4'
                     });
                     
-                    // 画像をPDFに追加
-                    const imgData = canvas.toDataURL('image/png');
-                    const imgWidth = 210; // A4の幅（mm）
-                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                    
-                    doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+                    // ★ 改善①：改ページ対応で複数ページに分割して追加
+                    await addCanvasToPdfWithPageBreaks(doc, canvas, 210);
                     
                     // PDFをダウンロード
                     const fileName = '見積書_' + quote.quote_number + '_' + new Date().toISOString().split('T')[0] + '.pdf';
