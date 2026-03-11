@@ -816,6 +816,66 @@ app.get('/admin/users', (c) => {
         </div>
       </div>
 
+      <!-- パスワードリセットモーダル -->
+      <div id="reset-password-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <h3 class="text-xl font-semibold text-gray-800 mb-2">
+            <i class="fas fa-key mr-2 text-orange-500"></i>パスワードリセット
+          </h3>
+          <p class="text-gray-600 mb-1">
+            ユーザー: <strong id="reset-modal-user-name"></strong>
+          </p>
+          <p class="text-sm text-gray-500 mb-4">
+            リセット後、対象ユーザーは次回ログイン時にパスワードの変更が求められます。
+          </p>
+
+          <div id="reset-error-message" class="hidden bg-red-50 border-l-4 border-red-400 p-3 mb-4">
+            <p class="text-sm text-red-700">
+              <i class="fas fa-exclamation-circle mr-1"></i>
+              <span id="reset-error-text"></span>
+            </p>
+          </div>
+
+          <div class="space-y-4 mb-6">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                <i class="fas fa-lock mr-1"></i>新しいパスワード
+              </label>
+              <input
+                type="password"
+                id="reset-new-password"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="新しいパスワード（6文字以上）"
+                autocomplete="new-password">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                <i class="fas fa-lock mr-1"></i>パスワード確認
+              </label>
+              <input
+                type="password"
+                id="reset-confirm-password"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="パスワードを再入力"
+                autocomplete="new-password">
+            </div>
+          </div>
+
+          <div class="flex space-x-3">
+            <button
+              id="save-reset-password-button"
+              class="flex-1 py-2 bg-orange-600 text-white font-semibold rounded-lg hover:bg-orange-700">
+              <i class="fas fa-key mr-2"></i>リセット実行
+            </button>
+            <button
+              id="cancel-reset-password-button"
+              class="flex-1 py-2 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400">
+              キャンセル
+            </button>
+          </div>
+        </div>
+      </div>
+
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script>
         const API_BASE = '';
@@ -835,8 +895,7 @@ app.get('/admin/users', (c) => {
         };
         
         let currentEditUserId = null;
-        
-        // ユーザー一覧取得
+        let currentResetUserId = null;
         async function loadUsers() {
           try {
             const response = await axios.get(API_BASE + '/api/auth/me');
@@ -877,6 +936,10 @@ app.get('/admin/users', (c) => {
                 : \`<button onclick="openPermissionModal(\${user.id}, '\${user.name}', \${JSON.stringify(user.permissions).replace(/"/g, '&quot;')})" 
                        class="text-blue-600 hover:text-blue-700 mr-3">
                       <i class="fas fa-edit mr-1"></i>権限編集
+                    </button>
+                    <button onclick="openResetPasswordModal(\${user.id}, '\${user.name}')"
+                       class="text-orange-600 hover:text-orange-700 mr-3">
+                      <i class="fas fa-key mr-1"></i>PW初期化
                     </button>
                     <button onclick="toggleUserActive(\${user.id}, \${!user.isActive})" 
                        class="text-\${user.isActive ? 'red' : 'green'}-600 hover:text-\${user.isActive ? 'red' : 'green'}-700">
@@ -949,6 +1012,67 @@ app.get('/admin/users', (c) => {
           } catch (error) {
             document.getElementById('error-text').textContent = error.response?.data?.error || '権限の更新に失敗しました';
             document.getElementById('error-message').classList.remove('hidden');
+          }
+        });
+
+        // パスワードリセットモーダルを開く
+        window.openResetPasswordModal = function(userId, userName) {
+          currentResetUserId = userId;
+          document.getElementById('reset-modal-user-name').textContent = userName;
+          document.getElementById('reset-new-password').value = '';
+          document.getElementById('reset-confirm-password').value = '';
+          document.getElementById('reset-error-message').classList.add('hidden');
+          document.getElementById('reset-password-modal').classList.remove('hidden');
+        };
+
+        // パスワードリセットモーダルを閉じる
+        document.getElementById('cancel-reset-password-button').addEventListener('click', () => {
+          document.getElementById('reset-password-modal').classList.add('hidden');
+          currentResetUserId = null;
+        });
+
+        // パスワードリセット実行
+        document.getElementById('save-reset-password-button').addEventListener('click', async () => {
+          const newPassword = document.getElementById('reset-new-password').value;
+          const confirmPassword = document.getElementById('reset-confirm-password').value;
+          const errorMsg = document.getElementById('reset-error-message');
+          const errorText = document.getElementById('reset-error-text');
+
+          // バリデーション
+          if (!newPassword) {
+            errorText.textContent = '新しいパスワードを入力してください';
+            errorMsg.classList.remove('hidden');
+            return;
+          }
+          if (newPassword.length < 6) {
+            errorText.textContent = 'パスワードは6文字以上で入力してください';
+            errorMsg.classList.remove('hidden');
+            return;
+          }
+          if (newPassword !== confirmPassword) {
+            errorText.textContent = 'パスワードが一致しません';
+            errorMsg.classList.remove('hidden');
+            return;
+          }
+
+          try {
+            const response = await axios.post(API_BASE + \`/api/admin/users/\${currentResetUserId}/reset-password\`, {
+              new_password: newPassword
+            });
+
+            document.getElementById('success-text').textContent = response.data.message || 'パスワードをリセットしました';
+            document.getElementById('success-message').classList.remove('hidden');
+            document.getElementById('reset-password-modal').classList.add('hidden');
+            currentResetUserId = null;
+
+            setTimeout(() => {
+              document.getElementById('success-message').classList.add('hidden');
+            }, 5000);
+
+            loadUsers();
+          } catch (error) {
+            errorText.textContent = error.response?.data?.error || 'パスワードのリセットに失敗しました';
+            errorMsg.classList.remove('hidden');
           }
         });
         
@@ -3615,6 +3739,57 @@ app.put('/api/admin/users/:id/active', authMiddleware, requireAdmin, async (c) =
   return c.json({ 
     success: true, 
     message: `ユーザーを${is_active ? '有効' : '無効'}にしました` 
+  })
+})
+
+// パスワードリセットAPI（管理者のみ）
+app.post('/api/admin/users/:id/reset-password', authMiddleware, requireAdmin, async (c) => {
+  const userId = c.req.param('id')
+  const adminUser = c.get('user')
+  const { new_password } = await c.req.json()
+
+  // バリデーション
+  if (!new_password || typeof new_password !== 'string') {
+    return c.json({ error: '新しいパスワードを入力してください' }, 400)
+  }
+  if (new_password.length < 6) {
+    return c.json({ error: 'パスワードは6文字以上で入力してください' }, 400)
+  }
+
+  // 対象ユーザーの確認
+  const targetUser = await c.env.DB.prepare(`
+    SELECT id, email, role FROM users WHERE id = ?
+  `).bind(userId).first()
+
+  if (!targetUser) {
+    return c.json({ error: 'ユーザーが見つかりません' }, 404)
+  }
+
+  // 管理者のパスワードは変更不可（自分自身を除く）
+  if (targetUser.role === 'admin' && parseInt(userId) !== adminUser.userId) {
+    return c.json({ error: '他の管理者のパスワードはリセットできません' }, 403)
+  }
+
+  // パスワードをハッシュ化して更新
+  const hashedPassword = await hashPassword(new_password)
+  await c.env.DB.prepare(`
+    UPDATE users SET password_hash = ?, password_change_required = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).bind(hashedPassword, userId).run()
+
+  // 監査ログ記録
+  await logAction(
+    c.env.DB,
+    adminUser.userId,
+    'reset_user_password',
+    'users',
+    parseInt(userId),
+    { target_email: targetUser.email },
+    c.req.header('CF-Connecting-IP')
+  )
+
+  return c.json({
+    success: true,
+    message: 'パスワードをリセットしました。次回ログイン時にパスワード変更が求められます。'
   })
 })
 
@@ -11320,7 +11495,7 @@ app.get('/quotes/:id/pdf', async (c) => {
                             <div style="display: flex; gap: 24px; margin-bottom: 10px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e8e8e8;">
                                 <div>
                                     <span style="font-size: 9px; color: #888; font-weight: 500; display: block;">見積番号</span>
-                                    <span style="font-size: 12px; color: #1a1a1a; font-weight: 700;">\${quote.quote_number}</span>
+                                    <span style="font-size: 12px; color: #1a1a1a;">\${quote.quote_number}</span>
                                 </div>
                                 <div>
                                     <span style="font-size: 9px; color: #888; font-weight: 500; display: block;">発行日</span>
