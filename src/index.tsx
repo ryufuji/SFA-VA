@@ -10133,7 +10133,7 @@ app.get('/monthly-list', async (c) => {
       icon = 'fa-history'
       break
     case 'unbilled':
-      whereClause = `WHERE md.billing_status = '未請求'`
+      whereClause = `WHERE md.billing_status = '未請求' AND md.billing_date <= DATE('now')`
       title = '未請求金額'
       icon = 'fa-file-invoice'
       break
