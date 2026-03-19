@@ -6118,9 +6118,9 @@ app.get('/', async (c) => {
     'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
   ).bind(currentMonth).all()
   
-  // 未請求金額（全期間）
+  // 未請求金額（billing_date <= 今日）
   const { results: unbilled } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ?'
+    "SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ? AND billing_date <= DATE('now')"
   ).bind('未請求').all()
   
   // 未入金金額（請求済のみ）
