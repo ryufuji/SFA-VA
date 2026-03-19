@@ -6113,10 +6113,7 @@ app.get('/', async (c) => {
     'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
   ).bind(lastMonth).all()
   
-  // 当月売上（予定） - 対象月の全売上
-  const { results: currentMonthPlanned } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
-  ).bind(currentMonth).all()
+  // ※当月売上はcurrentMonthSalesと同一クエリのため削除（currentMonthSalesTotalを使用）
   
   // 未請求金額（billing_date <= 今日）
   const { results: unbilled } = await DB.prepare(
@@ -6195,7 +6192,7 @@ app.get('/', async (c) => {
   
   const currentMonthSalesTotal = (currentMonthSales[0] as any)?.total || 0
   const lastMonthSalesTotal = (lastMonthSales[0] as any)?.total || 0
-  const currentMonthPlannedTotal = (currentMonthPlanned[0] as any)?.total || 0
+  const currentMonthPlannedTotal = currentMonthSalesTotal
   const unbilledTotal = (unbilled[0] as any)?.total || 0
   const unpaidTotal = (unpaid[0] as any)?.total || 0
   
@@ -6325,7 +6322,7 @@ app.get('/', async (c) => {
           </a>
 
           <!-- 当月売上 -->
-          <a href="/monthly-list" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+          <a href="/monthly-list?filter=current" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-calendar-check mr-1"></i>当月売上
