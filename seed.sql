@@ -48,42 +48,42 @@ INSERT OR IGNORE INTO contracts (id, project_id, contract_name, contract_start_d
   (4, 3, 'Webサイト制作', '2025-12-01', '2026-02-28', 3000000, 10.0, 'completed', '請負', '検収後30日以内'),
   (5, 5, 'クラウド移行 Phase1', '2026-01-01', '2026-06-30', 8000000, 10.0, 'active', '準委任', '月末締め翌月末払い');
 
--- 月次明細のサンプルデータ（より充実したデータ）
+-- 月次明細のサンプルデータ（inspection_status / inspection_date 列を削除済み）
 -- 契約1: Q1 2026 基幹システム開発
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, inspection_date, billing_status, billing_date, invoice_number, expected_payment_date, payment_status, total_payment_amount) VALUES 
-  (1, 1, '2026-01', 1400000, 1540000, '検収済', '2026-01-31', '請求済', '2026-02-05', 'INV-202601-001', '2026-02-28', '入金完了', 1400000),
-  (2, 1, '2026-02', 1300000, 1430000, '検収済', '2026-02-28', '請求済', '2026-03-05', 'INV-202602-001', '2026-03-31', '部分入金', 800000),
-  (3, 1, '2026-03', 1300000, 1430000, '検収中', NULL, '未請求', NULL, NULL, '2026-04-30', '未入金', 0);
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, billing_date, invoice_number, expected_payment_date, payment_status, total_payment_amount) VALUES 
+  (1, 1, '2026-01', 1400000, 1540000, '請求済', '2026-02-05', 'INV-202601-001', '2026-02-28', '入金完了', 1400000),
+  (2, 1, '2026-02', 1300000, 1430000, '請求済', '2026-03-05', 'INV-202602-001', '2026-03-31', '部分入金', 800000),
+  (3, 1, '2026-03', 1300000, 1430000, '未請求', NULL, NULL, '2026-04-30', '未入金', 0);
 
 -- 契約2: Q2 2026 基幹システム開発
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, billing_status, payment_status) VALUES 
-  (4, 2, '2026-04', 1300000, 1430000, '未検収', '未請求', '未入金'),
-  (5, 2, '2026-05', 1400000, 1540000, '未検収', '未請求', '未入金'),
-  (6, 2, '2026-06', 1300000, 1430000, '未検収', '未請求', '未入金');
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, payment_status) VALUES 
+  (4, 2, '2026-04', 1300000, 1430000, '未請求', '未入金'),
+  (5, 2, '2026-05', 1400000, 1540000, '未請求', '未入金'),
+  (6, 2, '2026-06', 1300000, 1430000, '未請求', '未入金');
 
 -- 契約3: 保守運用
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, inspection_date, billing_status, billing_date, invoice_number, payment_status, total_payment_amount) VALUES 
-  (7, 3, '2026-01', 500000, 550000, '検収済', '2026-01-31', '請求済', '2026-02-05', 'INV-202601-002', '入金完了', 500000),
-  (8, 3, '2026-02', 500000, 550000, '検収済', '2026-02-28', '請求済', '2026-03-05', 'INV-202602-002', '未入金', 0),
-  (9, 3, '2026-03', 500000, 550000, '検収中', NULL, '未請求', NULL, NULL, '未入金', 0),
-  (10, 3, '2026-04', 500000, 550000, '未検収', '未請求', '未入金'),
-  (11, 3, '2026-05', 500000, 550000, '未検収', '未請求', '未入金'),
-  (12, 3, '2026-06', 500000, 550000, '未検収', '未請求', '未入金');
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, billing_date, invoice_number, payment_status, total_payment_amount) VALUES 
+  (7, 3, '2026-01', 500000, 550000, '請求済', '2026-02-05', 'INV-202601-002', '入金完了', 500000),
+  (8, 3, '2026-02', 500000, 550000, '請求済', '2026-03-05', 'INV-202602-002', '未入金', 0),
+  (9, 3, '2026-03', 500000, 550000, '未請求', NULL, NULL, '未入金', 0),
+  (10, 3, '2026-04', 500000, 550000, '未請求', NULL, NULL, '未入金', 0),
+  (11, 3, '2026-05', 500000, 550000, '未請求', NULL, NULL, '未入金', 0),
+  (12, 3, '2026-06', 500000, 550000, '未請求', NULL, NULL, '未入金', 0);
 
 -- 契約4: Webサイト制作（完了済み）
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, inspection_date, billing_status, billing_date, invoice_number, payment_status, total_payment_amount) VALUES 
-  (13, 4, '2025-12', 1000000, 1100000, '検収済', '2026-01-10', '請求済', '2026-01-15', 'INV-202601-003', '入金完了', 1000000),
-  (14, 4, '2026-01', 1000000, 1100000, '検収済', '2026-02-10', '請求済', '2026-02-15', 'INV-202602-003', '入金完了', 1000000),
-  (15, 4, '2026-02', 1000000, 1100000, '検収済', '2026-03-10', '請求済', '2026-03-15', 'INV-202603-001', '入金完了', 1000000);
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, billing_date, invoice_number, payment_status, total_payment_amount) VALUES 
+  (13, 4, '2025-12', 1000000, 1100000, '請求済', '2026-01-15', 'INV-202601-003', '入金完了', 1000000),
+  (14, 4, '2026-01', 1000000, 1100000, '請求済', '2026-02-15', 'INV-202602-003', '入金完了', 1000000),
+  (15, 4, '2026-02', 1000000, 1100000, '請求済', '2026-03-15', 'INV-202603-001', '入金完了', 1000000);
 
 -- 契約5: クラウド移行
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, billing_status, payment_status) VALUES 
-  (16, 5, '2026-01', 1300000, 1430000, '検収済', '請求済', '未入金'),
-  (17, 5, '2026-02', 1300000, 1430000, '検収中', '未請求', '未入金'),
-  (18, 5, '2026-03', 1400000, 1540000, '未検収', '未請求', '未入金'),
-  (19, 5, '2026-04', 1300000, 1430000, '未検収', '未請求', '未入金'),
-  (20, 5, '2026-05', 1400000, 1540000, '未検収', '未請求', '未入金'),
-  (21, 5, '2026-06', 1300000, 1430000, '未検収', '未請求', '未入金');
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, payment_status) VALUES 
+  (16, 5, '2026-01', 1300000, 1430000, '請求済', '未入金'),
+  (17, 5, '2026-02', 1300000, 1430000, '未請求', '未入金'),
+  (18, 5, '2026-03', 1400000, 1540000, '未請求', '未入金'),
+  (19, 5, '2026-04', 1300000, 1430000, '未請求', '未入金'),
+  (20, 5, '2026-05', 1400000, 1540000, '未請求', '未入金'),
+  (21, 5, '2026-06', 1300000, 1430000, '未請求', '未入金');
 
 -- 入金履歴のサンプルデータ
 INSERT OR IGNORE INTO payment_histories (monthly_detail_id, payment_date, payment_amount, note) VALUES 
@@ -139,18 +139,15 @@ INSERT OR IGNORE INTO monthly_member_assignments (monthly_detail_id, member_id, 
   (16, 2, 50.0, 700000),
   (16, 4, 50.0, 600000);
 
--- ステータス変更履歴のサンプルデータ
+-- ステータス変更履歴のサンプルデータ（inspection_status関連を削除）
 INSERT OR IGNORE INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, reason) VALUES 
-  ('monthly_details', 1, 'inspection_status', '未検収', '検収済', '顧客から検収書を受領'),
   ('monthly_details', 1, 'billing_status', '未請求', '請求済', '請求書INV-202601-001を発行'),
-  ('monthly_details', 2, 'inspection_status', '未検収', '検収済', '検収完了通知受領'),
   ('monthly_details', 2, 'billing_status', '未請求', '請求済', '請求書INV-202602-001を発行'),
-  ('monthly_details', 7, 'inspection_status', '未検収', '検収済', '月次報告書承認済み'),
   ('projects', 1, 'status', 'active', 'won', '正式受注決定'),
   ('projects', 3, 'status', 'active', 'won', '契約締結完了');
 
 -- 商談メモのサンプルデータ
-INSERT OR IGNORE INTO project_meeting_notes (project_id, meeting_date, memo) VALUES 
+INSERT OR IGNORE INTO meeting_notes (project_id, meeting_date, note) VALUES 
   (1, '2025-12-10', '初回ミーティング。システム要件のヒアリング実施。'),
   (1, '2025-12-20', '提案書を提出。好感触。'),
   (1, '2026-01-10', '契約書締結。2026年1月スタート決定。'),

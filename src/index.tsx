@@ -20,7 +20,7 @@ app.use('/api/*', cors())
 
 /**
  * 契約ステータスを自動更新する関数
- * 関連する月次明細がすべて「検収済」「請求済」「金額と入金総額が一致」の場合、契約を「完了」に更新
+ * 関連する月次明細がすべて「請求済」「金額と入金総額が一致」の場合、契約を「完了」に更新
  */
 async function updateContractStatusIfCompleted(DB: D1Database, contractId: number) {
   // 契約に関連する月次明細をすべて取得
@@ -29,14 +29,13 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
       md.id,
       md.amount,
       md.amount_with_tax,
-      md.inspection_status,
       md.billing_status,
       md.payment_status,
       COALESCE(SUM(ph.payment_amount), 0) as total_payment
     FROM monthly_details md
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
     WHERE md.contract_id = ?
-    GROUP BY md.id, md.amount, md.amount_with_tax, md.inspection_status, md.billing_status, md.payment_status
+    GROUP BY md.id, md.amount, md.amount_with_tax, md.billing_status, md.payment_status
   `).bind(contractId).all()
 
   // 月次明細が存在しない場合は何もしない
@@ -47,8 +46,7 @@ async function updateContractStatusIfCompleted(DB: D1Database, contractId: numbe
   // すべての月次明細が条件を満たすかチェック
   // 月次明細の税込み金額で比較する
   const allCompleted = monthlyDetails.every((detail: any) => {
-    return detail.inspection_status === '検収済' &&
-           detail.billing_status === '請求済' &&
+    return detail.billing_status === '請求済' &&
            detail.total_payment >= detail.amount_with_tax
   })
 
@@ -393,7 +391,7 @@ app.get('/profile', (c) => {
         const PERMISSION_LABELS = {
           'lead_manage': 'リード・案件の登録/更新',
           'contract_manage': '契約の登録/更新',
-          'inspection_manage': '検収・請求の更新',
+          'billing_manage': '請求管理',
           'payment_manage': '入金の登録'
         };
         
@@ -792,8 +790,8 @@ app.get('/admin/users', (c) => {
               <span class="text-gray-700">契約の登録/更新</span>
             </label>
             <label class="flex items-center">
-              <input type="checkbox" value="inspection_manage" class="permission-checkbox rounded text-blue-600 mr-2">
-              <span class="text-gray-700">検収・請求の更新</span>
+              <input type="checkbox" value="billing_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">請求管理</span>
             </label>
             <label class="flex items-center">
               <input type="checkbox" value="payment_manage" class="permission-checkbox rounded text-blue-600 mr-2">
@@ -890,7 +888,7 @@ app.get('/admin/users', (c) => {
         const PERMISSION_LABELS = {
           'lead_manage': 'リード・案件',
           'contract_manage': '契約',
-          'inspection_manage': '検収・請求',
+          'billing_manage': '請求',
           'payment_manage': '入金'
         };
         
@@ -3141,9 +3139,9 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
       
       for (const month of months) {
         await DB.prepare(`
-          INSERT INTO monthly_details (contract_id, target_month, amount, inspection_status, billing_status, payment_status)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).bind(contract_id, month, monthlyAmount, '未検収', '未請求', '未入金').run()
+          INSERT INTO monthly_details (contract_id, target_month, amount, billing_status, payment_status)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(contract_id, month, monthlyAmount, '未請求', '未入金').run()
       }
 
       // メンバーアサインを登録（単価と稼働率込み）
@@ -3249,9 +3247,6 @@ app.put('/api/monthly-details/:id', authMiddleware, requirePermission('contract_
   const body = await c.req.json()
   const { 
     amount, 
-    inspection_status, 
-    inspection_date, 
-    inspection_reason,
     billing_status, 
     billing_date, 
     invoice_number,
@@ -3272,18 +3267,6 @@ app.put('/api/monthly-details/:id', authMiddleware, requirePermission('contract_
   const requireReason = requireReasonSetting?.value || 'rollback_only'
   
   // ステータス変更履歴を記録
-  if (inspection_status && inspection_status !== current.inspection_status) {
-    // 巻き戻しの場合、理由が必須
-    const isRollback = inspection_status === '未検収' && current.inspection_status === '検収済'
-    if ((requireReason === 'always' || (requireReason === 'rollback_only' && isRollback)) && !inspection_reason) {
-      return c.json({ success: false, error: 'Change reason is required' }, 400)
-    }
-    
-    await DB.prepare(
-      'INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind('monthly_details', id, 'inspection_status', current.inspection_status, inspection_status, inspection_reason || '', '管理者').run()
-  }
-  
   if (billing_status && billing_status !== current.billing_status) {
     const isRollback = billing_status === '未請求' && current.billing_status === '請求済'
     if ((requireReason === 'always' || (requireReason === 'rollback_only' && isRollback)) && !billing_reason) {
@@ -3299,8 +3282,6 @@ app.put('/api/monthly-details/:id', authMiddleware, requirePermission('contract_
   await DB.prepare(`
     UPDATE monthly_details 
     SET amount = ?, 
-        inspection_status = ?, 
-        inspection_date = ?,
         billing_status = ?, 
         billing_date = ?, 
         invoice_number = ?,
@@ -3308,8 +3289,6 @@ app.put('/api/monthly-details/:id', authMiddleware, requirePermission('contract_
     WHERE id = ?
   `).bind(
     amount || current.amount,
-    inspection_status || current.inspection_status,
-    inspection_date || current.inspection_date,
     billing_status || current.billing_status,
     billing_date || current.billing_date,
     invoice_number || current.invoice_number,
@@ -3627,7 +3606,7 @@ app.put('/api/admin/users/:id/permissions', authMiddleware, requireAdmin, async 
     return c.json({ error: '権限は配列形式で指定してください' }, 400)
   }
   
-  const validPermissions = ['lead_manage', 'contract_manage', 'inspection_manage', 'payment_manage']
+  const validPermissions = ['lead_manage', 'contract_manage', 'billing_manage', 'payment_manage']
   const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p))
   if (invalidPermissions.length > 0) {
     return c.json({ error: `無効な権限が含まれています: ${invalidPermissions.join(', ')}` }, 400)
@@ -3961,13 +3940,11 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
       const monthlyResult = await c.env.DB.prepare(`
         INSERT INTO monthly_details (
           contract_id, target_month, amount, amount_with_tax, name, notes,
-          inspection_status, inspection_date, 
           billing_status, billing_date,
           payment_status, expected_payment_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         contractId, months[i], monthAmount, monthAmountWithTax, monthlyName, monthNote,
-        '未検収', inspectionDateStr,
         '未請求', billingDateStr,
         '未入金', expectedPaymentDateStr
       ).run()
@@ -4015,48 +3992,8 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
 
 // --- 月次明細 API ---
 
-// API: 月次明細の検収情報更新（inspection_manage権限が必要）
-app.put('/api/monthly-details/:id/inspection', authMiddleware, requirePermission('inspection_manage'), async (c) => {
-  const id = c.req.param('id')
-  const { inspection_status, inspection_date } = await c.req.json()
-
-  // ステータス遷移のバリデーション
-  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
-  if (!current) return c.notFound()
-
-  // 変更履歴を記録
-  if (current.inspection_status !== inspection_status) {
-    await c.env.DB.prepare(`
-      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind('monthly_details', id, 'inspection_status', current.inspection_status, inspection_status, '管理者').run()
-  }
-  
-  if (current.inspection_date !== inspection_date) {
-    await c.env.DB.prepare(`
-      INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind('monthly_details', id, 'inspection_date', current.inspection_date || 'null', inspection_date || 'null', '管理者').run()
-  }
-
-  await c.env.DB.prepare(`
-    UPDATE monthly_details 
-    SET inspection_status = ?, inspection_date = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).bind(inspection_status, inspection_date, id).run()
-
-  // 月次明細の契約IDを取得
-  const monthlyDetail = await c.env.DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(id).first() as any
-  if (monthlyDetail?.contract_id) {
-    // 契約ステータスを自動更新
-    await updateContractStatusIfCompleted(c.env.DB, monthlyDetail.contract_id)
-  }
-
-  return c.json({ success: true })
-})
-
-// API: 月次明細の請求情報更新（inspection_manage権限が必要）
-app.put('/api/monthly-details/:id/billing', authMiddleware, requirePermission('inspection_manage'), async (c) => {
+// API: 月次明細の請求情報更新（billing_manage権限が必要）
+app.put('/api/monthly-details/:id/billing', authMiddleware, requirePermission('billing_manage'), async (c) => {
   const id = c.req.param('id')
   const { billing_status, billing_date, invoice_number, expected_payment_date } = await c.req.json()
 
@@ -4089,7 +4026,7 @@ app.put('/api/monthly-details/:id/billing', authMiddleware, requirePermission('i
     UPDATE monthly_details 
     SET billing_status = ?, billing_date = ?, invoice_number = ?, expected_payment_date = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(billing_status, billing_date, invoice_number, expected_payment_date, id).run()
+  `).bind(billing_status, billing_date || null, invoice_number || null, expected_payment_date || null, id).run()
 
   // 月次明細の契約IDを取得
   const monthlyDetail = await c.env.DB.prepare('SELECT contract_id FROM monthly_details WHERE id = ?').bind(id).first() as any
@@ -4122,65 +4059,6 @@ app.put('/api/monthly-details/:id/amount', authMiddleware, requirePermission('co
   `).bind(amount, id).run()
 
   return c.json({ success: true })
-})
-
-// API: 月次明細一括検収
-app.post('/api/monthly-details/bulk-inspect', authMiddleware, requirePermission('inspection_manage'), async (c) => {
-  const { ids, inspection_date } = await c.req.json()
-  
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return c.json({ success: false, error: '対象IDが指定されていません' }, 400)
-  }
-  
-  const { DB } = c.env
-  const today = inspection_date || new Date().toISOString().split('T')[0]
-  
-  let success_count = 0
-  let error_count = 0
-  const errors = []
-  
-  for (const id of ids) {
-    try {
-      const current = await DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
-      if (!current) {
-        errors.push({ id, error: '月次明細が見つかりません' })
-        error_count++
-        continue
-      }
-      
-      if (current.inspection_status === '検収済') {
-        errors.push({ id, error: 'すでに検収済みです' })
-        error_count++
-        continue
-      }
-      
-      // 変更履歴を記録
-      await DB.prepare(`
-        INSERT INTO status_change_histories (table_name, record_id, field_name, old_value, new_value, changed_by)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).bind('monthly_details', id, 'inspection_status', current.inspection_status, '検収済', '管理者').run()
-      
-      // 検収済に更新
-      await DB.prepare(`
-        UPDATE monthly_details 
-        SET inspection_status = ?, inspection_date = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).bind('検収済', today, id).run()
-      
-      success_count++
-    } catch (error) {
-      errors.push({ id, error: error.message })
-      error_count++
-    }
-  }
-  
-  return c.json({ 
-    success: true, 
-    success_count, 
-    error_count, 
-    errors,
-    message: `${success_count}件を検収済みに更新しました${error_count > 0 ? `（エラー: ${error_count}件）` : ''}`
-  })
 })
 
 // API: 入金履歴削除
@@ -4753,15 +4631,10 @@ app.get('/api/dashboard/summary', authMiddleware, async (c) => {
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   
-  // 当月売上(検収済)
+  // 当月売上（対象月の全件）
   const { results: currentMonthSales } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
-  ).bind(currentMonth, '検収済').all()
-  
-  // 未検収金額
-  const { results: uninspected } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE inspection_status = ?'
-  ).bind('未検収').all()
+    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ?'
+  ).bind(currentMonth).all()
   
   // 未請求金額
   const { results: unbilled } = await DB.prepare(
@@ -4777,7 +4650,6 @@ app.get('/api/dashboard/summary', authMiddleware, async (c) => {
     success: true,
     data: {
       currentMonthSales: (currentMonthSales[0] as any)?.total || 0,
-      uninspectedAmount: (uninspected[0] as any)?.total || 0,
       unbilledAmount: (unbilled[0] as any)?.total || 0,
       unpaidAmount: (unpaid[0] as any)?.total || 0
     }
@@ -4789,16 +4661,14 @@ app.get('/api/dashboard/summary', authMiddleware, async (c) => {
 app.get('/api/dashboard/sales-trend', authMiddleware, async (c) => {
   const { DB } = c.env
   
-  // 直近12ヶ月のデータを取得（検収日ベース、検収済のみ）
+  // 直近12ヶ月のデータを取得（対象月ベース、全件）
   const { results } = await DB.prepare(`
     SELECT 
-      strftime('%Y-%m', inspection_date) as target_month,
+      target_month,
       SUM(amount_with_tax) as confirmed_sales
     FROM monthly_details
-    WHERE inspection_status = '検収済'
-      AND inspection_date IS NOT NULL
-      AND inspection_date >= date('now', '-12 months')
-    GROUP BY strftime('%Y-%m', inspection_date)
+    WHERE target_month >= strftime('%Y-%m', date('now', '-12 months'))
+    GROUP BY target_month
     ORDER BY target_month ASC
   `).all()
   
@@ -4814,26 +4684,7 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   const today = now.toISOString().split('T')[0]
   
-  // 検収期限超過（月末を過ぎた未検収）
-  const { results: overdueInspections } = await DB.prepare(`
-    SELECT 
-      md.id,
-      md.target_month,
-      c.contract_name,
-      p.project_name,
-      md.amount,
-      md.inspection_status,
-      julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) as days_overdue
-    FROM monthly_details md
-    JOIN contracts c ON md.contract_id = c.id
-    JOIN projects p ON c.project_id = p.id
-    WHERE md.inspection_status = '未検収'
-      AND julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) > 0
-    ORDER BY days_overdue DESC
-    LIMIT 10
-  `).all()
-  
-  // 請求期限間近・超過（検収済だが未請求で検収日から3日以上経過）
+  // 請求期限間近・超過（未請求で対象月末から3日以上経過）
   const { results: overdueBillings } = await DB.prepare(`
     SELECT 
       md.id,
@@ -4842,16 +4693,13 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
       p.project_name,
       md.amount,
       md.billing_status,
-      md.inspection_date,
-      julianday('now') - julianday(md.inspection_date) as days_since_inspection
+      julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) as days_since_month_end
     FROM monthly_details md
     JOIN contracts c ON md.contract_id = c.id
     JOIN projects p ON c.project_id = p.id
-    WHERE md.inspection_status = '検収済'
-      AND md.billing_status = '未請求'
-      AND md.inspection_date IS NOT NULL
-      AND julianday('now') - julianday(md.inspection_date) >= 3
-    ORDER BY days_since_inspection DESC
+    WHERE md.billing_status = '未請求'
+      AND julianday('now') - julianday(date(md.target_month || '-01', '+1 month', '-1 day')) >= 3
+    ORDER BY days_since_month_end DESC
     LIMIT 10
   `).all()
   
@@ -4923,7 +4771,6 @@ app.get('/api/dashboard/pending-tasks', authMiddleware, async (c) => {
   return c.json({ 
     success: true, 
     data: {
-      overdueInspections,
       overdueBillings,
       overduePayments,
       amountMismatch,
@@ -6256,30 +6103,25 @@ app.get('/', async (c) => {
     }
     const lastMonth = `${lastYear}-${String(lastMonthNum).padStart(2, '0')}`
   
-  // 当月売上（確定）
+  // 当月売上（対象月の全件）
   const { results: currentMonthSales } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
-  ).bind(currentMonth, '検収済').all()
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
+  ).bind(currentMonth).all()
   
-  // 前月売上（確定）
+  // 前月売上（対象月の全件）
   const { results: lastMonthSales } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
-  ).bind(lastMonth, '検収済').all()
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
+  ).bind(lastMonth).all()
   
-  // 当月売上（予定） - 検収ステータスに関係なく当月の全売上
+  // 当月売上（予定） - 対象月の全売上
   const { results: currentMonthPlanned } = await DB.prepare(
     'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
   ).bind(currentMonth).all()
   
-  // 未検収金額（当月のみ）
-  const { results: uninspected } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ? AND inspection_status = ?'
-  ).bind(currentMonth, '未検収').all()
-  
-  // 未請求金額（検収済のみ）
+  // 未請求金額（全期間）
   const { results: unbilled } = await DB.prepare(
-    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ? AND inspection_status = ?'
-  ).bind('未請求', '検収済').all()
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ?'
+  ).bind('未請求').all()
   
   // 未入金金額（請求済のみ）
   const { results: unpaid } = await DB.prepare(
@@ -6314,12 +6156,12 @@ app.get('/', async (c) => {
     ORDER BY total_ratio DESC
   `).bind(lastMonth, lastMonth).all()
   
-  // メンバー別 累計売上（検収済のみ）
+  // メンバー別 累計売上（請求済ベース）
   const { results: memberTotalSales } = await DB.prepare(`
     SELECT 
       m.name as member_name,
-      COALESCE(SUM(CASE WHEN md.inspection_status = '検収済' THEN mma.unit_price * mma.allocation_ratio ELSE 0 END), 0) as total_sales,
-      COUNT(DISTINCT CASE WHEN md.inspection_status = '検収済' THEN md.id END) as monthly_count
+      COALESCE(SUM(mma.unit_price * mma.allocation_ratio), 0) as total_sales,
+      COUNT(DISTINCT mma.monthly_detail_id) as monthly_count
     FROM members m
     LEFT JOIN monthly_member_assignments mma ON m.id = mma.member_id
     LEFT JOIN monthly_details md ON mma.monthly_detail_id = md.id
@@ -6354,7 +6196,6 @@ app.get('/', async (c) => {
   const currentMonthSalesTotal = (currentMonthSales[0] as any)?.total || 0
   const lastMonthSalesTotal = (lastMonthSales[0] as any)?.total || 0
   const currentMonthPlannedTotal = (currentMonthPlanned[0] as any)?.total || 0
-  const uninspectedTotal = (uninspected[0] as any)?.total || 0
   const unbilledTotal = (unbilled[0] as any)?.total || 0
   const unpaidTotal = (unpaid[0] as any)?.total || 0
   
@@ -6472,7 +6313,7 @@ app.get('/', async (c) => {
         <!-- 1行目: 売上関連 -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-5">
           <!-- 前月売上 -->
-          <a href="/monthly-list?filter=lastMonthInspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+          <a href="/monthly-list?filter=lastMonth" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-history mr-1"></i>前月売上(確定)
@@ -6484,7 +6325,7 @@ app.get('/', async (c) => {
           </a>
 
           <!-- 当月売上(確定) -->
-          <a href="/monthly-list?filter=inspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
+          <a href="/monthly-list?filter=current" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
                 <i class="fas fa-yen-sign mr-1"></i>当月売上(確定)
@@ -6510,18 +6351,6 @@ app.get('/', async (c) => {
 
         <!-- 2行目: 未処理関連 -->
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
-          <!-- 未検収 -->
-          <a href="/monthly-list?filter=uninspected" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
-            <div class="px-4 py-5 sm:p-6">
-              <dt class="text-sm font-medium text-gray-500 truncate">
-                <i class="fas fa-clock mr-1"></i>未検収金額(当月)
-              </dt>
-              <dd class="mt-1 text-3xl font-semibold text-yellow-600">
-                ¥${uninspectedTotal.toLocaleString()}
-              </dd>
-            </div>
-          </a>
-
           <!-- 未請求 -->
           <a href="/monthly-list?filter=unbilled" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
@@ -6644,7 +6473,7 @@ app.get('/', async (c) => {
                   <tr>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">メンバー</th>
                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">累計売上</th>
-                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">検収済月数</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">請求月数</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200">
@@ -6670,7 +6499,7 @@ app.get('/', async (c) => {
             ` : `
             <div class="text-center py-8 text-gray-500">
               <i class="fas fa-inbox text-4xl mb-2"></i>
-              <p>検収済の売上がありません</p>
+              <p>売上がありません</p>
             </div>
             `}
           </div>
@@ -6687,9 +6516,9 @@ app.get('/', async (c) => {
         // 未処理タスクの読み込み
         axios.get('/api/dashboard/pending-tasks').then(response => {
           const tasks = response.data.data;
-          const { overdueInspections, overdueBillings, overduePayments, amountMismatch, paymentMismatches } = tasks;
+          const { overdueBillings, overduePayments, amountMismatch, paymentMismatches } = tasks;
           
-          const totalTasks = overdueInspections.length + overdueBillings.length + overduePayments.length + (amountMismatch ? amountMismatch.length : 0) + (paymentMismatches ? paymentMismatches.length : 0);
+          const totalTasks = overdueBillings.length + overduePayments.length + (amountMismatch ? amountMismatch.length : 0) + (paymentMismatches ? paymentMismatches.length : 0);
           
           if (totalTasks === 0) {
             document.getElementById('pending-tasks-content').innerHTML = \`
@@ -6704,28 +6533,6 @@ app.get('/', async (c) => {
           
           let html = '<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">';
           
-          // 検収期限超過
-          if (overdueInspections.length > 0) {
-            html += \`
-              <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
-                <h3 class="text-red-800 font-semibold mb-3 flex items-center">
-                  <i class="fas fa-times-circle mr-2"></i>🔴 検収期限超過 (\${overdueInspections.length}件)
-                </h3>
-                <div class="space-y-2 max-h-64 overflow-y-auto">
-                  \${overdueInspections.map(task => \`
-                    <a href="/monthly/\${task.id}" class="block bg-white p-3 rounded shadow-sm hover:shadow-md transition-shadow">
-                      <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
-                      <div class="text-xs text-gray-600">\${task.target_month} - ¥\${task.amount.toLocaleString()}</div>
-                      <div class="text-xs text-red-600 mt-1">
-                        <i class="fas fa-clock mr-1"></i>\${Math.floor(task.days_overdue)}日超過
-                      </div>
-                    </a>
-                  \`).join('')}
-                </div>
-              </div>
-            \`;
-          }
-          
           // 請求期限間近・超過
           if (overdueBillings.length > 0) {
             html += \`
@@ -6739,7 +6546,7 @@ app.get('/', async (c) => {
                       <div class="text-sm font-medium text-gray-900">\${task.project_name}</div>
                       <div class="text-xs text-gray-600">\${task.target_month} - ¥\${task.amount.toLocaleString()}</div>
                       <div class="text-xs text-yellow-600 mt-1">
-                        <i class="fas fa-clock mr-1"></i>検収から\${Math.floor(task.days_since_inspection)}日経過
+                        <i class="fas fa-clock mr-1"></i>対象月末から\${Math.floor(task.days_since_month_end)}日経過
                       </div>
                     </a>
                   \`).join('')}
@@ -7898,8 +7705,8 @@ app.get('/contracts/:id', async (c) => {
     FROM monthly_details md
     LEFT JOIN payment_histories ph ON md.id = ph.monthly_detail_id
     WHERE md.contract_id = ?
-    GROUP BY md.id, md.target_month, md.contract_id, md.amount, md.amount_with_tax, md.inspection_status, 
-             md.inspection_date, md.billing_status, md.billing_date, md.invoice_number, 
+    GROUP BY md.id, md.target_month, md.contract_id, md.amount, md.amount_with_tax,
+             md.billing_status, md.billing_date, md.invoice_number, 
              md.expected_payment_date, md.payment_status, md.payment_date, 
              md.total_payment_amount, md.name, md.notes, md.created_at, md.updated_at
     ORDER BY md.target_month ASC
@@ -7936,7 +7743,6 @@ app.get('/contracts/:id', async (c) => {
   // 統計情報を計算
   const totalAmount = monthlyDetails.results.reduce((sum, md) => sum + (md.amount || 0), 0)
   const paidAmount = monthlyDetails.results.reduce((sum, md) => sum + (md.paid_amount || 0), 0)
-  const inspectedCount = monthlyDetails.results.filter(md => md.inspection_status === '検収済').length
   const billedCount = monthlyDetails.results.filter(md => md.billing_status === '請求済').length
 
   return c.html(`
@@ -8012,7 +7818,7 @@ app.get('/contracts/:id', async (c) => {
             PERMISSION_LABELS: {
               'lead_manage': 'リード・案件の登録/更新',
               'contract_manage': '契約の登録/更新',
-              'inspection_manage': '検収・請求の更新',
+              'billing_manage': '請求管理',
               'payment_manage': '入金の登録'
             }
           };
@@ -8129,14 +7935,10 @@ app.get('/contracts/:id', async (c) => {
                 </div>
 
                 <!-- サマリーカード -->
-                <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="grid grid-cols-3 gap-4 mb-6">
                     <div class="bg-blue-50 rounded-lg p-4">
                         <p class="text-sm text-gray-600 mb-1">契約金額</p>
                         <p class="text-2xl font-bold text-blue-600">¥${totalAmount.toLocaleString()}</p>
-                    </div>
-                    <div class="bg-green-50 rounded-lg p-4">
-                        <p class="text-sm text-gray-600 mb-1">検収済</p>
-                        <p class="text-2xl font-bold text-green-600">${inspectedCount}/${monthlyDetails.results.length}件</p>
                     </div>
                     <div class="bg-orange-50 rounded-lg p-4">
                         <p class="text-sm text-gray-600 mb-1">請求済</p>
@@ -8177,7 +7979,6 @@ app.get('/contracts/:id', async (c) => {
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額（税抜）</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">金額（税込）</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">アサインメンバー</th>
-                                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">入金</th>
                                 <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
@@ -8198,14 +7999,6 @@ app.get('/contracts/:id', async (c) => {
                                           </div>`
                                         ).join('')
                                       : '<span class="text-xs text-gray-400">未割当</span>'
-                                    }
-                                </td>
-                                <td class="px-4 py-3">
-                                    ${md.inspection_status === '検収済' 
-                                      ? '<span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>'
-                                      : md.inspection_status === '未検収'
-                                      ? '<span class="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800"><i class="fas fa-clock mr-1"></i>未完</span>'
-                                      : '<span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-800">-</span>'
                                     }
                                 </td>
                                 <td class="px-4 py-3">
@@ -9435,34 +9228,6 @@ app.get('/monthly/:id', async (c) => {
                 `}
             </div>
 
-            <!-- 検収情報 -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 class="text-lg font-semibold text-gray-800 mb-4">
-                    <i class="fas fa-check-circle mr-2 text-green-600"></i>検収情報
-                </h2>
-                <form id="inspection-form" class="space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">検収ステータス</label>
-                            <select name="inspection_status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                <option value="未検収" ${monthly.inspection_status === '未検収' ? 'selected' : ''}>未検収</option>
-                                <option value="検収済" ${monthly.inspection_status === '検収済' ? 'selected' : ''}>検収済</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">検収日</label>
-                            <input type="date" name="inspection_date" value="${monthly.inspection_date || ''}" 
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                        </div>
-                    </div>
-                    <div class="flex justify-end">
-                        <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-                            <i class="fas fa-save mr-2"></i>検収情報を更新
-                        </button>
-                    </div>
-                </form>
-            </div>
-
             <!-- 請求情報 -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h2 class="text-lg font-semibold text-gray-800 mb-4">
@@ -9680,24 +9445,6 @@ app.get('/monthly/:id', async (c) => {
             // ユーザー情報を読み込む
             loadUserInfo();
             
-            // 検収情報の更新
-            document.getElementById('inspection-form').addEventListener('submit', async (e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target)
-                const data = {
-                    inspection_status: formData.get('inspection_status'),
-                    inspection_date: formData.get('inspection_date') || null
-                }
-
-                try {
-                    await axios.put('/api/monthly-details/${id}/inspection', data)
-                    alert('検収情報を更新しました')
-                    location.reload()
-                } catch (error) {
-                    alert('エラーが発生しました: ' + error.message)
-                }
-            })
-
             // 請求日が入力されたときに同月末日を自動計算
             document.getElementById('billing_date').addEventListener('change', (e) => {
                 const billingDate = e.target.value
@@ -10387,23 +10134,18 @@ app.get('/monthly-list', async (c) => {
   let icon = 'fa-calendar'
   
   switch(filter) {
-    case 'inspected':
-      whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '検収済'`
-      title = '当月売上(確定)'
+    case 'current':
+      whereClause = `WHERE md.target_month = '${currentMonth}'`
+      title = '当月売上'
       icon = 'fa-yen-sign'
       break
-    case 'lastMonthInspected':
-      whereClause = `WHERE md.target_month = '${lastMonth}' AND md.inspection_status = '検収済'`
-      title = '前月売上(確定)'
+    case 'lastMonth':
+      whereClause = `WHERE md.target_month = '${lastMonth}'`
+      title = '前月売上'
       icon = 'fa-history'
       break
-    case 'uninspected':
-      whereClause = `WHERE md.target_month = '${currentMonth}' AND md.inspection_status = '未検収'`
-      title = '未検収金額(当月)'
-      icon = 'fa-clock'
-      break
     case 'unbilled':
-      whereClause = `WHERE md.billing_status = '未請求' AND md.inspection_status = '検収済'`
+      whereClause = `WHERE md.billing_status = '未請求'`
       title = '未請求金額'
       icon = 'fa-file-invoice'
       break
@@ -10574,7 +10316,6 @@ app.get('/monthly-list', async (c) => {
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">案件</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">契約</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">金額</th>
-                                <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">検収</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">請求</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">入金</th>
                                 <th class="px-6 py-3 text-left text-sm font-semibold text-gray-700">操作</th>
@@ -10591,12 +10332,6 @@ app.get('/monthly-list', async (c) => {
                                 <td class="px-6 py-4 text-sm text-gray-700">${md.project_name || '-'}</td>
                                 <td class="px-6 py-4 text-sm text-gray-700">${md.contract_name || '-'}</td>
                                 <td class="px-6 py-4 font-medium">¥${(md.amount || 0).toLocaleString()}</td>
-                                <td class="px-6 py-4">
-                                    ${md.inspection_status === '検収済' 
-                                      ? '<span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800"><i class="fas fa-check-circle mr-1"></i>完了</span>'
-                                      : '<span class="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800"><i class="fas fa-clock mr-1"></i>未完</span>'
-                                    }
-                                </td>
                                 <td class="px-6 py-4">
                                     ${md.billing_status === '請求済' 
                                       ? '<span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"><i class="fas fa-file-invoice mr-1"></i>済</span>'
@@ -13289,7 +13024,7 @@ app.get('/contracts', async (c) => {
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
   // ソート可能なカラムのホワイトリスト
-  const allowedSortColumns = ['contract_name', 'project_name', 'company_name', 'monthly_count', 'inspected_count', 'total_amount', 'created_at']
+  const allowedSortColumns = ['contract_name', 'project_name', 'company_name', 'monthly_count', 'total_amount', 'created_at']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
@@ -13300,7 +13035,6 @@ app.get('/contracts', async (c) => {
       p.project_name,
       l.company_name,
       (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id) as monthly_count,
-      (SELECT COUNT(*) FROM monthly_details WHERE contract_id = c.id AND inspection_status = '検収済') as inspected_count,
       (SELECT SUM(amount) FROM monthly_details WHERE contract_id = c.id) as total_amount
     FROM contracts c
     LEFT JOIN projects p ON c.project_id = p.id
@@ -13664,7 +13398,7 @@ app.get('/contracts', async (c) => {
                 <th data-sort="total_amount" onclick="sortTable('total_amount')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 150px;">
                   契約金額 <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
-                <th data-sort="inspected_count" onclick="sortTable('inspected_count')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
+                <th data-sort="monthly_count" onclick="sortTable('monthly_count')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
                   進捗 <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="min-width: 100px;">
@@ -13695,10 +13429,10 @@ app.get('/contracts', async (c) => {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm text-gray-900">
-                      検収: ${contract.inspected_count || 0}/${contract.monthly_count || 0}
+                      ${contract.monthly_count || 0}ヶ月
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                      <div class="bg-green-600 h-2 rounded-full" style="width: ${contract.monthly_count > 0 ? (contract.inspected_count / contract.monthly_count * 100) : 0}%"></div>
+                      <div class="bg-blue-600 h-2 rounded-full" style="width: 100%"></div>
                     </div>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
@@ -13769,7 +13503,7 @@ app.get('/monthly-details', async (c) => {
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
   // ソート可能なカラムのホワイトリスト
-  const allowedSortColumns = ['target_month', 'amount', 'amount_with_tax', 'contract_name', 'project_name', 'company_name', 'inspection_status', 'billing_status', 'payment_status']
+  const allowedSortColumns = ['target_month', 'amount', 'amount_with_tax', 'contract_name', 'project_name', 'company_name', 'billing_status', 'payment_status']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'target_month'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
@@ -13780,7 +13514,6 @@ app.get('/monthly-details', async (c) => {
       md.target_month,
       md.amount,
       md.amount_with_tax,
-      md.inspection_status,
       md.billing_status,
       md.payment_status,
       c.contract_name,
@@ -14044,13 +13777,11 @@ app.get('/monthly-details', async (c) => {
                 project_name: values[3] || '',
                 company_name: values[4] || '',
                 amount: parseInt(values[5]) || 0,
-                inspection_status: values[6] || '未検収',
-                inspection_date: values[7] || '',
-                billing_status: values[8] || '未請求',
-                billing_date: values[9] || '',
-                invoice_number: values[10] || '',
-                expected_payment_date: values[11] || '',
-                assign_members: values[12] || ''
+                billing_status: values[6] || '未請求',
+                billing_date: values[7] || '',
+                invoice_number: values[8] || '',
+                expected_payment_date: values[9] || '',
+                assign_members: values[10] || ''
               };
             });
 
@@ -14093,62 +13824,6 @@ app.get('/monthly-details', async (c) => {
           document.getElementById('payment-csv-file').value = '';
           document.getElementById('payment-import-preview').innerHTML = '';
           document.getElementById('payment-import-button').disabled = true;
-        }
-
-        // 一括検収機能
-        let selectedIds = new Set();
-
-        function toggleAll(checked) {
-          selectedIds.clear();
-          document.querySelectorAll('.detail-checkbox').forEach(checkbox => {
-            checkbox.checked = checked;
-            if (checked) selectedIds.add(parseInt(checkbox.value));
-          });
-          updateBulkActions();
-        }
-
-        function toggleDetail(id, checked) {
-          if (checked) {
-            selectedIds.add(id);
-          } else {
-            selectedIds.delete(id);
-          }
-          updateBulkActions();
-        }
-
-        function updateBulkActions() {
-          const bulkActions = document.getElementById('bulk-actions');
-          const selectedCount = document.getElementById('selected-count');
-          if (selectedIds.size > 0) {
-            bulkActions.classList.remove('hidden');
-            selectedCount.textContent = selectedIds.size;
-          } else {
-            bulkActions.classList.add('hidden');
-          }
-        }
-
-        async function bulkInspect() {
-          if (selectedIds.size === 0) {
-            alert('検収する月次明細を選択してください');
-            return;
-          }
-
-          if (!confirm(selectedIds.size + '件の月次明細を一括検収しますか？')) return;
-
-          try {
-            const token = AUTH_UTILS.getToken();
-            const response = await axios.post('/api/monthly-details/bulk-inspect',
-              { ids: Array.from(selectedIds), inspection_date: new Date().toISOString().split('T')[0] },
-              { headers: { 'Authorization': 'Bearer ' + token } }
-            );
-
-            alert(response.data.message);
-            if (response.data.success_count > 0) {
-              location.reload();
-            }
-          } catch (error) {
-            alert('一括検収に失敗しました: ' + (error.response?.data?.error || error.message));
-          }
         }
 
         // 入金CSVインポート実行
@@ -14267,17 +13942,7 @@ app.get('/monthly-details', async (c) => {
           </div>
         </div>
 
-        <!-- 一括操作バー -->
-        <div id="bulk-actions" class="hidden bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded-lg">
-          <div class="flex items-center justify-between">
-            <span class="text-blue-800 font-semibold">
-              <i class="fas fa-check-circle mr-2"></i><span id="selected-count">0</span>件選択中
-            </span>
-            <button onclick="bulkInspect()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              <i class="fas fa-clipboard-check mr-2"></i>一括検収
-            </button>
-          </div>
-        </div>
+
 
         ${monthlyDetails.length > 0 ? `
         <div class="bg-white rounded-lg shadow overflow-hidden">
@@ -14304,9 +13969,6 @@ app.get('/monthly-details', async (c) => {
                 </th>
                 <th data-sort="amount_with_tax" onclick="sortTable('amount_with_tax')" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 120px;">
                   金額（税込） <i class="sort-icon fas fa-sort ml-1"></i>
-                </th>
-                <th data-sort="inspection_status" onclick="sortTable('inspection_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
-                  検収 <i class="sort-icon fas fa-sort ml-1"></i>
                 </th>
                 <th data-sort="billing_status" onclick="sortTable('billing_status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 resize-x overflow-auto" style="min-width: 100px;">
                   請求 <i class="sort-icon fas fa-sort ml-1"></i>
@@ -14340,13 +14002,6 @@ app.get('/monthly-details', async (c) => {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-medium cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     ¥${detail.amount_with_tax?.toLocaleString() || '0'}
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
-                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      detail.inspection_status === '検収済' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                    }">
-                      ${detail.inspection_status || '未検収'}
-                    </span>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-center cursor-pointer" onclick="window.location.href='/monthly/${detail.id}'">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -14391,9 +14046,9 @@ app.get('/monthly-details', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: ID,対象月,契約名,案件名,会社名,金額,検収ステータス,検収日,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: ID,対象月,契約名,案件名,会社名,金額,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)</p>
             <p class="text-sm text-red-600 mb-2">※既存データの更新のみ可能です（新規追加はできません）</p>
-            <p class="text-sm text-gray-500 mb-2">例: 1,2026-01,Q1契約,開発案件,株式会社テスト,1000000,検収済,2026-01-31,請求済,2026-02-01,INV-001,2026-02-28,yamada@example.com:800000:0.8;sato@example.com:700000:1.0</p>
+            <p class="text-sm text-gray-500 mb-2">例: 1,2026-01,Q1契約,開発案件,株式会社テスト,1000000,請求済,2026-02-01,INV-001,2026-02-28,yamada@example.com:800000:0.8;sato@example.com:700000:1.0</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
           </div>
           
@@ -14455,8 +14110,6 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       md.id,
       md.target_month,
       md.amount,
-      md.inspection_status,
-      md.inspection_date,
       md.billing_status,
       md.billing_date,
       md.invoice_number,
@@ -14497,8 +14150,6 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       project_name: detail.project_name || '',
       company_name: detail.company_name || '',
       amount: detail.amount,
-      inspection_status: detail.inspection_status,
-      inspection_date: detail.inspection_date || '',
       billing_status: detail.billing_status,
       billing_date: detail.billing_date || '',
       invoice_number: detail.invoice_number || '',
@@ -14508,7 +14159,7 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
   }
 
   // CSVヘッダー
-  const header = 'ID,対象月,契約名,案件名,会社名,金額,検収ステータス,検収日,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)'
+  const header = 'ID,対象月,契約名,案件名,会社名,金額,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)'
   
   // CSVボディ
   const body = csvRows.map(row => 
@@ -14519,8 +14170,6 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       `"${row.project_name}"`,
       `"${row.company_name}"`,
       row.amount,
-      row.inspection_status,
-      row.inspection_date,
       row.billing_status,
       row.billing_date,
       `"${row.invoice_number}"`,
@@ -14556,8 +14205,6 @@ app.post('/api/monthly-details/import/csv', authMiddleware, requireAdmin, async 
     const detail = monthly_details[i]
     const { 
       id, 
-      inspection_status, 
-      inspection_date, 
       billing_status, 
       billing_date, 
       invoice_number, 
@@ -14586,8 +14233,6 @@ app.post('/api/monthly-details/import/csv', authMiddleware, requireAdmin, async 
       await DB.prepare(`
         UPDATE monthly_details 
         SET 
-          inspection_status = ?,
-          inspection_date = ?,
           billing_status = ?,
           billing_date = ?,
           invoice_number = ?,
@@ -14595,8 +14240,6 @@ app.post('/api/monthly-details/import/csv', authMiddleware, requireAdmin, async 
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).bind(
-        inspection_status || '未検収',
-        inspection_date || null,
         billing_status || '未請求',
         billing_date || null,
         invoice_number || null,

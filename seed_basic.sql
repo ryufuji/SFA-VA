@@ -24,13 +24,13 @@ INSERT OR IGNORE INTO contracts (id, project_id, contract_name, contract_start_d
   (2, 2, '保守運用契約', '2026-01-01', '2026-06-30', 3000000, 10.0, 'active'),
   (3, 3, 'Web制作契約', '2025-12-01', '2026-02-28', 3000000, 10.0, 'completed');
 
--- 月次明細
-INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, inspection_status, billing_status, payment_status) VALUES 
-  (1, 1, '2026-01', 1000000, 1100000, '検収済', '請求済', '入金完了'),
-  (2, 1, '2026-02', 1000000, 1100000, '検収済', '請求済', '部分入金'),
-  (3, 1, '2026-03', 1000000, 1100000, '検収中', '未請求', '未入金'),
-  (4, 2, '2026-01', 500000, 550000, '検収済', '請求済', '入金完了'),
-  (5, 2, '2026-02', 500000, 550000, '検収中', '未請求', '未入金');
+-- 月次明細（inspection_status / inspection_date 列を削除済み）
+INSERT OR IGNORE INTO monthly_details (id, contract_id, target_month, amount, amount_with_tax, billing_status, payment_status) VALUES 
+  (1, 1, '2026-01', 1000000, 1100000, '請求済', '入金完了'),
+  (2, 1, '2026-02', 1000000, 1100000, '請求済', '部分入金'),
+  (3, 1, '2026-03', 1000000, 1100000, '未請求', '未入金'),
+  (4, 2, '2026-01', 500000, 550000, '請求済', '入金完了'),
+  (5, 2, '2026-02', 500000, 550000, '未請求', '未入金');
 
 -- 契約メンバーアサイン
 INSERT OR IGNORE INTO contract_member_assignments (contract_id, member_id, allocation_ratio, unit_price) VALUES 
