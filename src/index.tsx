@@ -4631,20 +4631,20 @@ app.get('/api/dashboard/summary', authMiddleware, async (c) => {
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   
-  // 当月売上（対象月の全件）
+  // 当月売上（対象月の全件、税込）
   const { results: currentMonthSales } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE target_month = ?'
+    'SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE target_month = ?'
   ).bind(currentMonth).all()
   
-  // 未請求金額
+  // 未請求金額（billing_date <= 今日）
   const { results: unbilled } = await DB.prepare(
-    'SELECT SUM(amount) as total FROM monthly_details WHERE billing_status = ?'
+    "SELECT SUM(amount_with_tax) as total FROM monthly_details WHERE billing_status = ? AND billing_date <= DATE('now')"
   ).bind('未請求').all()
   
-  // 未入金金額
+  // 未入金金額（請求済のみ）
   const { results: unpaid } = await DB.prepare(
-    'SELECT SUM(amount - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?)'
-  ).bind('未入金', '部分入金').all()
+    'SELECT SUM(amount_with_tax - total_payment_amount) as total FROM monthly_details WHERE payment_status IN (?, ?) AND billing_status = ?'
+  ).bind('未入金', '部分入金', '請求済').all()
   
   return c.json({
     success: true,
