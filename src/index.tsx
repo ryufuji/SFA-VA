@@ -6316,7 +6316,7 @@ app.get('/', async (c) => {
           <a href="/monthly-list?filter=lastMonth" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                <i class="fas fa-history mr-1"></i>前月売上(確定)
+                <i class="fas fa-history mr-1"></i>前月売上
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-700">
                 ¥${lastMonthSalesTotal.toLocaleString()}
@@ -6324,23 +6324,11 @@ app.get('/', async (c) => {
             </div>
           </a>
 
-          <!-- 当月売上(確定) -->
-          <a href="/monthly-list?filter=current" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
-            <div class="px-4 py-5 sm:p-6">
-              <dt class="text-sm font-medium text-gray-500 truncate">
-                <i class="fas fa-yen-sign mr-1"></i>当月売上(確定)
-              </dt>
-              <dd class="mt-1 text-3xl font-semibold text-gray-900">
-                ¥${currentMonthSalesTotal.toLocaleString()}
-              </dd>
-            </div>
-          </a>
-
-          <!-- 当月売上(予定) -->
+          <!-- 当月売上 -->
           <a href="/monthly-list" class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow cursor-pointer">
             <div class="px-4 py-5 sm:p-6">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                <i class="fas fa-calendar-check mr-1"></i>当月売上(予定)
+                <i class="fas fa-calendar-check mr-1"></i>当月売上
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-blue-700">
                 ¥${currentMonthPlannedTotal.toLocaleString()}
