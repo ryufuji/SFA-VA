@@ -3138,10 +3138,13 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
       const monthlyAmount = Math.floor(contract_amount / months.length)
       
       for (const month of months) {
+        const [mYear, mMonth] = month.split('-').map(Number)
+        const accDate = new Date(mYear, mMonth, 0)
+        const accDateStr = `${mYear}-${String(mMonth).padStart(2, '0')}-${String(accDate.getDate()).padStart(2, '0')}`
         await DB.prepare(`
-          INSERT INTO monthly_details (contract_id, target_month, amount, billing_status, payment_status)
-          VALUES (?, ?, ?, ?, ?)
-        `).bind(contract_id, month, monthlyAmount, '未請求', '未入金').run()
+          INSERT INTO monthly_details (contract_id, target_month, amount, billing_status, payment_status, acceptance_date)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(contract_id, month, monthlyAmount, '未請求', '未入金', accDateStr).run()
       }
 
       // メンバーアサインを登録（単価と稼働率込み）
@@ -3925,9 +3928,9 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
       // 対象月の年月を解析
       const [year, month] = months[i].split('-').map(Number)
       
-      // 検収日: 対象月の月末
-      const inspectionDate = new Date(year, month, 0) // 月末を取得
-      const inspectionDateStr = `${year}-${String(month).padStart(2, '0')}-${String(inspectionDate.getDate()).padStart(2, '0')}`
+      // 検収日（acceptance_date）: 対象月の月末
+      const acceptanceDate = new Date(year, month, 0) // 月末を取得
+      const acceptanceDateStr = `${year}-${String(month).padStart(2, '0')}-${String(acceptanceDate.getDate()).padStart(2, '0')}`
       
       // 請求日: 翌月1日
       const billingDate = new Date(year, month, 1)
@@ -3941,12 +3944,14 @@ app.post('/api/contracts', authMiddleware, requirePermission('contract_manage'),
         INSERT INTO monthly_details (
           contract_id, target_month, amount, amount_with_tax, name, notes,
           billing_status, billing_date,
-          payment_status, expected_payment_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          payment_status, expected_payment_date,
+          acceptance_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         contractId, months[i], monthAmount, monthAmountWithTax, monthlyName, monthNote,
         '未請求', billingDateStr,
-        '未入金', expectedPaymentDateStr
+        '未入金', expectedPaymentDateStr,
+        acceptanceDateStr
       ).run()
       
       monthlyDetailIds.push(monthlyResult.meta.last_row_id)
@@ -9219,6 +9224,15 @@ app.get('/monthly/:id', async (c) => {
                     <i class="fas fa-file-invoice mr-2 text-orange-600"></i>請求情報
                 </h2>
                 <form id="billing-form" class="space-y-4">
+                    <!-- 検収日（読み取り専用） -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">検収日</label>
+                            <div class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
+                                ${monthly.acceptance_date || '—'}
+                            </div>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">請求ステータス</label>
@@ -14031,7 +14045,7 @@ app.get('/monthly-details', async (c) => {
           </div>
           
           <div class="mb-4">
-            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: ID,対象月,契約名,案件名,会社名,金額,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)</p>
+            <p class="text-sm text-gray-600 mb-2">CSVフォーマット: ID,対象月,契約名,案件名,会社名,金額,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)<br><span class="text-gray-400 text-xs">※ エクスポートCSVには検収日列が含まれますが、インポート時は無視されます（IDで既存レコードを更新）</span></p>
             <p class="text-sm text-red-600 mb-2">※既存データの更新のみ可能です（新規追加はできません）</p>
             <p class="text-sm text-gray-500 mb-2">例: 1,2026-01,Q1契約,開発案件,株式会社テスト,1000000,請求済,2026-02-01,INV-001,2026-02-28,yamada@example.com:800000:0.8;sato@example.com:700000:1.0</p>
             <input type="file" id="csv-file" accept=".csv" class="w-full px-3 py-2 border border-gray-300 rounded">
@@ -14095,6 +14109,7 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       md.id,
       md.target_month,
       md.amount,
+      md.acceptance_date,
       md.billing_status,
       md.billing_date,
       md.invoice_number,
@@ -14135,6 +14150,7 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       project_name: detail.project_name || '',
       company_name: detail.company_name || '',
       amount: detail.amount,
+      acceptance_date: (detail as any).acceptance_date || '',
       billing_status: detail.billing_status,
       billing_date: detail.billing_date || '',
       invoice_number: detail.invoice_number || '',
@@ -14144,7 +14160,7 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
   }
 
   // CSVヘッダー
-  const header = 'ID,対象月,契約名,案件名,会社名,金額,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)'
+  const header = 'ID,対象月,契約名,案件名,会社名,金額,検収日,請求ステータス,請求日,請求書番号,入金予定日,アサインメンバー(メール:単価:稼働率;で区切る)'
   
   // CSVボディ
   const body = csvRows.map(row => 
@@ -14155,6 +14171,7 @@ app.get('/api/monthly-details/export/csv', authMiddleware, requireAdmin, async (
       `"${row.project_name}"`,
       `"${row.company_name}"`,
       row.amount,
+      row.acceptance_date,
       row.billing_status,
       row.billing_date,
       `"${row.invoice_number}"`,
