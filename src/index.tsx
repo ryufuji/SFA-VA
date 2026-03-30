@@ -15104,8 +15104,8 @@ app.get('/members', async (c) => {
               addMemberButton.style.display = hasMemberManage ? '' : 'none';
             }
             const memberActionButtons = document.querySelectorAll('.member-manage-only');
-            memberActionButtons.forEach(btn => {
-              (btn as HTMLElement).style.display = hasMemberManage ? '' : 'none';
+            memberActionButtons.forEach(function(btn) {
+              btn.style.display = hasMemberManage ? '' : 'none';
             });
             // 削除ボタンを管理者のみ表示
             if (user.role === 'admin') {
