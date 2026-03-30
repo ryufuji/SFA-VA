@@ -392,7 +392,8 @@ app.get('/profile', (c) => {
           'lead_manage': 'リード・案件の登録/更新',
           'contract_manage': '契約の登録/更新',
           'billing_manage': '請求管理',
-          'payment_manage': '入金の登録'
+          'payment_manage': '入金の登録',
+          'member_manage': 'メンバー管理'
         };
         
         // ユーザー情報取得
@@ -797,6 +798,10 @@ app.get('/admin/users', (c) => {
               <input type="checkbox" value="payment_manage" class="permission-checkbox rounded text-blue-600 mr-2">
               <span class="text-gray-700">入金の登録</span>
             </label>
+            <label class="flex items-center">
+              <input type="checkbox" value="member_manage" class="permission-checkbox rounded text-blue-600 mr-2">
+              <span class="text-gray-700">メンバー管理</span>
+            </label>
           </div>
 
           <div class="flex space-x-3">
@@ -889,7 +894,8 @@ app.get('/admin/users', (c) => {
           'lead_manage': 'リード・案件',
           'contract_manage': '契約',
           'billing_manage': '請求',
-          'payment_manage': '入金'
+          'payment_manage': '入金',
+          'member_manage': 'メンバー管理'
         };
         
         let currentEditUserId = null;
@@ -3609,7 +3615,7 @@ app.put('/api/admin/users/:id/permissions', authMiddleware, requireAdmin, async 
     return c.json({ error: '権限は配列形式で指定してください' }, 400)
   }
   
-  const validPermissions = ['lead_manage', 'contract_manage', 'billing_manage', 'payment_manage']
+  const validPermissions = ['lead_manage', 'contract_manage', 'billing_manage', 'payment_manage', 'member_manage']
   const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p))
   if (invalidPermissions.length > 0) {
     return c.json({ error: `無効な権限が含まれています: ${invalidPermissions.join(', ')}` }, 400)
@@ -4423,8 +4429,8 @@ app.get('/api/members', async (c) => {
 })
 
 // API: メンバー作成
-// メンバー作成（管理者のみ）
-app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
+// メンバー作成（管理者 または member_manage権限）
+app.post('/api/members/create', authMiddleware, requirePermission('member_manage'), async (c) => {
   const body = await c.req.json()
   
   // 配列または単一オブジェクトを受け取る
@@ -4502,8 +4508,8 @@ app.post('/api/members/create', authMiddleware, requireAdmin, async (c) => {
 })
 
 // API: メンバー更新
-// メンバー更新（管理者のみ）
-app.put('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
+// メンバー更新（管理者 または member_manage権限）
+app.put('/api/members/:id', authMiddleware, requirePermission('member_manage'), async (c) => {
   const id = c.req.param('id')
   const { name, email, default_unit_price, position, memo } = await c.req.json()
 
@@ -4521,8 +4527,8 @@ app.put('/api/members/:id', authMiddleware, requireAdmin, async (c) => {
 })
 
 // API: メンバーステータス変更
-// メンバーステータス更新（管理者のみ）
-app.put('/api/members/:id/status', authMiddleware, requireAdmin, async (c) => {
+// メンバーステータス更新（管理者 または member_manage権限）
+app.put('/api/members/:id/status', authMiddleware, requirePermission('member_manage'), async (c) => {
   const id = c.req.param('id')
   const { status } = await c.req.json()
 
@@ -15072,6 +15078,8 @@ app.get('/members', async (c) => {
             if (adminMenu && user.role === 'admin') {
               adminMenu.style.display = '';
             }
+            // member_manage権限チェック（管理者 または member_manage権限保有者）
+            const hasMemberManage = user.role === 'admin' || (user.permissions && user.permissions.includes('member_manage'));
             // CSVインポート・エクスポートボタンを管理者のみ表示
             const csvImportButton = document.getElementById('csv-import-button');
             if (csvImportButton && user.role === 'admin') {
@@ -15085,6 +15093,15 @@ app.get('/members', async (c) => {
             if (syncUsersButton && user.role === 'admin') {
               syncUsersButton.style.display = '';
             }
+            // 追加ボタン・編集/無効化ボタンを member_manage 権限保有者にも表示
+            const addMemberButton = document.getElementById('add-member-button');
+            if (addMemberButton) {
+              addMemberButton.style.display = hasMemberManage ? '' : 'none';
+            }
+            const memberActionButtons = document.querySelectorAll('.member-manage-only');
+            memberActionButtons.forEach(btn => {
+              (btn as HTMLElement).style.display = hasMemberManage ? '' : 'none';
+            });
             // 削除ボタンを管理者のみ表示
             if (user.role === 'admin') {
               const deleteButtons = document.querySelectorAll('.admin-only-column');
@@ -15155,7 +15172,7 @@ app.get('/members', async (c) => {
             <button onclick="openCsvImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" id="csv-import-button" style="display: none;">
               <i class="fas fa-file-csv mr-2"></i>CSVインポート
             </button>
-            <button onclick="openAddMemberModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <button onclick="openAddMemberModal()" id="add-member-button" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" style="display: none;">
               <i class="fas fa-user-plus mr-2"></i>メンバーを追加
             </button>
           </div>
@@ -15257,16 +15274,15 @@ app.get('/members', async (c) => {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button onclick="editMember(${member.id}, '${member.name}', '${member.email || ''}', ${member.default_unit_price}, '${member.status}', '${member.position || ''}', '${(member.memo || '').replace(/'/g, "\\'")}');" 
-                            class="text-blue-600 hover:text-blue-800 mr-3">
+                            class="text-blue-600 hover:text-blue-800 mr-3 member-manage-only" style="display: none;">
                       <i class="fas fa-edit mr-1"></i>編集
                     </button>
                     <button onclick="confirmDeleteMember(${member.id}, '${member.name.replace(/'/g, "\\'")}');" 
                             class="text-red-600 hover:text-red-800 admin-only-column" style="display: none;">
                       <i class="fas fa-trash mr-1"></i>削除
                     </button>
-                    </button>
                     <button onclick="toggleMemberStatus(${member.id}, '${member.status}')" 
-                            class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800 mr-3">
+                            class="text-${member.status === 'active' ? 'red' : 'green'}-600 hover:text-${member.status === 'active' ? 'red' : 'green'}-800 mr-3 member-manage-only" style="display: none;">
                       <i class="fas fa-${member.status === 'active' ? 'ban' : 'check'} mr-1"></i>${member.status === 'active' ? '無効化' : '有効化'}
                     </button>
                     ${member.status === 'inactive' ? `
