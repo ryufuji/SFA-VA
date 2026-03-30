@@ -133,8 +133,9 @@ export async function logAction(
 export enum Permission {
   LEAD_MANAGE = 'lead_manage',           // リード・案件の登録/更新
   CONTRACT_MANAGE = 'contract_manage',   // 契約の登録/更新
-  INSPECTION_MANAGE = 'inspection_manage', // 検収・請求の更新
-  PAYMENT_MANAGE = 'payment_manage'      // 入金の登録
+  BILLING_MANAGE = 'billing_manage',     // 請求管理
+  PAYMENT_MANAGE = 'payment_manage',     // 入金の登録
+  MEMBER_MANAGE = 'member_manage'        // メンバー管理
 }
 
 /**
@@ -143,6 +144,7 @@ export enum Permission {
 export const ADMIN_PERMISSIONS = [
   Permission.LEAD_MANAGE,
   Permission.CONTRACT_MANAGE,
-  Permission.INSPECTION_MANAGE,
-  Permission.PAYMENT_MANAGE
+  Permission.BILLING_MANAGE,
+  Permission.PAYMENT_MANAGE,
+  Permission.MEMBER_MANAGE
 ];

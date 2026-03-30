@@ -3496,6 +3496,11 @@ app.get('/api/auth/me', authMiddleware, async (c) => {
   if (!userData) {
     return c.json({ error: 'ユーザーが見つかりません' }, 404)
   }
+
+  // DBから最新の権限を取得（JWTの権限は古い可能性があるため）
+  const latestPermissions = (userData as any).role === 'admin'
+    ? ADMIN_PERMISSIONS
+    : await getUserPermissions(c.env.DB, user.userId)
   
   return c.json({
     success: true,
@@ -3505,7 +3510,7 @@ app.get('/api/auth/me', authMiddleware, async (c) => {
       role: userData.role,
       name: userData.member_name || '管理者',
       lastLoginAt: userData.last_login_at,
-      permissions: user.permissions
+      permissions: latestPermissions
     }
   })
 })
