@@ -1244,7 +1244,7 @@ app.get('/details', (c) => {
               </div>
             </a>
 
-            <!-- 入金一覧 -->
+            <!-- 入金状況一覧 -->
             <a href="/payments" class="block">
               <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 hover:border-teal-500">
                 <div class="flex items-center mb-4">
@@ -1252,7 +1252,7 @@ app.get('/details', (c) => {
                     <i class="fas fa-money-bill-wave text-2xl text-teal-600"></i>
                   </div>
                   <div>
-                    <h2 class="text-xl font-semibold text-gray-900">入金一覧</h2>
+                    <h2 class="text-xl font-semibold text-gray-900">入金状況一覧</h2>
                     <p class="text-sm text-gray-500">リード単位の入金状況</p>
                   </div>
                 </div>
@@ -3386,7 +3386,7 @@ app.post('/api/payment-histories', authMiddleware, requirePermission('payment_ma
   return c.json({ success: true, message: 'Payment added successfully', totalPayment, paymentStatus })
 })
 
-// 入金一覧API（リード単位で月毎の入金総額を取得）
+// 入金状況一覧API（リード単位で月毎の入金総額を取得）
 app.get('/api/payment-summary', authMiddleware, async (c) => {
   const { DB } = c.env
   
@@ -12788,7 +12788,7 @@ app.get('/invoices/:id/pdf', async (c) => {
   `)
 })
 
-// 入金一覧画面
+// 入金状況一覧画面
 app.get('/payments', async (c) => {
   return c.html(`
     <!DOCTYPE html>
@@ -12796,7 +12796,7 @@ app.get('/payments', async (c) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>入金一覧 - SFA</title>
+        <title>入金状況一覧 - SFA</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
     </head>
@@ -12850,14 +12850,14 @@ app.get('/payments', async (c) => {
                 <!-- ヘッダー -->
                 <div class="mb-6">
                     <h1 class="text-3xl font-bold text-gray-900">
-                        <i class="fas fa-money-bill-wave mr-2"></i>入金一覧
+                        <i class="fas fa-money-bill-wave mr-2"></i>入金状況一覧
                     </h1>
                     <p class="mt-2 text-sm text-gray-600">
                         リード（会社）単位で月毎の入金総額を表示します
                     </p>
                 </div>
 
-                <!-- 入金一覧テーブル -->
+                <!-- 入金状況一覧テーブル -->
                 <div class="bg-white shadow rounded-lg overflow-hidden">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
@@ -12937,7 +12937,7 @@ app.get('/payments', async (c) => {
             }
           }
 
-          // 入金一覧を読み込む
+          // 入金状況一覧を読み込む
           async function loadPayments() {
             try {
               const response = await axios.get('/api/payment-summary');
@@ -13006,7 +13006,7 @@ app.get('/payments', async (c) => {
 
               document.getElementById('loading').style.display = 'none';
             } catch (error) {
-              console.error('入金一覧の読み込みに失敗しました:', error);
+              console.error('入金状況一覧の読み込みに失敗しました:', error);
               document.getElementById('loading').innerHTML = \`
                 <div class="text-center py-12">
                   <i class="fas fa-exclamation-triangle text-4xl text-red-600"></i>
