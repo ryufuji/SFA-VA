@@ -516,11 +516,25 @@ pm2 list
 ```
 
 ## 最終更新日
-2026-02-05
+2026-03-31
 
 ## 最近の更新内容
 
-### 2026-02-05 (最新): 月次明細に税込み額を表示、残額計算を税込み額ベースに変更
+### 2026-03-31 (最新): 大規模リファクタリング - コード分割
+- ✅ **index.tsxを20,049行→84行に削減（99.6%削減）**
+  - APIルートを16ファイルに分割（src/routes/api/）
+  - HTMLページルートを15ファイルに分割（src/routes/pages/）
+  - 共通ライブラリをsrc/lib/に集約（5ファイル）
+  - ヘルパー関数をimport-helpers.ts, helpers.tsに移動
+- ✅ **フロントエンド共通JS統合**
+  - 13ファイル20箇所のインラインAUTH_UTILS定義を削除
+  - public/static/auth.jsに共通認証ユーティリティを集約
+  - 全ページから外部スクリプトとして参照
+- ✅ **全131ルートの動作確認済み**
+  - 各フェーズ完了後にgitコミット（復元ポイント確保）
+  - ベースラインテスト（26 PASS / 2 FAIL: データ不足の既知404）と完全一致
+
+### 2026-02-05: 月次明細に税込み額を表示、残額計算を税込み額ベースに変更
 - ✅ **月次明細一覧画面の税込み額表示** ⭐ NEW!
   - 税抜金額と税込金額の両方のカラムを追加
   - ソート機能に`amount_with_tax`を追加
@@ -715,10 +729,10 @@ pm2 restart webapp
   - 対策: `--persist-to ./.wrangler` オプションを使用
 
 ### 今後の改善点
-- 認証機能の追加 (Cloudflare Access or 独自実装)
-- エラーハンドリングの強化
-- フロントエンドのコンポーネント化
-- TypeScript型定義の整備
+- ナビゲーションバーHTMLの共通化（layout.tsのテンプレート関数を各ページに適用）
+- フロントエンドのコンポーネント化（残りの重複コードの統合）
+- TypeScript型定義の整備（D1結果型の厳密化）
+- エラーハンドリングの強化（共通エラーハンドラーミドルウェア）
 
 ## 🚀 デプロイ方法
 
@@ -771,11 +785,78 @@ npx wrangler d1 execute webapp-production --remote --file=./seed_basic.sql
 
 ## 📊 プロジェクト統計
 
-- **コミット数**: 148件
-- **ファイル数**: 54件
-- **コード行数**: 23,609行
+- **コード行数**: 約20,000行（TypeScript/TSX）
 - **マイグレーション数**: 29個
 - **テーブル数**: 21個
+- **ルート数**: 131（API: 118, HTML画面: 13）
+
+## 🔧 コードアーキテクチャ（リファクタリング実施済み 2026-03-31）
+
+### ディレクトリ構造
+```
+src/
+├── index.tsx                  # エントリーポイント（84行 - ルート登録のみ）
+├── auth.ts                    # 認証ヘルパー（パスワードハッシュ、権限チェック等）
+├── renderer.tsx               # Hono JSX レンダラー
+├── middleware/
+│   └── auth.ts                # JWT認証・権限ミドルウェア
+├── lib/
+│   ├── types.ts               # 共通型定義（AppEnv等）
+│   ├── constants.ts           # 共通定数（EXPORT_TABLES, PERMISSION_LABELS等）
+│   ├── helpers.ts             # 共通ヘルパー（escapeCsvValue, exportTableToCsv等）
+│   ├── import-helpers.ts      # データインポート関連（transformRecord, validateRecord等）
+│   └── layout.ts              # HTMLレイアウトテンプレート（将来の共通化用）
+├── routes/
+│   ├── api/                   # APIルート（16ファイル, 5,384行）
+│   │   ├── leads.ts           # リードAPI
+│   │   ├── projects.ts        # 案件API
+│   │   ├── contracts.ts       # 契約API
+│   │   ├── monthly-details.ts # 月次明細API
+│   │   ├── members.ts         # メンバーAPI
+│   │   ├── quotes.ts          # 見積書API
+│   │   ├── invoices.ts        # 請求書API
+│   │   ├── bank-deposits.ts   # 入金消込API
+│   │   ├── payments.ts        # 入金履歴API
+│   │   ├── dashboard.ts       # ダッシュボードAPI
+│   │   ├── auth-routes.ts     # 認証API
+│   │   ├── admin-users.ts     # ユーザー管理API
+│   │   ├── admin-data.ts      # データ管理API（エクスポート/インポート）
+│   │   ├── company-info.ts    # 自社情報API
+│   │   ├── meeting-notes.ts   # 商談メモAPI
+│   │   └── monthly-member-assignments.ts  # メンバーアサインAPI
+│   └── pages/                 # HTMLページルート（15ファイル, 13,579行）
+│       ├── dashboard.ts       # ダッシュボード画面
+│       ├── leads.ts           # リード一覧・詳細画面
+│       ├── projects.ts        # 案件一覧・詳細画面
+│       ├── contracts.ts       # 契約一覧・詳細画面
+│       ├── monthly.ts         # 月次明細一覧・詳細画面
+│       ├── members.ts         # メンバー管理画面
+│       ├── quotes.ts          # 見積書一覧画面
+│       ├── invoices.ts        # 請求書一覧画面
+│       ├── bank-deposits.ts   # 入金消込画面
+│       ├── payments.ts        # 入金状況一覧画面
+│       ├── settings.ts        # 設定画面（自社情報、バックアップ）
+│       ├── admin.ts           # 管理者画面
+│       ├── auth-pages.ts      # ログイン・プロフィール画面
+│       ├── details.ts         # 詳細一覧ハブ画面
+│       └── misc.ts            # ヘルスチェック・テスト
+public/
+└── static/
+    ├── auth.js                # 共通認証ユーティリティ（全ページから参照）
+    ├── navbar.js              # ナビバー生成ユーティリティ（将来利用）
+    └── style.css              # カスタムCSS
+```
+
+### リファクタリング実績
+| フェーズ | 内容 | 結果 |
+|---------|------|------|
+| Phase 1+4 | 共通ライブラリ作成 | lib/ に5ファイル（659行）を集約 |
+| Phase 2 | APIルート分割 | 16ファイルに分離（5,384行） |
+| Phase 3 | HTMLページルート分割 | 15ファイルに分離（13,579行） |
+| Phase 4B+4C | index.tsx最終整理 | **20,049行 → 84行**（99.6%削減） |
+| Phase 5 | フロントエンド共通JS統合 | 20箇所のインラインAUTH_UTILSを外部ファイル化 |
+
+**バンドルサイズ変化**: 862KB → 838KB（24KB削減）
 
 ## 📝 ライセンス
 
