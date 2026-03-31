@@ -153,8 +153,13 @@ app.put('/:id/amount', authMiddleware, requirePermission('contract_manage'), asy
   const id = c.req.param('id')
   const { amount } = await c.req.json()
 
-  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first()
+  const current = await c.env.DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(id).first() as any
   if (!current) return c.notFound()
+
+  // 契約の税率を取得して税込み額を再計算
+  const contract = await c.env.DB.prepare('SELECT tax_rate FROM contracts WHERE id = ?').bind(current.contract_id).first() as any
+  const taxRate = contract?.tax_rate ?? 10
+  const amountWithTax = Math.round(amount * (1 + taxRate / 100))
 
   // 変更履歴を記録
   await c.env.DB.prepare(`
@@ -164,9 +169,9 @@ app.put('/:id/amount', authMiddleware, requirePermission('contract_manage'), asy
 
   await c.env.DB.prepare(`
     UPDATE monthly_details 
-    SET amount = ?, updated_at = CURRENT_TIMESTAMP
+    SET amount = ?, amount_with_tax = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(amount, id).run()
+  `).bind(amount, amountWithTax, id).run()
 
   return c.json({ success: true })
 })
