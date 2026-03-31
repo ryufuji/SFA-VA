@@ -2,258 +2,216 @@
 
 ## プロジェクト概要
 - **名前**: SFA (Sales Force Automation)
-- **目的**: 見込み顧客から継続取引までを一気通貫で管理
+- **目的**: 見込み顧客（リード）から継続取引までを一気通貫で管理する営業支援システム
 - **技術スタック**: Hono + Cloudflare Pages + D1 Database + TailwindCSS
 - **GitHubリポジトリ**: https://github.com/VALUEARCHITECTS/VA-SFA
 
-## 🌐 本番環境URL
+## 本番環境URL
 
-**プロジェクトURL**: https://webapp-85s.pages.dev/
+| 画面 | URL |
+|------|-----|
+| ダッシュボード | https://webapp-85s.pages.dev/ |
+| ログイン | https://webapp-85s.pages.dev/login |
+| ヘルスチェック | https://webapp-85s.pages.dev/health |
 
-**ダッシュボード**: https://webapp-85s.pages.dev/
-
-**ログイン**: https://webapp-85s.pages.dev/login
-
-**月次明細一覧**: https://webapp-85s.pages.dev/monthly-details
-
-**契約一覧**: https://webapp-85s.pages.dev/contracts
-
-**ヘルスチェック**: https://webapp-85s.pages.dev/health
-
-### 🔐 ログイン情報
+### ログイン情報
 - **メールアドレス**: admin@system.local
 - **パスワード**: va1234
 
-## 🌐 開発環境URL (サンドボックス環境)
+## 実装済み機能
 
-**ダッシュボード**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/
+### 画面一覧（SSR with Hono）
 
-**リード一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/leads
+| 画面 | パス | 概要 |
+|------|------|------|
+| ダッシュボード | `/` | 月次売上（確定/未検収）、未請求・未入金金額、売上推移グラフ、最近の契約一覧 |
+| リード一覧 | `/leads` | リード一覧表示、新規作成モーダル、CSVインポート/エクスポート |
+| リード詳細 | `/leads/:id` | 基本情報表示、関連案件一覧 |
+| 案件一覧 | `/projects` | 案件一覧表示（ソート機能付き）、CSVインポート/エクスポート |
+| 案件詳細 | `/projects/detail/:id` | 案件情報、関連契約一覧、見積書セクション（作成・PDF出力）、商談メモ |
+| 契約作成 | `/projects/detail/:projectId/contracts/new` | 契約情報入力、期間指定（1〜12ヶ月）、月次明細自動生成、プレビュー |
+| 契約一覧 | `/contracts` | 契約一覧表示、CSVインポート/エクスポート |
+| 契約詳細 | `/contracts/:id` | サマリーカード、月次明細タブ、アサインメンバータブ |
+| 月次明細一覧 | `/monthly-details` | 全月次明細、税抜・税込表示、検収/請求/入金バッジ、一括検収、CSVインポート/エクスポート |
+| 月次リスト | `/monthly-list` | 月次明細の簡易リスト表示 |
+| 月次明細詳細 | `/monthly/:id` | 基本情報・金額編集、検収/請求管理、請求書作成、入金管理（税込ベース残額計算）、メンバーアサイン、変更履歴 |
+| 見積書一覧 | `/quotes` | 見積書一覧、ステータスバッジ、PDF出力 |
+| 見積書詳細 | `/quotes/:id` | 金額サマリー、タブ（概要/明細/履歴）、ステータス変更、PDF出力 |
+| 見積書PDF | `/quotes/:id/pdf` | 見積書のPDF表示 |
+| 請求書一覧 | `/invoices` | 請求書一覧、PDF出力 |
+| 請求書詳細 | `/invoices/:id` | 請求書詳細表示 |
+| 請求書PDF | `/invoices/:id/pdf` | 請求書のPDF表示 |
+| 入金状況一覧 | `/payments` | リード単位の月毎入金集計、税抜/税込/入金総額、入金状況バッジ |
+| 入金消込 | `/bank-deposits` | 銀行入金一覧 |
+| 入金消込配分 | `/bank-deposits/:id/allocate` | 入金の配分設定 |
+| メンバー管理 | `/members` | メンバー一覧、追加・編集・ステータス変更 |
+| 詳細一覧ハブ | `/details` | 月次明細・見積書・請求書・入金一覧へのナビゲーション |
+| 自社情報管理 | `/settings/company` | 会社情報編集、銀行情報、ロゴ・印鑑アップロード（R2ストレージ） |
+| データバックアップ | `/settings/data-backup` | データのエクスポート/インポート管理 |
+| システム設定 | `/settings` | システム設定管理画面 |
+| ログイン | `/login` | JWT認証によるログイン |
+| プロフィール | `/profile` | ユーザープロフィール表示・編集 |
+| パスワード変更 | `/change-password` | パスワード変更 |
+| 管理者ユーザー管理 | `/admin/users` | ユーザー一覧、権限管理、アクティブ/非アクティブ切替 |
+| 管理者データインポート | `/admin/import` | 管理用データインポート画面 |
 
-**リード詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/leads/1
+### API一覧（REST）
 
-**案件詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/projects/detail/1
+**認証** (`/api/auth`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| POST | `/api/auth/login` | ログイン（JWT発行） |
+| GET | `/api/auth/me` | 現在のユーザー情報取得 |
+| POST | `/api/auth/change-password` | パスワード変更 |
+| POST | `/api/auth/logout` | ログアウト |
 
-**詳細一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/details
+**リード管理** (`/api/leads`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/leads` | リード一覧取得 |
+| GET | `/api/leads/:id` | リード詳細取得 |
+| POST | `/api/leads` | リード作成 |
+| PUT | `/api/leads/:id` | リード更新 |
+| PUT | `/api/leads/:id/status` | ステータス変更 |
+| DELETE | `/api/leads/:id` | リード削除 |
+| GET | `/api/leads/:id/delete-impact` | 削除影響範囲確認 |
+| GET | `/api/leads/export/csv` | CSVエクスポート |
+| POST | `/api/leads/import/csv` | CSVインポート |
 
-**見積書一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/quotes
+**案件管理** (`/api/projects`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/projects` | 案件一覧取得 |
+| GET | `/api/projects/:id` | 案件詳細取得 |
+| POST | `/api/projects` | 案件作成 |
+| PUT | `/api/projects/:id` | 案件更新 |
+| DELETE | `/api/projects/:id` | 案件削除 |
+| GET | `/api/projects/:id/delete-impact` | 削除影響範囲確認 |
+| GET | `/api/projects/export/csv` | CSVエクスポート |
+| POST | `/api/projects/import/csv` | CSVインポート |
+| GET | `/api/projects/:projectId/quotes` | 案件別見積書一覧 |
+| POST | `/api/projects/:projectId/quotes` | 見積書作成 |
+| GET | `/api/projects/:projectId/meeting-notes` | 商談メモ一覧 |
 
-**見積書詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/quotes/1
+**契約管理** (`/api/contracts`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/contracts/:id` | 契約詳細取得 |
+| POST | `/api/contracts` | 契約作成（月次明細自動生成） |
+| PUT | `/api/contracts/:id` | 契約更新 |
+| DELETE | `/api/contracts/:id` | 契約削除 |
+| GET | `/api/contracts/:id/delete-impact` | 削除影響範囲確認 |
+| GET | `/api/contracts/export/csv` | CSVエクスポート |
+| POST | `/api/contracts/import/csv` | CSVインポート |
 
-**契約一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts
+**月次明細管理** (`/api/monthly-details`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/monthly-details/unpaid` | 未入金明細一覧 |
+| GET | `/api/monthly-details/:id` | 月次明細詳細 |
+| PUT | `/api/monthly-details/:id` | 月次明細更新 |
+| PUT | `/api/monthly-details/:id/billing` | 請求情報更新 |
+| PUT | `/api/monthly-details/:id/amount` | 金額編集 |
+| DELETE | `/api/monthly-details/:id` | 月次明細削除 |
+| GET | `/api/monthly-details/:id/delete-impact` | 削除影響範囲確認 |
+| GET | `/api/monthly-details/export/csv` | CSVエクスポート |
+| POST | `/api/monthly-details/import/csv` | CSVインポート |
+| POST | `/api/monthly-details/:monthlyDetailId/invoice` | 請求書生成 |
 
-**契約詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/contracts/2
+**月次メンバーアサイン** (`/api/monthly-member-assignments`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| POST | `/api/monthly-member-assignments` | アサイン追加 |
+| POST | `/api/monthly-member-assignments/batch` | 一括アサイン |
+| PUT | `/api/monthly-member-assignments/:id` | アサイン更新 |
+| DELETE | `/api/monthly-member-assignments/:id` | アサイン削除 |
 
-**月次明細一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/monthly-details
+**入金管理** (`/api/payment-histories`, `/api/payment-summary`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| POST | `/api/payment-histories` | 入金履歴追加 |
+| DELETE | `/api/payment-histories/:id` | 入金履歴削除 |
+| POST | `/api/payment-histories/import/csv` | CSVインポート |
+| GET | `/api/payment-summary` | 入金状況一覧（リード単位集計） |
 
-**月次明細詳細 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/monthly/4
+**入金消込** (`/api/bank-deposits`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/bank-deposits` | 銀行入金一覧 |
+| GET | `/api/bank-deposits/:id` | 銀行入金詳細 |
+| POST | `/api/bank-deposits` | 銀行入金登録 |
+| POST | `/api/bank-deposits/:id/allocate` | 入金配分 |
 
-**契約作成 (例)**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/projects/detail/1/contracts/new
+**見積書管理** (`/api/quotes`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/quotes` | 見積書一覧 |
+| GET | `/api/quotes/:id` | 見積書詳細 |
+| PUT | `/api/quotes/:id` | 見積書更新 |
+| PUT | `/api/quotes/:id/status` | ステータス変更 |
+| GET | `/api/quotes/:id/status-history` | ステータス変更履歴 |
+| DELETE | `/api/quotes/:id` | 見積書削除 |
+| GET | `/api/quotes/:id/pdf-data` | PDF用データ取得 |
 
-**請求書一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/invoices
+**請求書管理** (`/api/invoices`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/invoices` | 請求書一覧 |
+| GET | `/api/invoices/:id` | 請求書詳細 |
+| PUT | `/api/invoices/:id` | 請求書更新 |
+| DELETE | `/api/invoices/:id` | 請求書削除 |
+| GET | `/api/invoices/:id/pdf-data` | PDF用データ取得 |
 
-**入金一覧**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/payments
+**ダッシュボード** (`/api/dashboard`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/dashboard/summary` | ダッシュボードサマリー |
+| GET | `/api/dashboard/sales-trend` | 月次売上推移 |
+| GET | `/api/dashboard/pending-tasks` | 未処理タスク |
 
-**メンバー管理**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/members
+**メンバー管理** (`/api/members`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/members` | メンバー一覧 |
+| POST | `/api/members/create` | メンバー作成 |
+| PUT | `/api/members/:id` | メンバー更新 |
+| PUT | `/api/members/:id/status` | ステータス変更 |
+| DELETE | `/api/members/:id` | メンバー削除 |
+| GET | `/api/members/:id/delete-impact` | 削除影響範囲確認 |
+| GET | `/api/members/export/csv` | CSVエクスポート |
+| POST | `/api/members/sync-users` | ユーザー同期 |
+| GET | `/api/members/workload` | 稼働状況 |
 
-**自社情報管理**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/settings/company
+**商談メモ** (`/api/meeting-notes`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| POST | `/api/meeting-notes` | メモ作成 |
+| PUT | `/api/meeting-notes/:id` | メモ更新 |
+| DELETE | `/api/meeting-notes/:id` | メモ削除 |
 
-**システムステータス**: https://3000-iv7sqp6gryhcbuljunite-dfc00ec5.sandbox.novita.ai/health
+**自社情報** (`/api/company-info`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/company-info` | 自社情報取得 |
+| PUT | `/api/company-info` | 自社情報更新 |
+| POST | `/api/company-info/upload-logo` | ロゴアップロード |
+| POST | `/api/company-info/upload-seal` | 印鑑アップロード |
+| GET | `/api/company-info/image/:type` | 画像取得 |
 
-## 現在の実装状況
-
-### ✅ 完了した機能 (Phase 1 - MVP)
-- **✅ データベース基盤**
-  - D1 Database (SQLite) の統合完了
-  - 15テーブルの完全なスキーマ実装（見積書・請求書・自社情報追加）
-  - マイグレーション・シードデータ投入済み
-  - ローカル開発環境セットアップ完了
-  
-- **✅ 画面実装 (SSR with Hono)**
-  - ✅ トップダッシュボード
-    - 月次売上（確定/未検収）、未請求・未入金金額の表示
-    - 月次売上推移グラフ (Chart.js)
-    - 最近の契約一覧
-  - ✅ リード一覧・作成機能
-    - 一覧表示 (ページネーション未実装)
-    - モーダルでの新規作成
-  - ✅ リード詳細画面
-    - 基本情報表示
-    - 関連案件の一覧表示
-  - ✅ 案件詳細画面 (ハブ画面) ⭐ 見積書機能追加
-    - 案件基本情報表示
-    - 関連する契約一覧
-    - **見積書セクション（一覧表示、作成モーダル、PDF出力）** ⭐ NEW
-    - 商談メモ機能
-    - 契約追加ボタン
-  - ✅ **見積書一覧画面** ⭐ 改善
-    - 全見積書の一覧表示
-    - ステータスバッジ表示（下書き、承認待ち、承認済み、却下、期限切れ）
-    - 見積番号クリックで詳細画面へ遷移
-    - PDF出力機能
-  - ✅ **見積書詳細画面** ⭐ NEW
-    - 金額サマリーカード（内訳表示の折りたたみ機能）
-    - タブ構造（概要、明細、履歴）
-    - 概要タブ: 基本情報、ステータス、備考
-    - 明細タブ: 見積明細の一覧表示
-    - 履歴タブ: ステータス変更履歴の表示
-    - ステータス変更機能（モーダル）
-    - PDF出力機能
-  - ✅ **自社情報管理画面** ⭐ NEW
-    - 会社情報編集（会社名、郵便番号、住所、登録番号）
-    - 銀行情報管理
-    - ロゴ・印鑑画像アップロード（R2ストレージ）
-    - 編集権限管理
-  - ✅ 契約詳細画面 (タブ構造)
-    - サマリーカード (契約金額、検収済、請求済、入金済)
-    - 月次明細タブ (一覧表示、税抜・税込の両方を表示)
-    - アサインメンバータブ (一覧表示、按分比率表示)
-  - ✅ **月次明細一覧画面** ⭐ 税込み額表示対応
-    - 全月次明細の一覧表示
-    - 税抜金額と税込金額の両方を表示
-    - 検収・請求・入金状況のバッジ表示
-    - 一括検収機能
-    - CSVインポート/エクスポート機能
-  - ✅ **月次明細詳細画面** ⭐ 税込み額表示・残額計算対応
-    - 基本情報表示と金額編集（税抜・税込の両方を表示）
-    - 検収情報管理（ステータス・日付）
-    - 請求情報管理（ステータス・日付・請求書番号）
-    - **請求書作成モーダル（月次明細から請求書を生成）**
-    - **入金管理（税込み額ベースの残額計算）** ⭐ 改善
-      - 予定金額（税込）、合計入金額、残額を表示
-      - 残額 = 税込み額 - 入金総額
-      - 進捗バーは税込み額を基準に計算
-      - 履歴一覧・追加・削除機能
-    - 月次メンバーアサイン（この月のみ、按分比率・想定売上）
-    - 変更履歴表示（監査証跡）
-  - ✅ **請求書一覧画面** ⭐ NEW
-    - 全請求書の一覧表示
-    - PDF出力機能
-  - ✅ **詳細一覧ハブ画面** ⭐ NEW
-    - 月次明細一覧、見積書一覧、請求書一覧、入金一覧への統合ハブページ
-    - カード形式のナビゲーション
-    - トップメニューバーから簡単にアクセス可能
-  - ✅ **入金一覧画面** ⭐ NEW (2026-02-05)
-    - リード（会社）単位で月毎の入金総額を表示
-    - 予定金額（税抜）、予定金額（税込）、入金総額（税込）を一覧表示
-    - 入金状況（未入金、部分入金、入金完了）をバッジで視覚的に表示
-    - 税込み金額（税抜き × 1.1）での入金判定に対応
-  - ✅ **契約作成機能**
-    - 契約情報入力フォーム
-    - 任意期間対応（単月〜12ヶ月）
-    - 月次明細の自動生成（均等割、端数は最初の月に加算）
-    - プレビュー機能
-  - ✅ **案件作成機能**
-    - リード詳細画面からの案件作成
-    - モーダル形式の入力フォーム
-  - ✅ **メンバー管理画面**
-    - メンバー一覧表示
-    - 新規メンバー追加（名前、メール、デフォルト単価）
-    - メンバー編集
-    - ステータス変更（有効/無効）
-  - ✅ **月次明細一括操作** ⭐ NEW (2026-02-03)
-    - チェックボックスによる複数選択
-    - 一括検収機能（検収日の自動設定、履歴記録）
-    - 選択件数のリアルタイム表示
-    - エラーハンドリングと結果レポート
-  - ✅ **CSVインポート機能**
-    - リードCSVインポート（会社名、部署、担当者、メール、電話、ステータス、メモ）
-    - 案件CSVインポート（案件名、会社名、営業担当、ステータス）
-    - 契約CSVインポート（契約情報 + **メンバーアサイン自動登録対応**）
-      - 契約期間から月次明細を自動生成
-      - メンバーメールアドレスをセミコロン(;)区切りで指定可能
-      - 指定メンバーを契約にアサイン（全月次明細に適用）
-
-- **✅ API実装** (RESTful)
-  - ダッシュボードAPI (サマリー、売上推移)
-  - リード管理 (一覧、詳細、作成)
-  - 案件管理 (詳細取得)
-  - **見積書管理** ⭐ 改善
-    - 見積書一覧取得（ステータス含む）
-    - 見積書詳細取得
-    - プロジェクト別見積書取得
-    - 見積書作成（自動番号生成）
-    - 見積書更新
-    - 見積書削除
-    - PDF用データ取得
-    - **ステータス変更API** ⭐ NEW
-    - **ステータス変更履歴取得API** ⭐ NEW
-  - **自社情報管理** ⭐ NEW
-    - 自社情報取得・更新
-    - ロゴ・印鑑画像アップロード（R2）
-    - 画像取得API
-  - **請求書管理** ⭐ NEW
-    - 請求書一覧取得
-    - 請求書詳細取得
-    - 月次明細から請求書作成（自動番号生成、明細自動生成）
-    - 請求書更新
-    - 請求書削除
-    - PDF用データ取得
-  - **入金管理** ⭐ NEW (2026-02-05)
-    - 入金一覧取得（リード単位で月毎の集計）
-    - 税込み金額（税抜き × 1.1）での入金判定
-    - 入金履歴追加・削除
-    - 入金ステータスの自動更新
-  - 契約管理 (詳細取得、月次明細・メンバー含む)
-  - **月次明細管理**
-    - 検収情報更新
-    - 請求情報更新
-    - 金額編集
-    - 入金履歴追加・削除
-    - 変更履歴記録
-  - **契約管理**
-    - 契約作成（月次明細自動生成）
-    - 契約詳細取得（月次明細・メンバー含む）
-  - **月次メンバーアサイン管理**
-    - メンバーアサイン追加
-    - メンバーアサイン更新
-    - メンバーアサイン削除
-    - 按分比率バリデーション
-  - **メンバー管理**
-    - メンバー一覧取得
-    - メンバー作成
-    - メンバー更新
-    - メンバーステータス変更
-  
-### 🚧 次に実装する機能 (Phase 2)
-- 🔲 検索・フィルター機能の強化
-  - リード一覧での検索（会社名、担当者名、ステータス）
-  - 案件一覧での検索（案件名、会社名、営業担当、ステータス）
-  - 見積書一覧での検索（見積番号、会社名、ステータス、金額範囲）
-  - 請求書一覧での検索（請求書番号、会社名、入金ステータス）
-- 🔲 ページネーション機能の追加
-  - 全一覧画面に20件/ページの表示制限
-  - ページ番号と次へ/前へボタン
-  - 総件数表示
-- 🔲 ダッシュボードUI拡張
-  - 未処理タスクセクションの追加（フロントエンド実装）
-  - 営業活動サマリーの表示
-  - メンバー稼働状況の可視化
-- 🔲 見積書の明細編集機能
-  - 明細の追加・編集・削除
-  - 明細の並び替え
-  - 金額の自動計算
-- 🔲 請求書のさらなる拡張
-  - 請求書詳細画面の実装
-  - 請求書の編集機能
-  - 入金情報との連携強化
-- 🔲 高度な警告機能の強化
-  - 契約金額と月次明細合計の差異警告（詳細表示）
-  - 按分比率合計の警告（自動計算）
-  - 過入金の詳細表示と警告
-  - ステータス遷移の順序警告（フロントエンド強化）
-- 🔲 UI/UX改善
-  - ページネーション機能
-  - 検索・フィルター機能
-  - ソート機能
-  - ローディング状態の表示
-
-### 📋 Phase 2 以降の機能
-- 認証・権限管理
-- ワークフロー・アラート機能
-- メール通知
-- 営業活動履歴
-- 月次按分の変動管理
+**管理者機能** (`/api/admin`)
+| メソッド | パス | 概要 |
+|---------|------|------|
+| GET | `/api/admin/users` | ユーザー一覧 |
+| PUT | `/api/admin/users/:id/permissions` | 権限変更 |
+| PUT | `/api/admin/users/:id/active` | アクティブ/非アクティブ切替 |
+| POST | `/api/admin/users/:id/reset-password` | パスワードリセット |
+| POST | `/api/admin/import` | データインポート |
+| GET | `/api/admin/data/export/all` | 全データエクスポート |
+| POST | `/api/admin/data/export/selective` | 選択エクスポート |
+| POST | `/api/admin/data/import/preview` | インポートプレビュー |
+| POST | `/api/admin/data/import/execute` | インポート実行 |
+| POST | `/api/admin/data/import/csv` | CSVインポート |
+| GET | `/api/admin/data/tables` | テーブル一覧 |
 
 ## データモデル
 
@@ -261,20 +219,37 @@
 ```
 リード (Lead)
   └── 1:N → 案件 (Project)
+        ├── 1:N → 見積書 (Quote) → 見積明細 (QuoteItem)
+        ├── 1:N → 商談メモ (MeetingNote)
         └── 1:N → 契約 (Contract)
               ├── 1:N → 月次明細 (MonthlyDetail)
-              │     └── 1:N → 入金履歴 (PaymentHistory)
-              └── N:M → メンバー (Member)
+              │     ├── 1:N → 入金履歴 (PaymentHistory)
+              │     ├── 1:N → 請求書 (Invoice) → 請求明細 (InvoiceItem)
+              │     └── N:M → メンバー (MonthlyMemberAssignment)
+              └── N:M → メンバー (ContractMemberAssignment)
+
+銀行入金 (BankDeposit) → 1:N → 入金配分 (DepositAllocation)
 ```
 
+### データベーステーブル（22テーブル）
+`audit_logs`, `bank_deposits`, `company_info`, `contract_member_assignments`, `contracts`, `deposit_allocations`, `invoice_items`, `invoices`, `leads`, `meeting_notes`, `members`, `monthly_details`, `monthly_member_assignments`, `payment_histories`, `projects`, `quote_items`, `quote_status_changes`, `quotes`, `status_change_histories`, `system_settings`, `user_permissions`, `users`
+
 ### 主要なビジネスルール
-1. **売上計上**: 検収済 = 売上計上 (発生主義)
-2. **契約作成時**: 月次明細を自動生成 (均等割)、税込み額も自動計算
-3. **ステータス変更**: 双方向遷移を許容、変更履歴を記録
-4. **入金管理**: 分割入金に対応、過入金も許容(警告表示)
-5. **税率管理** ⭐ NEW: 契約レベルで税率を設定（デフォルト10%）、月次明細に税込み額を事前計算
-6. **入金判定** ⭐ NEW: 入金総額と月次明細の税込み額(`amount_with_tax`)を直接比較
-7. **削除不可**: リード、案件、契約、月次明細は削除禁止 (ステータス管理)
+1. **売上計上**: 検収済 = 売上計上（発生主義）
+2. **契約作成時**: 月次明細を自動生成（均等割、端数は最初の月に加算）、税込み額も自動計算
+3. **ステータス変更**: 双方向遷移を許容、変更履歴を完全記録
+4. **入金管理**: 分割入金に対応、過入金も許容（警告表示）
+5. **税率管理**: 契約レベルで税率を設定（デフォルト10%）、月次明細に税込み額を事前計算して保存
+6. **入金判定**: 入金総額と月次明細の税込み額（`amount_with_tax`）を直接比較
+
+### 権限管理
+| 権限キー | 説明 |
+|---------|------|
+| `lead_manage` | リード・案件の登録/更新 |
+| `contract_manage` | 契約の登録/更新 |
+| `billing_manage` | 請求管理 |
+| `payment_manage` | 入金の登録 |
+| `member_manage` | メンバー管理 |
 
 ## CSVインポート機能
 
@@ -294,39 +269,21 @@
 ```csv
 契約名,案件名,会社名,部署名,契約種別,契約日,契約開始日,契約終了日,契約金額,支払種別,アサインメンバー,ステータス
 2026年Q1契約,システム開発案件,株式会社テスト,営業部,準委任,2025-12-20,2026-01-01,2026-03-31,3000000,毎月支払,yamada@example.com:800000:0.8;sato@example.com:700000:1.0,active
-2026年Q2契約,システム開発案件,株式会社テスト,営業部,準委任,2026-03-25,2026-04-01,2026-06-30,3600000,毎月支払,yamada@example.com:850000:1.0,active
 ```
 
-**アサインメンバーフォーマット:**
-```
-メールアドレス:単価:稼働率;メールアドレス:単価:稼働率
-```
+**アサインメンバーフォーマット**: `メールアドレス:単価:稼働率` をセミコロン(`;`)区切りで複数指定可能。単価・稼働率は省略可。
 
-**ポイント:**
-- **案件の識別**: 案件名 + 会社名 + 部署名で案件を特定（部署名は任意）
-  - 部署名を指定することで、同じ会社・同じ案件名でも部署別に管理可能
-  - 部署名を省略した場合は、案件名 + 会社名のみで検索
-- **契約日**: 契約締結日を指定可能（省略時は現在日時を使用）
-- アサインメンバーは複数指定可能（セミコロン`;`区切り）
-- 各メンバーの単価と稼働率を個別に設定可能（コロン`:`区切り）
-  - **メールアドレス**: 必須（メンバーの識別子）
-  - **単価**: 任意（省略時はメンバーのデフォルト単価を使用）
-  - **稼働率**: 任意（省略時は1.0、範囲: 0.0〜1.0）
-- 契約期間から月次明細が自動生成される
-- 指定されたメンバーが契約全体にアサインされる（全月次明細に適用）
-- メンバーはメールアドレスで識別される
+## システム設定
 
-**使用例:**
-```csv
-# メンバーに単価と稼働率を指定
-yamada@example.com:800000:0.8;sato@example.com:700000:1.0
+`system_settings` テーブルで管理（設定画面から変更可能）:
 
-# 単価のみ指定（稼働率は1.0がデフォルト）
-yamada@example.com:800000
-
-# メールアドレスのみ指定（デフォルト単価と稼働率1.0を使用）
-yamada@example.com;sato@example.com
-```
+| 設定キー | デフォルト値 | 説明 |
+|---------|------------|------|
+| `fiscal_year_start_month` | `4` | 会計年度開始月 (1-12) |
+| `default_allocation_mode` | `fixed` | 按分モード: fixed=固定, monthly=月次変動 |
+| `require_status_change_reason` | `rollback_only` | ステータス変更理由の必須設定 |
+| `allow_overpayment` | `true` | 過入金を許容するか |
+| `allow_status_rollback` | `true` | ステータス巻き戻しを許容するか |
 
 ## セットアップ手順
 
@@ -338,461 +295,58 @@ npm install
 
 ### 2. データベースのセットアップ
 ```bash
-# データベースのリセット (マイグレーション + シードデータ投入)
-npm run db:reset
-
+npm run db:reset    # マイグレーション + シードデータ投入
 # または個別に実行
-npm run db:migrate:local  # マイグレーション実行
+npm run db:migrate:local  # マイグレーションのみ
 npm run db:seed           # サンプルデータ投入
 ```
 
-### 3. ビルド
+### 3. ビルド・起動
 ```bash
 npm run build
-```
-
-### 4. 開発サーバーの起動
-
-#### 方法A: PM2 (推奨 - サンドボックス環境用)
-```bash
-# ポートのクリーンアップ
-npm run clean-port
-
-# PM2で起動
 pm2 start ecosystem.config.cjs
-
-# ログ確認
-pm2 logs webapp --nostream
-
-# 停止
-pm2 delete webapp
 ```
 
-#### 方法B: 直接起動 (ローカルマシン用)
+### 4. 動作確認
 ```bash
-npm run dev:sandbox
-```
-
-### 5. 動作確認
-```bash
-# ヘルスチェック
-curl http://localhost:3000
-
-# APIテスト
-curl http://localhost:3000/api/leads
+curl http://localhost:3000/health
 curl http://localhost:3000/api/dashboard/summary
 ```
-
-## URLs
-
-### 開発環境
-- **Web UI**: http://localhost:3000
-- **API Base**: http://localhost:3000/api
-
-### 主要なエンドポイント
-- `GET /` - トップダッシュボード
-- `GET /leads` - リード一覧
-- `GET /payments` - 入金一覧 ⭐ NEW
-- `GET /api/leads` - リードAPI (一覧)
-- `POST /api/leads` - リード作成
-- `GET /api/contracts/:id` - 契約詳細
-- `POST /api/contracts` - 契約作成 (月次明細自動生成)
-- `PUT /api/monthly-details/:id` - 月次明細更新
-- `POST /api/payment-histories` - 入金履歴追加
-- `GET /api/payment-summary` - 入金一覧取得 (リード単位集計) ⭐ NEW
-- `GET /api/dashboard/summary` - ダッシュボードサマリー
-- `GET /api/dashboard/sales-trend` - 月次売上推移
 
 ## 開発コマンド
 
 ```bash
-# データベース関連
+# データベース
 npm run db:migrate:local   # ローカルDBマイグレーション
 npm run db:migrate:prod    # 本番DBマイグレーション
 npm run db:seed            # サンプルデータ投入
 npm run db:reset           # DB完全リセット
-npm run db:console:local   # ローカルDB接続
 
 # ビルド・実行
 npm run build              # 本番ビルド
 npm run dev:sandbox        # サンドボックス開発サーバー
 npm run clean-port         # ポート3000のクリーンアップ
-npm run test               # 簡易動作確認
 
 # デプロイ
 npm run deploy             # Cloudflare Pagesにデプロイ
 npm run deploy:prod        # プロジェクト名指定でデプロイ
 ```
 
-## システム設定 (未回答の質問対応)
-
-システム設定は `system_settings` テーブルで管理されており、後から変更可能です:
-
-| 設定キー | デフォルト値 | 説明 |
-|---------|------------|------|
-| `fiscal_year_start_month` | `4` | 会計年度開始月 (1-12) |
-| `default_allocation_mode` | `fixed` | 按分モード: fixed=固定, monthly=月次変動 |
-| `require_status_change_reason` | `rollback_only` | ステータス変更理由: always=常に必須, rollback_only=巻き戻し時のみ, never=不要 |
-| `allow_overpayment` | `true` | 過入金を許容するか |
-| `allow_status_rollback` | `true` | ステータス巻き戻しを許容するか |
-
-### 設定変更方法
-```bash
-# SQLで直接変更
-npm run db:console:local
-
-# 例: 会計年度を1月開始に変更
-UPDATE system_settings SET value = '1' WHERE key = 'fiscal_year_start_month';
-
-# 例: ステータス変更理由を常に必須に
-UPDATE system_settings SET value = 'always' WHERE key = 'require_status_change_reason';
-```
-
-## サンプルデータ
-
-以下のサンプルデータが含まれています:
-- リード: 3社
-- 案件: 3件
-- 契約: 3件 (Q1 2026, Q2 2026, 単月契約)
-- 月次明細: 7件 (各種ステータス)
-- 入金履歴: 2件
-- メンバー: 3名
-- 契約メンバーアサイン: 4件
-
-## 次のステップ
-
-### Phase 1 残りタスク (優先度順)
-1. **P0 画面実装** (Week 1-2)
-   - [ ] リード詳細画面
-   - [ ] 案件詳細画面 (ハブ画面)
-   - [ ] 契約詳細画面 (タブ構造)
-   - [ ] 月次明細詳細画面
-
-2. **P1 画面実装** (Week 3-4)
-   - [ ] メンバー一覧・詳細画面
-   - [ ] 契約メンバー管理画面
-   - [ ] 売上ダッシュボード
-
-3. **P2 機能追加** (Week 5-6)
-   - [ ] 簡易認証機能
-   - [ ] 警告表示の実装
-   - [ ] ステータス変更履歴の表示充実
-
-### Phase 2 機能 (3-6ヶ月目)
-- 月次按分の変動管理
-- ワークフロー・アラート機能
-- メール通知 (Resend)
-- 権限管理 (ロールベース)
-- 営業活動履歴
-
-### Phase 3 機能 (6ヶ月以降)
-- 売上予測
-- 原価管理
-- メンバー稼働最適化提案
-- 外部API連携 (会計システム等)
-
-## トラブルシューティング
-
-### データベースが見つからないエラー
-```bash
-# .wranglerディレクトリをクリーンして再構築
-npm run db:reset
-npm run build
-pm2 delete webapp
-pm2 start ecosystem.config.cjs
-```
-
-### ポート3000が使用中
-```bash
-npm run clean-port
-# または
-fuser -k 3000/tcp
-```
-
-### PM2プロセスが残っている
-```bash
-pm2 delete all
-pm2 list
-```
-
-## 最終更新日
-2026-03-31
-
-## 最近の更新内容
-
-### 2026-03-31 (最新): 大規模リファクタリング - コード分割
-- ✅ **index.tsxを20,049行→84行に削減（99.6%削減）**
-  - APIルートを16ファイルに分割（src/routes/api/）
-  - HTMLページルートを15ファイルに分割（src/routes/pages/）
-  - 共通ライブラリをsrc/lib/に集約（5ファイル）
-  - ヘルパー関数をimport-helpers.ts, helpers.tsに移動
-- ✅ **フロントエンド共通JS統合**
-  - 13ファイル20箇所のインラインAUTH_UTILS定義を削除
-  - public/static/auth.jsに共通認証ユーティリティを集約
-  - 全ページから外部スクリプトとして参照
-- ✅ **全131ルートの動作確認済み**
-  - 各フェーズ完了後にgitコミット（復元ポイント確保）
-  - ベースラインテスト（26 PASS / 2 FAIL: データ不足の既知404）と完全一致
-
-### 2026-02-05: 月次明細に税込み額を表示、残額計算を税込み額ベースに変更
-- ✅ **月次明細一覧画面の税込み額表示** ⭐ NEW!
-  - 税抜金額と税込金額の両方のカラムを追加
-  - ソート機能に`amount_with_tax`を追加
-  
-- ✅ **月次明細詳細画面の税込み額表示** ⭐ NEW!
-  - 基本情報に税抜・税込の両方を表示
-  - 税込金額を大きく強調表示
-  
-- ✅ **入金情報の残額計算を税込み額ベースに変更** ⭐ IMPROVED!
-  - 残額計算: `remainingAmount = amount_with_tax - totalPayment`
-  - 入金サマリーに「予定金額（税込）」「合計入金額」「残額」を表示
-  - 進捗バーを税込み額を基準に計算
-  
-- ✅ **契約詳細の月次明細タブ** ⭐ IMPROVED!
-  - 税抜・税込の両方のカラムを追加
-  - SQLクエリのGROUP BYに`amount_with_tax`を追加
-
-- ✅ **シードファイルの更新** ⭐ IMPORTANT!
-  - `seed_basic.sql`: 契約に`tax_rate`（10.0）、月次明細に`amount_with_tax`を追加
-  - `seed.sql`: 全契約に`tax_rate`（10.0）、全月次明細に`amount_with_tax`を追加
-  - データバックアップ・リストア時に税率と税込み額が含まれるように対応
-
-### 2026-02-05: 契約登録時の税率管理機能を追加
-- ✅ **税率管理機能の実装** ⭐ NEW!
-  - `contracts`テーブルに`tax_rate`カラムを追加（デフォルト10%）
-  - 契約作成画面に税率入力フィールドを追加（0〜100%、0.1%刻み）
-  - 税込み金額の自動計算と表示機能
-  
-- ✅ **月次明細の税込み額を事前計算** ⭐ NEW!
-  - `monthly_details`テーブルに`amount_with_tax`カラムを追加
-  - 契約作成時に月次明細の税込み額を計算して保存
-  - `amount_with_tax = amount × (1 + tax_rate / 100)`
-  
-- ✅ **入金判定ロジックの改善** ⭐ NEW!
-  - 入金総額と税込み額(`amount_with_tax`)を直接比較
-  - 従来の1.1倍計算を削除し、データベースに保存された税込み額を参照
-  - 契約完了判定も税込み額で直接比較
-  
-- ✅ **入金一覧APIの改善**
-  - 税込み額を直接参照するように変更（`SUM(md.amount_with_tax)`）
-  - より正確な入金状況の集計が可能に
-
-- ✅ **マイグレーション実装**
-  - `0029_add_tax_rate_and_amount_with_tax.sql`を追加
-  - 既存データに対して税率10%を自動設定
-  - 既存月次明細の税込み額を自動計算（`amount × 1.1`）
-
-### 2026-02-05: 入金機能の税金対応
-- ✅ **入金判定ロジックの税金対応** ⭐ NEW!
-  - 月次明細の金額を税抜きとして扱い、入金判定時に税込み金額（税抜き × 1.1）で比較
-  - 入金ステータス（未入金、部分入金、入金完了）の判定を税込み金額ベースに変更
-  - 契約完了判定も税込み金額ベースに更新
-  
-- ✅ **入金一覧画面の追加** ⭐ NEW!
-  - リード（会社）単位で月毎の入金総額を集計
-  - 予定金額（税抜）、予定金額（税込）、入金総額（税込）を一覧表示
-  - 入金状況をバッジで視覚的に表示（未入金、部分入金、入金完了）
-  - `/payments` エンドポイントで画面にアクセス可能
-  
-- ✅ **入金一覧APIエンドポイント** ⭐ NEW!
-  - `GET /api/payment-summary` - リード単位で月毎の入金総額を集計
-  - 会社名、部署名、年月、税抜き金額、税込み金額、入金総額を返却
-  - 認証必須（authMiddleware）
-  
-- ✅ **詳細一覧ハブページの拡張**
-  - 入金一覧カードを追加（4列レイアウトに変更）
-  - 月次明細一覧、見積書一覧、請求書一覧、入金一覧の4つの機能にアクセス可能
-
-### 2026-02-03: Phase 1 & Phase 2 機能実装完了
-- ✅ **月次明細の一括検収機能** ⭐ NEW!
-  - チェックボックスによる複数選択UI実装
-  - 一括検収APIエンドポイント追加 (`POST /api/monthly-details/bulk-inspect`)
-  - 選択件数の表示とリアルタイム更新
-  - 変更履歴の自動記録機能
-  - エラーハンドリングと成功/失敗のレポート機能
-  
-- ✅ **既存機能の確認と文書化**
-  - 案件一覧画面（ソート機能付き）の確認
-  - ダッシュボード拡張API（`/api/dashboard/pending-tasks`）の確認
-  - メンバー稼働率表示機能の確認
-
-- 📝 **次のステップ**
-  - 検索・フィルター機能の追加（リード、案件、見積書、請求書一覧）
-  - ページネーション機能の実装（データ量増加対策）
-  - ダッシュボードでの未処理タスク表示（フロントエンド実装）
-
-### 2026-01-22 (最新): 認証エラー修正とナビゲーション完全統一
-- ✅ **認証エラーの修正**
-  - 見積書詳細ページ (`/quotes/:id`) と請求書詳細ページ (`/invoices/:id`) から `authMiddleware` を削除
-  - ページHTMLは認証なしでアクセス可能に、データ取得APIのみ認証が必要
-  - 見積書一覧から詳細ページへの遷移時の「認証が必要です」エラーを解決
-  
-- ✅ **ナビゲーションの完全統一**
-  - 見積書詳細・請求書詳細ページのナビゲーションを標準構成に統一
-  - すべてのページで一貫したメニュー構成を実現
-    - 左側: ダッシュボード、リード、案件、契約、詳細一覧
-    - 右側: ユーザー名、プロフィール、設定、ログアウト
-  
-- ✅ **セキュリティ確認**
-  - 画面表示ルート: 認証なしでアクセス可能（HTMLのみ）
-  - APIエンドポイント: 認証必須で適切に保護
-  - 全主要ページのアクセステスト完了
-
-### 2026-01-22: 詳細一覧ハブページの追加とナビゲーション改善
-- ✅ **詳細一覧ハブページの新規作成**
-  - 月次明細一覧、見積書一覧、請求書一覧への統合ナビゲーションページ
-  - カード形式のレイアウトで各一覧ページへ簡単にアクセス可能
-  - 各一覧の説明文を追加し、ユーザビリティを向上
-  
-- ✅ **トップメニューバーの再構成**
-  - 「明細」と「メンバー」を「詳細一覧」に統合
-  - 新しいメニュー構成: ダッシュボード、リード、案件、契約、詳細一覧
-  - すべてのページのナビゲーションを統一
-  
-- ✅ **UX改善**
-  - 関連する一覧ページをグループ化し、情報アーキテクチャを改善
-  - メニューバーの項目数を削減し、シンプルで使いやすいナビゲーションに
-
-### 2026-01-21: 見積書機能の大幅改善
-- ✅ **見積書詳細画面の新規作成**
-  - 金額サマリーカードによる視覚的な情報提示
-  - 発行先企業情報の優先的な表示
-  - 内訳の折りたたみ表示機能
-  
-- ✅ **タブ構造の導入**
-  - 概要タブ: 基本情報、ステータス、備考の表示
-  - 明細タブ: 見積明細の一覧表示
-  - 履歴タブ: ステータス変更履歴の表示
-  
-- ✅ **ステータス管理機能**
-  - ステータスの追加（下書き、承認待ち、承認済み、却下、期限切れ）
-  - ステータス変更API実装
-  - ステータス変更履歴の記録・表示
-  - モーダルによるステータス変更UI
-  
-- ✅ **見積書一覧画面の改善**
-  - ステータスバッジの表示
-  - 見積番号クリックで詳細画面へ遷移
-  - 視認性の向上
-  
-- ✅ **データベーススキーマ拡張**
-  - quotesテーブルにstatusカラム追加
-  - quote_status_changesテーブルの新規作成
-  
-- ✅ **UX改善**
-  - 見積書作成後に詳細画面へ自動遷移
-  - パンくずリストの追加
-  - レスポンシブ対応のテーブル表示
-
-## データベースのリセットについて
-
-### ⚠️ .wranglerディレクトリ削除時の注意
-`.wrangler`ディレクトリを削除すると、ローカルD1データベースの全データが消失します。
-データを保護するために、以下の手順を実行してください:
-
-```bash
-# 1. .wranglerディレクトリを削除
-rm -rf .wrangler
-
-# 2. マイグレーションを再実行
-npm run db:migrate:local
-
-# 3. 基本的なシードデータを投入
-npx wrangler d1 execute webapp-production --local --file=./seed_basic.sql
-
-# 4. アプリケーションをビルド・再起動
-npm run build
-pm2 restart webapp
-```
-
-### シードデータファイル
-- `seed.sql`: 充実したテストデータ（現在未使用）
-- `seed_basic.sql`: 基本的なテストデータ（推奨）
-
-## 開発者メモ
-
-### 設計判断のログ
-- **契約期間**: 任意の期間を許容 (1ヶ月〜12ヶ月)
-- **月次明細金額**: 編集可能、契約金額との差異は警告のみ
-- **メンバー按分**: Phase 1は固定按分のみ
-- **ステータス巻き戻し**: 許容、変更履歴を完全記録
-- **入金管理**: 発生主義 (検収ベース売上計上)
-- **税率管理** ⭐ NEW: 契約レベルで設定、月次明細に税込み額を事前計算して保存
-  - 税率はデフォルト10%（消費税）、契約ごとに変更可能
-  - 月次明細の`amount_with_tax`に事前計算した税込み額を保存
-  - 入金判定は税込み額で直接比較（パフォーマンス向上）
-
-### 既知の問題
-- PM2起動時に`.wrangler`ディレクトリのパスが一致しない場合がある
-  - 解決策: `npm run db:reset` でデータベースを再構築
-- D1 Databaseのローカル開発時、wrangler pages devが別のDBインスタンスを使用する可能性
-  - 対策: `--persist-to ./.wrangler` オプションを使用
-
-### 今後の改善点
-- ナビゲーションバーHTMLの共通化（layout.tsのテンプレート関数を各ページに適用）
-- フロントエンドのコンポーネント化（残りの重複コードの統合）
-- TypeScript型定義の整備（D1結果型の厳密化）
-- エラーハンドリングの強化（共通エラーハンドラーミドルウェア）
-
-## 🚀 デプロイ方法
-
-### ローカル開発環境
-
-```bash
-# 依存関係のインストール
-npm install
-
-# データベースのセットアップ
-npm run db:reset
-
-# 開発サーバーの起動
-npm run build
-pm2 start ecosystem.config.cjs
-
-# サーバーの確認
-curl http://localhost:3000/health
-```
+## デプロイ
 
 ### 本番環境（Cloudflare Pages）
-
 ```bash
-# ビルド
 npm run build
-
-# デプロイ
 npx wrangler pages deploy dist --project-name webapp --commit-message "Update" --commit-dirty=true
 ```
 
-### データベースマイグレーション
-
+### データベースマイグレーション（本番）
 ```bash
-# ローカル環境
-npx wrangler d1 migrations apply webapp-production --local
-
-# 本番環境（リモート）
 npx wrangler d1 migrations apply webapp-production --remote
 ```
 
-### データ投入
+## コードアーキテクチャ
 
-```bash
-# ローカル環境
-npx wrangler d1 execute webapp-production --local --file=./seed_basic.sql
-
-# 本番環境（リモート）
-npx wrangler d1 execute webapp-production --remote --file=./seed_basic.sql
-```
-
-## 📊 プロジェクト統計
-
-- **コード行数**: 約20,000行（TypeScript/TSX）
-- **マイグレーション数**: 29個
-- **テーブル数**: 21個
-- **ルート数**: 131（API: 118, HTML画面: 13）
-
-## 🔧 コードアーキテクチャ（リファクタリング実施済み 2026-03-31）
-
-### ディレクトリ構造
 ```
 src/
 ├── index.tsx                  # エントリーポイント（84行 - ルート登録のみ）
@@ -805,59 +359,49 @@ src/
 │   ├── constants.ts           # 共通定数（EXPORT_TABLES, PERMISSION_LABELS等）
 │   ├── helpers.ts             # 共通ヘルパー（escapeCsvValue, exportTableToCsv等）
 │   ├── import-helpers.ts      # データインポート関連（transformRecord, validateRecord等）
-│   └── layout.ts              # HTMLレイアウトテンプレート（将来の共通化用）
+│   └── layout.ts              # HTMLレイアウトテンプレート
 ├── routes/
-│   ├── api/                   # APIルート（16ファイル, 5,384行）
-│   │   ├── leads.ts           # リードAPI
-│   │   ├── projects.ts        # 案件API
-│   │   ├── contracts.ts       # 契約API
-│   │   ├── monthly-details.ts # 月次明細API
-│   │   ├── members.ts         # メンバーAPI
-│   │   ├── quotes.ts          # 見積書API
-│   │   ├── invoices.ts        # 請求書API
-│   │   ├── bank-deposits.ts   # 入金消込API
-│   │   ├── payments.ts        # 入金履歴API
-│   │   ├── dashboard.ts       # ダッシュボードAPI
-│   │   ├── auth-routes.ts     # 認証API
-│   │   ├── admin-users.ts     # ユーザー管理API
-│   │   ├── admin-data.ts      # データ管理API（エクスポート/インポート）
-│   │   ├── company-info.ts    # 自社情報API
-│   │   ├── meeting-notes.ts   # 商談メモAPI
-│   │   └── monthly-member-assignments.ts  # メンバーアサインAPI
-│   └── pages/                 # HTMLページルート（15ファイル, 13,579行）
-│       ├── dashboard.ts       # ダッシュボード画面
-│       ├── leads.ts           # リード一覧・詳細画面
-│       ├── projects.ts        # 案件一覧・詳細画面
-│       ├── contracts.ts       # 契約一覧・詳細画面
-│       ├── monthly.ts         # 月次明細一覧・詳細画面
-│       ├── members.ts         # メンバー管理画面
-│       ├── quotes.ts          # 見積書一覧画面
-│       ├── invoices.ts        # 請求書一覧画面
-│       ├── bank-deposits.ts   # 入金消込画面
-│       ├── payments.ts        # 入金状況一覧画面
-│       ├── settings.ts        # 設定画面（自社情報、バックアップ）
-│       ├── admin.ts           # 管理者画面
-│       ├── auth-pages.ts      # ログイン・プロフィール画面
-│       ├── details.ts         # 詳細一覧ハブ画面
-│       └── misc.ts            # ヘルスチェック・テスト
+│   ├── api/                   # APIルート（16ファイル）
+│   └── pages/                 # HTMLページルート（15ファイル）
 public/
 └── static/
     ├── auth.js                # 共通認証ユーティリティ（全ページから参照）
-    ├── navbar.js              # ナビバー生成ユーティリティ（将来利用）
+    ├── navbar.js              # ナビバー生成ユーティリティ
     └── style.css              # カスタムCSS
 ```
 
-### リファクタリング実績
-| フェーズ | 内容 | 結果 |
-|---------|------|------|
-| Phase 1+4 | 共通ライブラリ作成 | lib/ に5ファイル（659行）を集約 |
-| Phase 2 | APIルート分割 | 16ファイルに分離（5,384行） |
-| Phase 3 | HTMLページルート分割 | 15ファイルに分離（13,579行） |
-| Phase 4B+4C | index.tsx最終整理 | **20,049行 → 84行**（99.6%削減） |
-| Phase 5 | フロントエンド共通JS統合 | 20箇所のインラインAUTH_UTILSを外部ファイル化 |
+## プロジェクト統計
 
-**バンドルサイズ変化**: 862KB → 838KB（24KB削減）
+| 項目 | 数値 |
+|------|------|
+| コミット数 | 177件 |
+| TypeScript/TSX行数 | 約20,000行 |
+| ソースファイル数 | 43件 |
+| マイグレーション数 | 33個 |
+| データベーステーブル数 | 22個 |
+| 全ルート数 | 131（GET 42, POST 29, PUT 17, DELETE 11, ページ 32） |
+| バンドルサイズ | 838KB |
 
-## 📝 ライセンス
+## トラブルシューティング
+
+### データベースが見つからないエラー
+```bash
+npm run db:reset
+npm run build
+pm2 delete webapp
+pm2 start ecosystem.config.cjs
+```
+
+### ポート3000が使用中
+```bash
+npm run clean-port
+```
+
+### PM2プロセスが残っている
+```bash
+pm2 delete all
+```
+
+## ライセンス
 
 このプロジェクトは VALUE ARCHITECTS によって開発されています。
