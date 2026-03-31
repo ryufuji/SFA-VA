@@ -3,6 +3,7 @@ import type { AppEnv } from '../../lib/types'
 import { authMiddleware, requireAdmin } from '../../middleware/auth'
 import { logAction } from '../../auth'
 import { EXPORT_TABLES } from '../../lib/constants'
+import { exportTableToCsv } from '../../lib/helpers'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 const app = new Hono<AppEnv>()

@@ -48,3 +48,53 @@ export function escapeCsvValue(value: any): string {
   }
   return str
 }
+
+/**
+ * テーブルデータをCSV形式で取得
+ */
+export async function exportTableToCsv(DB: D1Database, tableName: string): Promise<string> {
+  try {
+    // テーブル情報を取得
+    const { results: tableInfo } = await DB.prepare(
+      `PRAGMA table_info(${tableName})`
+    ).all()
+    
+    if (!tableInfo || tableInfo.length === 0) {
+      return '' // テーブルが存在しない
+    }
+    
+    // カラム名を取得
+    const columns = tableInfo.map((col: any) => col.name)
+    
+    // データを取得（パスワードは除外）
+    let query = `SELECT * FROM ${tableName}`
+    let exportColumns = columns
+    
+    if (tableName === 'users') {
+      // ユーザーテーブルの場合、パスワードハッシュは除外
+      exportColumns = columns.filter(col => col !== 'password_hash')
+      query = `SELECT ${exportColumns.join(', ')} FROM ${tableName}`
+    }
+    
+    const { results } = await DB.prepare(query).all()
+    
+    // CSVヘッダー（エクスポート対象のカラムのみ）
+    let csv = exportColumns.join(',') + '\n'
+    
+    // データ行
+    if (results) {
+      for (const row of results) {
+        const values = exportColumns.map(col => {
+          const value = (row as any)[col]
+          return escapeCsvValue(value)
+        })
+        csv += values.join(',') + '\n'
+      }
+    }
+    
+    return csv
+  } catch (error) {
+    console.error(`Error exporting table ${tableName}:`, error)
+    return ''
+  }
+}

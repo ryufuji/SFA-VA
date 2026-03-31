@@ -3,6 +3,7 @@ import type { AppEnv } from '../../lib/types'
 import { authMiddleware, requireAdmin } from '../../middleware/auth'
 import { hashPassword, logAction } from '../../auth'
 import { VALID_PERMISSIONS } from '../../lib/constants'
+import { transformRecord, validateRecord, checkDuplicate, insertRecord } from '../../lib/import-helpers'
 
 const app = new Hono<AppEnv>()
 
