@@ -3232,6 +3232,28 @@ app.post('/api/contracts/import/csv', authMiddleware, requireAdmin, async (c) =>
 // 新しいバージョン（メンバーアサイン対応版）が優先されるはず
 
 // --- 月次明細 API ---
+// 未入金/部分入金の月次明細一覧（消込対象候補）
+// 注意: /api/monthly-details/:id より前に定義する必要がある（ルートマッチ順序）
+app.get('/api/monthly-details/unpaid', authMiddleware, requirePermission('payment_manage'), async (c) => {
+  const { DB } = c.env
+  const { results } = await DB.prepare(`
+    SELECT 
+      md.id, md.target_month, md.amount, md.amount_with_tax,
+      md.payment_status, md.total_payment_amount,
+      c.contract_name, c.id as contract_id,
+      p.project_name,
+      l.company_name, l.department
+    FROM monthly_details md
+    INNER JOIN contracts c ON md.contract_id = c.id
+    INNER JOIN projects p ON c.project_id = p.id
+    INNER JOIN leads l ON p.lead_id = l.id
+    WHERE md.payment_status IN ('未入金', '部分入金')
+      AND md.billing_status = '請求済'
+    ORDER BY md.target_month ASC, l.company_name ASC
+  `).all()
+  return c.json({ success: true, data: results })
+})
+
 // 月次明細詳細取得（認証必須、閲覧のみ）
 app.get('/api/monthly-details/:id', authMiddleware, async (c) => {
   const { DB } = c.env
@@ -3483,27 +3505,6 @@ app.post('/api/bank-deposits', authMiddleware, requirePermission('payment_manage
   `).bind(deposit_date, amount, payer_name, note || null, amount, user?.email || '管理者').run()
   
   return c.json({ success: true, id: result.meta.last_row_id })
-})
-
-// 未入金/部分入金の月次明細一覧（消込対象候補）
-app.get('/api/monthly-details/unpaid', authMiddleware, requirePermission('payment_manage'), async (c) => {
-  const { DB } = c.env
-  const { results } = await DB.prepare(`
-    SELECT 
-      md.id, md.target_month, md.amount, md.amount_with_tax,
-      md.payment_status, md.total_payment_amount,
-      c.contract_name, c.id as contract_id,
-      p.project_name,
-      l.company_name, l.department
-    FROM monthly_details md
-    INNER JOIN contracts c ON md.contract_id = c.id
-    INNER JOIN projects p ON c.project_id = p.id
-    INNER JOIN leads l ON p.lead_id = l.id
-    WHERE md.payment_status IN ('未入金', '部分入金')
-      AND md.billing_status = '請求済'
-    ORDER BY md.target_month ASC, l.company_name ASC
-  `).all()
-  return c.json({ success: true, data: results })
 })
 
 // 消込実行
