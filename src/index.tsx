@@ -18445,6 +18445,7 @@ const EXPORT_TABLES = [
   { name: 'leads', label: 'リード' },
   { name: 'users', label: 'ユーザー' },
   { name: 'company_info', label: '自社情報' },
+  { name: 'bank_deposits', label: '銀行入金' },
   // 第1レベル依存
   { name: 'user_permissions', label: 'ユーザー権限' },
   { name: 'projects', label: '案件' },
@@ -18457,7 +18458,8 @@ const EXPORT_TABLES = [
   { name: 'monthly_member_assignments', label: '月次メンバーアサイン' },
   { name: 'quotes', label: '見積書' },
   { name: 'invoices', label: '請求書' },
-  // 第4レベル依存
+  // 第4レベル依存（bank_deposits + monthly_details に依存）
+  { name: 'deposit_allocations', label: '入金消込' },
   { name: 'payment_histories', label: '入金履歴' },
   { name: 'quote_items', label: '見積書明細' },
   { name: 'quote_status_changes', label: '見積書ステータス変更履歴' },
