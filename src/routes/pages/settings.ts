@@ -165,21 +165,9 @@ app.get('/settings', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         // AUTH_UTILS - 認証ユーティリティ
-        const AUTH_UTILS = {
-          getToken: () => localStorage.getItem('jwt_token'),
-          checkAuth: () => {
-            if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
-              window.location.href = '/login';
-            }
-          },
-          logout: () => {
-            localStorage.removeItem('jwt_token');
-            document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-            window.location.href = '/login';
-          }
-        };
 
         // 認証チェック
         AUTH_UTILS.checkAuth();
@@ -430,6 +418,7 @@ app.get('/settings/company', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         const token = localStorage.getItem('jwt_token');
         if (!token) {
@@ -878,6 +867,7 @@ app.get('/settings/data-backup', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
       <script> 
                   onclick="closePreviewModal(); executeImport();" 
@@ -891,35 +881,10 @@ app.get('/settings/data-backup', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
       <script>
         // AUTH_UTILS - 認証ユーティリティ
-        const AUTH_UTILS = {
-          getToken: () => localStorage.getItem('jwt_token'),
-          checkAuth: () => {
-            if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
-              window.location.href = '/login';
-            }
-          },
-          logout: () => {
-            localStorage.removeItem('jwt_token');
-            document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-            window.location.href = '/login';
-          },
-          getCurrentUser: async function() {
-            try {
-              const token = this.getToken();
-              if (!token) return null;
-              const response = await axios.get('/api/auth/me', {
-                headers: { Authorization: \`Bearer \${token}\` }
-              });
-              return response.data.user;
-            } catch (error) {
-              console.error('Failed to get current user:', error);
-              return null;
-            }
-          }
-        };
 
         // 認証チェック
         AUTH_UTILS.checkAuth();

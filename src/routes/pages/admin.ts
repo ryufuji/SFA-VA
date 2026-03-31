@@ -187,6 +187,7 @@ app.get('/admin/users', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         const API_BASE = '';
         const token = localStorage.getItem('jwt_token');
@@ -574,37 +575,9 @@ app.get('/admin/import', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
       <script>
-        const AUTH_UTILS = {
-          checkAuth: function() {
-            const token = localStorage.getItem('jwt_token');
-            if (!token) {
-              window.location.href = '/login';
-              return false;
-            }
-            return true;
-          },
-          setupAxios: function() {
-            const token = localStorage.getItem('jwt_token');
-            if (token) {
-              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
-            }
-          },
-          logout: function() {
-            localStorage.removeItem('jwt_token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
-          },
-          getCurrentUser: async function() {
-            try {
-              const response = await axios.get('/api/auth/me');
-              return response.data.user;
-            } catch (error) {
-              return null;
-            }
-          }
-        };
 
         // CSVフォーマット定義
         const formats = {

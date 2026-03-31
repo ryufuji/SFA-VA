@@ -163,36 +163,8 @@ app.get('/quotes', async (c) => {
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
         <script>
-            const AUTH_UTILS = {
-              getToken: () => localStorage.getItem('jwt_token'),
-              checkAuth: () => {
-                if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
-                  window.location.href = '/login';
-                }
-              },
-              getCurrentUser: async () => {
-                try {
-                  const response = await axios.get('/api/auth/me', {
-                    headers: { 'Authorization': 'Bearer ' + AUTH_UTILS.getToken() }
-                  });
-                  return response.data.user;
-                } catch (error) {
-                  console.error('Failed to get current user:', error);
-                  return null;
-                }
-              },
-              logout: () => {
-                localStorage.removeItem('jwt_token');
-                window.location.href = '/login';
-              },
-              setupAxios: () => {
-                const token = AUTH_UTILS.getToken();
-                if (token) {
-                  axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
-                }
-              }
-            };
 
             AUTH_UTILS.checkAuth();
             AUTH_UTILS.setupAxios();
@@ -552,6 +524,7 @@ app.get('/quotes/:id', async (c) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
     </head>
     <body class="bg-gray-100">
         <!-- グローバルナビゲーション -->

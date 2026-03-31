@@ -125,51 +125,8 @@ app.get('/', async (c) => {
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
-        const AUTH_UTILS = {
-          getToken: function() { return localStorage.getItem('jwt_token'); },
-          checkAuth: function() {
-            const token = this.getToken();
-            if (!token) { window.location.href = '/login'; return false; }
-            return true;
-          },
-          getCurrentUser: async function() {
-            const token = this.getToken();
-            if (!token) return null;
-            try {
-              const response = await axios.get('/api/auth/me', {
-                headers: { 'Authorization': 'Bearer ' + token }
-              });
-              return response.data.user;
-            } catch (error) {
-              if (error.response?.status === 401) {
-                localStorage.removeItem('jwt_token');
-                window.location.href = '/login';
-              }
-              return null;
-            }
-          },
-          logout: async function() {
-            const token = this.getToken();
-            if (token) {
-              try {
-                await axios.post('/api/auth/logout', {}, {
-                  headers: { 'Authorization': 'Bearer ' + token }
-                });
-              } catch (error) {
-                console.error('ログアウトエラー:', error);
-              }
-            }
-            localStorage.removeItem('jwt_token');
-            window.location.href = '/login';
-          },
-          setupAxios: function() {
-            const token = this.getToken();
-            if (token) {
-              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
-            }
-          }
-        };
       </script>
     </head>
     <body class="bg-gray-100">
@@ -416,6 +373,7 @@ app.get('/', async (c) => {
       <!-- Chart.js -->
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         // Axiosセットアップ（認証ヘッダー設定）
         AUTH_UTILS.setupAxios();

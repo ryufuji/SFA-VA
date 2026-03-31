@@ -85,6 +85,7 @@ app.get('/login', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         // ページロード時に古いトークンをクリア
         // これにより、ログアウト後の404エラーを防ぐ
@@ -282,6 +283,7 @@ app.get('/profile', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         const API_BASE = '';
         const token = localStorage.getItem('jwt_token');
@@ -514,6 +516,7 @@ app.get('/change-password', (c) => {
       </div>
 
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
         // URLパラメータから必須かどうかを確認
         const urlParams = new URLSearchParams(window.location.search);

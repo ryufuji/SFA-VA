@@ -80,73 +80,9 @@ app.get('/contracts/:id', async (c) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
         <script>
           // 認証チェック用のユーティリティ関数（インライン定義）
-          const AUTH_UTILS = {
-            getToken: function() {
-              return localStorage.getItem('jwt_token');
-            },
-            checkAuth: function() {
-              const token = this.getToken();
-              if (!token) {
-                window.location.href = '/login';
-                return false;
-              }
-              return true;
-            },
-            getCurrentUser: async function() {
-              const token = this.getToken();
-              if (!token) return null;
-              try {
-                const response = await axios.get('/api/auth/me', {
-                  headers: { 'Authorization': 'Bearer ' + token }
-                });
-                return response.data.user;
-              } catch (error) {
-                if (error.response?.status === 401) {
-                  localStorage.removeItem('jwt_token');
-                  window.location.href = '/login';
-                }
-                return null;
-              }
-            },
-            hasPermission: function(user, permission) {
-              if (!user) return false;
-              if (user.role === 'admin') return true;
-              return user.permissions && user.permissions.includes(permission);
-            },
-            hasAnyPermission: function(user, permissions) {
-              if (!user) return false;
-              if (user.role === 'admin') return true;
-              return permissions.some(p => this.hasPermission(user, p));
-            },
-            logout: async function() {
-              const token = this.getToken();
-              if (token) {
-                try {
-                  await axios.post('/api/auth/logout', {}, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                  });
-                } catch (error) {
-                  console.error('ログアウトエラー:', error);
-                }
-              }
-              localStorage.removeItem('jwt_token');
-              window.location.href = '/login';
-            },
-            setupAxios: function() {
-              const token = this.getToken();
-              if (token) {
-                axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
-              }
-            },
-            PERMISSION_LABELS: {
-              'lead_manage': 'リード・案件の登録/更新',
-              'contract_manage': '契約の登録/更新',
-              'billing_manage': '請求管理',
-              'payment_manage': '入金の登録'
-            }
-          };
 
           // ナビゲーションバーユーティリティ
           const NAVBAR = {
@@ -666,51 +602,8 @@ app.get('/contracts', async (c) => {
       <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
       <script>
-        const AUTH_UTILS = {
-          getToken: function() { return localStorage.getItem('jwt_token'); },
-          checkAuth: function() {
-            const token = this.getToken();
-            if (!token) { window.location.href = '/login'; return false; }
-            return true;
-          },
-          getCurrentUser: async function() {
-            const token = this.getToken();
-            if (!token) return null;
-            try {
-              const response = await axios.get('/api/auth/me', {
-                headers: { 'Authorization': 'Bearer ' + token }
-              });
-              return response.data.user;
-            } catch (error) {
-              if (error.response?.status === 401) {
-                localStorage.removeItem('jwt_token');
-                window.location.href = '/login';
-              }
-              return null;
-            }
-          },
-          logout: async function() {
-            const token = this.getToken();
-            if (token) {
-              try {
-                await axios.post('/api/auth/logout', {}, {
-                  headers: { 'Authorization': 'Bearer ' + token }
-                });
-              } catch (error) {
-                console.error('ログアウトエラー:', error);
-              }
-            }
-            localStorage.removeItem('jwt_token');
-            window.location.href = '/login';
-          },
-          setupAxios: function() {
-            const token = this.getToken();
-            if (token) {
-              axios.defaults.headers.common['Authorization'] = 'Bearer ' + token;
-            }
-          }
-        };
         
         // ソート機能
         function sortTable(column) {

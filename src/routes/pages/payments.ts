@@ -117,21 +117,9 @@ app.get('/payments', async (c) => {
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+      <script src="/static/auth.js"></script>
         <script>
           // AUTH_UTILS - 認証ユーティリティ
-          const AUTH_UTILS = {
-            getToken: () => localStorage.getItem('jwt_token'),
-            checkAuth: () => {
-              if (!window.location.pathname.includes('/login') && !AUTH_UTILS.getToken()) {
-                window.location.href = '/login';
-              }
-            },
-            logout: () => {
-              localStorage.removeItem('jwt_token');
-              document.cookie = 'jwt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-              window.location.href = '/login';
-            }
-          };
 
           // 認証チェック
           AUTH_UTILS.checkAuth();
