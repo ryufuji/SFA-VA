@@ -11,8 +11,12 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "db:migrate:local": "wrangler d1 migrations apply webapp-production --local",
     "db:migrate:prod": "wrangler d1 migrations apply webapp-production",
-    "db:seed": "wrangler d1 execute webapp-production --local --file=./seed.sql",
+    "db:seed": "wrangler d1 execute webapp-production --local --file=./seed_basic.sql",
+    "db:seed:prod": "wrangler d1 execute webapp-production --local --file=./seed_production.sql",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed",
+    "db:reset:prod": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed:prod",
+    "seed:generate": "bash scripts/generate-seed-from-prod.sh",
+    "seed:generate:all": "bash scripts/generate-seed-from-prod.sh --all",
     "db:console:local": "wrangler d1 execute webapp-production --local",
     "clean-port": "fuser -k 3000/tcp 2>/dev/null || true",
     "test": "curl http://localhost:3000"
