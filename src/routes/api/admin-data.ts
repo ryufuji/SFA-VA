@@ -343,219 +343,323 @@ app.post('/import/execute', authMiddleware, requireAdmin, async (c) => {
     const metadataStr = strFromU8(metadataData)
     const metadata = JSON.parse(metadataStr)
     
-    const results = []
-    const deleteQueries = []  // DELETE用（逆順で実行）
-    const insertQueries = []  // INSERT用（正順で実行）
-    const queryInfo = [] // デバッグ用：各クエリの情報を記録
+    const results: any[] = []
     
     console.log('Starting import process. Mode:', mode, 'Tables:', metadata.tables.length)
-    
-    // Replaceモード: 既存データを削除（外部キー依存の逆順）
-    if (mode === 'replace') {
-      console.log('Replace mode: preparing DELETE queries in reverse order')
-      const reversedTables = [...metadata.tables].reverse()
-      for (const table of reversedTables) {
-        const deleteQuery = DB.prepare(`DELETE FROM ${table.name}`)
-        deleteQueries.push(deleteQuery)
-        queryInfo.push({ type: 'DELETE', sql: `DELETE FROM ${table.name}`, table: table.name })
-        console.log(`Added DELETE query for table: ${table.name}`)
+
+    // CSV全体をパースして行（レコード）の配列を返す関数
+    // 改行を含むクォートフィールドにも対応
+    const parseCsvRecords = (csv: string): string[][] => {
+      const records: string[][] = []
+      let i = 0
+      const len = csv.length
+      
+      while (i < len) {
+        const record: string[] = []
+        // 1レコードを読み取る
+        while (i < len) {
+          let value = ''
+          if (csv[i] === '"') {
+            // クォートフィールド: 次の閉じクォートまで（""はエスケープ）
+            i++ // 開始クォートをスキップ
+            while (i < len) {
+              if (csv[i] === '"') {
+                if (i + 1 < len && csv[i + 1] === '"') {
+                  value += '"'
+                  i += 2
+                } else {
+                  i++ // 閉じクォートをスキップ
+                  break
+                }
+              } else {
+                value += csv[i]
+                i++
+              }
+            }
+            // クォート後のカンマ or 改行をスキップ
+            if (i < len && csv[i] === ',') {
+              i++
+              record.push(value)
+              continue
+            }
+          } else {
+            // 非クォートフィールド: カンマ or 改行まで
+            while (i < len && csv[i] !== ',' && csv[i] !== '\n' && csv[i] !== '\r') {
+              value += csv[i]
+              i++
+            }
+            if (i < len && csv[i] === ',') {
+              i++
+              record.push(value.trim())
+              continue
+            }
+          }
+          record.push(value.trim())
+          break
+        }
+        // 改行をスキップ
+        while (i < len && (csv[i] === '\r' || csv[i] === '\n')) i++
+        // 空レコードをスキップ
+        if (record.length === 1 && record[0] === '') continue
+        records.push(record)
+      }
+      return records
+    }
+
+    // 値の整形関数（parseCsvRecordsがクォート処理済みなので簡素化）
+    const cleanValue = (v: string): string | null => {
+      if (v === '') return null
+      return v
+    }
+
+    // バッチを分割して実行するヘルパー（D1のバッチサイズ制限対策）
+    const BATCH_SIZE = 80 // D1の安全なバッチサイズ
+    const executeBatchInChunks = async (queries: any[]) => {
+      for (let i = 0; i < queries.length; i += BATCH_SIZE) {
+        const chunk = queries.slice(i, i + BATCH_SIZE)
+        console.log(`Executing batch chunk ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(queries.length / BATCH_SIZE)} (${chunk.length} queries)`)
+        await DB.batch(chunk)
       }
     }
     
-    // データインポート（外部キー依存順）
-    for (const table of metadata.tables) {
-      const csvData = findFile(table.file)
-      if (!csvData) {
-        console.log(`CSV file not found for table: ${table.name}`)
-        continue
+    // Replaceモード: 外部キー制約を無効化→全テーブルDELETE→データINSERT→外部キー再有効化
+    if (mode === 'replace') {
+      console.log('Replace mode: disabling foreign keys, deleting all data, then re-inserting')
+      
+      // 1. 外部キー制約を無効化してから全テーブルを削除
+      //    EXPORT_TABLESの逆順（依存先→依存元）でDELETEし、漏れを防ぐ
+      const deleteQueries: any[] = []
+      // EXPORT_TABLESの全テーブルを逆順で削除（metadata.tablesは部分集合の可能性があるため）
+      const importTableNames = new Set(metadata.tables.map((t: any) => t.name))
+      const allTableNamesReversed = [...EXPORT_TABLES].reverse()
+      
+      // 外部キーを無効化
+      deleteQueries.push(DB.prepare('PRAGMA foreign_keys = OFF'))
+      
+      for (const table of allTableNamesReversed) {
+        if (importTableNames.has(table.name)) {
+          deleteQueries.push(DB.prepare(`DELETE FROM ${table.name}`))
+          // AUTOINCREMENTシーケンスもリセット
+          deleteQueries.push(DB.prepare(`DELETE FROM sqlite_sequence WHERE name = ?`).bind(table.name))
+          console.log(`Added DELETE for table: ${table.name}`)
+        }
       }
       
-      const csv = strFromU8(csvData)
-      const lines = csv.split('\n').filter((line: string) => line.trim())
-      if (lines.length < 2) {
-        console.log(`No data rows for table: ${table.name}`)
-        continue
-      }
-      
-      console.log(`Processing table: ${table.name}, rows: ${lines.length - 1}`)
-      
-      let inserted = 0
-      let updated = 0
-      let errors = 0
-      
+      // DELETE実行
       try {
-        // ヘッダー行からカラム名を取得
-        let headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
-        console.log(`Table ${table.name} headers:`, headers)
-        
-        // usersテーブルの特別処理: password_hashが欠けている場合はデフォルト値を追加
-        const isUsersTable = table.name === 'users'
-        const hasPasswordHash = headers.includes('password_hash')
-        if (isUsersTable && !hasPasswordHash) {
-          headers.push('password_hash')
-          console.log(`Added password_hash column for users table`)
+        await executeBatchInChunks(deleteQueries)
+        console.log('All DELETE operations completed successfully')
+      } catch (deleteError: any) {
+        // 外部キーを再有効化してからエラー返却
+        try { await DB.prepare('PRAGMA foreign_keys = ON').run() } catch (_) {}
+        console.error('DELETE failed:', deleteError)
+        return c.json({
+          success: false,
+          error: 'データ削除に失敗しました: ' + deleteError.message,
+          details: { phase: 'delete', message: deleteError.message }
+        }, 500)
+      }
+      
+      // 2. データINSERT（EXPORT_TABLESの正順 = 依存元→依存先）
+      //    metadata.tablesの順序はEXPORT_TABLESと同じはずだが念のためEXPORT_TABLES順で処理
+      const orderedTables = EXPORT_TABLES
+        .filter(et => importTableNames.has(et.name))
+        .map(et => {
+          const meta = metadata.tables.find((t: any) => t.name === et.name)
+          return meta ? { ...meta, label: meta.label || et.label } : null
+        })
+        .filter(Boolean) as any[]
+      
+      for (const table of orderedTables) {
+        const csvData = findFile(table.file)
+        if (!csvData) {
+          console.log(`CSV file not found for table: ${table.name}`)
+          continue
         }
         
-        // データ行をインポート
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i]
-          const values = []
-          let current = ''
-          let inQuotes = false
+        const csv = strFromU8(csvData)
+        const records = parseCsvRecords(csv)
+        if (records.length < 2) {
+          console.log(`No data rows for table: ${table.name}`)
+          results.push({ table: table.name, label: table.label, inserted: 0, updated: 0, errors: 0 })
+          continue
+        }
+        
+        console.log(`Processing table: ${table.name}, rows: ${records.length - 1}`)
+        let inserted = 0
+        let errors = 0
+        
+        try {
+          let headers = records[0].map((h: string) => h.trim())
           
-          // CSVパース（クォート対応）
-          for (let j = 0; j < line.length; j++) {
-            const char = line[j]
-            if (char === '"') {
-              inQuotes = !inQuotes
-            } else if (char === ',' && !inQuotes) {
-              values.push(current.trim())
-              current = ''
-            } else {
-              current += char
-            }
-          }
-          values.push(current.trim())
-          
-          // 値の整形（クォート除去、空文字列をnullに変換）
-          const cleanValues = values.map(v => {
-            if (v === '') return null
-            if (v.startsWith('"') && v.endsWith('"')) {
-              return v.slice(1, -1).replace(/""/g, '"')
-            }
-            return v
-          })
-          
-          // usersテーブルでpassword_hashが欠けている場合、デフォルトのハッシュ値を追加
+          // usersテーブル: password_hashがエクスポート時に除外されているので追加
+          const isUsersTable = table.name === 'users'
+          const hasPasswordHash = headers.includes('password_hash')
           if (isUsersTable && !hasPasswordHash) {
-            // デフォルトパスワード 'admin123' のPBKDF2ハッシュ
-            cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
+            headers.push('password_hash')
           }
           
-          // usersテーブルでpassword_hashがNULLまたは空の場合、デフォルト値に置き換える
-          if (isUsersTable && hasPasswordHash) {
-            const passwordHashIndex = headers.indexOf('password_hash')
-            if (passwordHashIndex !== -1 && (!cleanValues[passwordHashIndex] || cleanValues[passwordHashIndex] === '')) {
-              cleanValues[passwordHashIndex] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
-              console.log(`Replaced empty password_hash with default for row ${i}`)
+          const insertQueries: any[] = []
+          
+          for (let i = 1; i < records.length; i++) {
+            const cleanValues = records[i].map(cleanValue)
+            
+            // usersテーブルのpassword_hash補完
+            if (isUsersTable && !hasPasswordHash) {
+              cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
             }
-          }
-          
-          if (mode === 'merge') {
-            // Mergeモード: UPSERT（ON CONFLICT）
+            if (isUsersTable && hasPasswordHash) {
+              const pwIdx = headers.indexOf('password_hash')
+              if (pwIdx !== -1 && (!cleanValues[pwIdx] || cleanValues[pwIdx] === '')) {
+                cleanValues[pwIdx] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
+              }
+            }
+            
+            // ヘッダー数と値の数の不一致チェック
+            if (cleanValues.length !== headers.length) {
+              console.warn(`Table ${table.name} row ${i}: header count ${headers.length} != value count ${cleanValues.length}, skipping`)
+              errors++
+              continue
+            }
+            
             const placeholders = headers.map(() => '?').join(', ')
-            const updateSet = headers
-              .filter(h => h !== 'id')
-              .map(h => `${h} = excluded.${h}`)
-              .join(', ')
-            
-            const sql = `INSERT INTO ${table.name} (${headers.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateSet}`
+            const sql = `INSERT INTO ${table.name} (${headers.join(', ')}) VALUES (${placeholders})`
             insertQueries.push(DB.prepare(sql).bind(...cleanValues))
-            queryInfo.push({ 
-              type: 'MERGE', 
-              sql, 
-              table: table.name, 
-              row: i, 
-              values: cleanValues.slice(0, 3) // 最初の3つの値のみ記録
-            })
-            updated++
-          } else {
-            // Replace/Appendモード: INSERT
-            // IDカラムがある場合、appendモードではIDを除外
-            let insertHeaders = headers
-            let insertValues = cleanValues
-            
-            if (mode === 'append' && headers.includes('id')) {
-              const idIndex = headers.indexOf('id')
-              insertHeaders = headers.filter((_, idx) => idx !== idIndex)
-              insertValues = cleanValues.filter((_, idx) => idx !== idIndex)
-            }
-            
-            const placeholders = insertHeaders.map(() => '?').join(', ')
-            const sql = `INSERT INTO ${table.name} (${insertHeaders.join(', ')}) VALUES (${placeholders})`
-            insertQueries.push(DB.prepare(sql).bind(...insertValues))
-            queryInfo.push({ 
-              type: 'INSERT', 
-              sql, 
-              table: table.name, 
-              row: i, 
-              values: insertValues.slice(0, 3) // 最初の3つの値のみ記録
-            })
             inserted++
           }
+          
+          // テーブルごとにバッチ実行
+          if (insertQueries.length > 0) {
+            await executeBatchInChunks(insertQueries)
+            console.log(`Table ${table.name}: inserted ${inserted} rows`)
+          }
+          
+          results.push({ table: table.name, label: table.label, inserted, updated: 0, errors })
+          
+        } catch (insertError: any) {
+          console.error(`INSERT error for table ${table.name}:`, insertError)
+          results.push({
+            table: table.name,
+            label: table.label,
+            inserted: 0,
+            updated: 0,
+            errors: 1,
+            error: insertError.message
+          })
+        }
+      }
+      
+      // 3. 外部キー制約を再有効化
+      try {
+        await DB.prepare('PRAGMA foreign_keys = ON').run()
+        console.log('Foreign keys re-enabled')
+      } catch (fkError: any) {
+        console.warn('Failed to re-enable foreign keys:', fkError.message)
+      }
+      
+    } else {
+      // Append/Mergeモード: テーブルごとに処理
+      for (const table of metadata.tables) {
+        const csvData = findFile(table.file)
+        if (!csvData) {
+          console.log(`CSV file not found for table: ${table.name}`)
+          continue
         }
         
-        console.log(`Table ${table.name}: prepared ${inserted + updated} queries`)
-        
-        results.push({
-          table: table.name,
-          label: table.label,
-          inserted,
-          updated: mode === 'merge' ? updated : 0,
-          errors
-        })
-        
-      } catch (error: any) {
-        console.error(`Import error for table ${table.name}:`, error)
-        results.push({
-          table: table.name,
-          label: table.label,
-          inserted: 0,
-          updated: 0,
-          errors: 1,
-          error: error.message
-        })
-      }
-    }
-    
-    console.log(`Total DELETE queries: ${deleteQueries.length}`)
-    console.log(`Total INSERT queries: ${insertQueries.length}`)
-    console.log(`Query info summary:`, queryInfo.slice(0, 10)) // 最初の10件のみログ出力
-    
-    // バッチ実行: DELETEとINSERTを1つのバッチにまとめる
-    // これにより、バッチ全体が成功または失敗するため、データ消失を防ぐ
-    try {
-      const allQueries = []
-      
-      if (mode === 'replace' && deleteQueries.length > 0) {
-        // Replaceモード: DELETEを先に追加（逆順）
-        console.log('Replace mode: Adding DELETE queries to batch (reverse order)')
-        allQueries.push(...deleteQueries)
-      }
-      
-      // INSERTを追加（正順）
-      if (insertQueries.length > 0) {
-        console.log('Adding INSERT queries to batch (forward order)')
-        allQueries.push(...insertQueries)
-      }
-      
-      // 1つのバッチとして実行
-      if (allQueries.length > 0) {
-        console.log(`Executing batch with ${allQueries.length} queries...`)
-        await DB.batch(allQueries)
-        console.log('Batch execution successful')
-      }
-    } catch (batchError: any) {
-      console.error('Batch execution failed:', batchError)
-      console.error('Error details:', {
-        message: batchError.message,
-        cause: batchError.cause,
-        stack: batchError.stack
-      })
-      
-      // より詳細なエラー情報を返す
-      return c.json({ 
-        success: false, 
-        error: 'バッチ実行に失敗しました',
-        details: {
-          message: batchError.message,
-          deleteQueries: deleteQueries.length,
-          insertQueries: insertQueries.length,
-          mode: mode,
-          tables: metadata.tables.map((t: any) => t.name),
-          queryInfoSample: queryInfo.slice(0, 20) // 最初の20クエリの情報
+        const csv = strFromU8(csvData)
+        const records = parseCsvRecords(csv)
+        if (records.length < 2) {
+          console.log(`No data rows for table: ${table.name}`)
+          continue
         }
-      }, 500)
+        
+        console.log(`Processing table: ${table.name}, rows: ${records.length - 1}`)
+        let inserted = 0
+        let updated = 0
+        let errors = 0
+        
+        try {
+          let headers = records[0].map((h: string) => h.trim())
+          
+          const isUsersTable = table.name === 'users'
+          const hasPasswordHash = headers.includes('password_hash')
+          if (isUsersTable && !hasPasswordHash) {
+            headers.push('password_hash')
+          }
+          
+          const insertQueries: any[] = []
+          
+          for (let i = 1; i < records.length; i++) {
+            const cleanValues = records[i].map(cleanValue)
+            
+            if (isUsersTable && !hasPasswordHash) {
+              cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
+            }
+            if (isUsersTable && hasPasswordHash) {
+              const pwIdx = headers.indexOf('password_hash')
+              if (pwIdx !== -1 && (!cleanValues[pwIdx] || cleanValues[pwIdx] === '')) {
+                cleanValues[pwIdx] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
+              }
+            }
+            
+            // ヘッダー数と値の数の不一致チェック
+            if (cleanValues.length !== headers.length) {
+              console.warn(`Table ${table.name} row ${i}: header count ${headers.length} != value count ${cleanValues.length}, skipping`)
+              errors++
+              continue
+            }
+            
+            if (mode === 'merge') {
+              const placeholders = headers.map(() => '?').join(', ')
+              const updateSet = headers
+                .filter(h => h !== 'id')
+                .map(h => `${h} = excluded.${h}`)
+                .join(', ')
+              const sql = `INSERT INTO ${table.name} (${headers.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateSet}`
+              insertQueries.push(DB.prepare(sql).bind(...cleanValues))
+              updated++
+            } else {
+              // Appendモード: IDを除外して新規INSERT
+              let insertHeaders = headers
+              let insertValues = cleanValues
+              if (headers.includes('id')) {
+                const idIndex = headers.indexOf('id')
+                insertHeaders = headers.filter((_: any, idx: number) => idx !== idIndex)
+                insertValues = cleanValues.filter((_: any, idx: number) => idx !== idIndex)
+              }
+              const placeholders = insertHeaders.map(() => '?').join(', ')
+              const sql = `INSERT INTO ${table.name} (${insertHeaders.join(', ')}) VALUES (${placeholders})`
+              insertQueries.push(DB.prepare(sql).bind(...insertValues))
+              inserted++
+            }
+          }
+          
+          // テーブルごとにバッチ実行
+          if (insertQueries.length > 0) {
+            await executeBatchInChunks(insertQueries)
+            console.log(`Table ${table.name}: ${mode === 'merge' ? 'merged' : 'inserted'} ${inserted + updated} rows`)
+          }
+          
+          results.push({
+            table: table.name,
+            label: table.label,
+            inserted,
+            updated: mode === 'merge' ? updated : 0,
+            errors
+          })
+          
+        } catch (error: any) {
+          console.error(`Import error for table ${table.name}:`, error)
+          results.push({
+            table: table.name,
+            label: table.label,
+            inserted: 0,
+            updated: 0,
+            errors: 1,
+            error: error.message
+          })
+        }
+      }
     }
     
     // ログ記録
@@ -620,105 +724,122 @@ app.post('/import/csv', authMiddleware, requireAdmin, async (c) => {
     
     // ファイルをテキストとして読み込み
     const csvText = await file.text()
-    const lines = csvText.split('\n').filter((line: string) => line.trim())
     
-    if (lines.length < 2) {
+    // CSV全体をパース（改行含むクォートフィールド対応）
+    const parseCsvRecords = (csv: string): string[][] => {
+      const records: string[][] = []
+      let i = 0
+      const len = csv.length
+      while (i < len) {
+        const record: string[] = []
+        while (i < len) {
+          let value = ''
+          if (csv[i] === '"') {
+            i++
+            while (i < len) {
+              if (csv[i] === '"') {
+                if (i + 1 < len && csv[i + 1] === '"') { value += '"'; i += 2 }
+                else { i++; break }
+              } else { value += csv[i]; i++ }
+            }
+            if (i < len && csv[i] === ',') { i++; record.push(value); continue }
+          } else {
+            while (i < len && csv[i] !== ',' && csv[i] !== '\n' && csv[i] !== '\r') { value += csv[i]; i++ }
+            if (i < len && csv[i] === ',') { i++; record.push(value.trim()); continue }
+          }
+          record.push(value.trim())
+          break
+        }
+        while (i < len && (csv[i] === '\r' || csv[i] === '\n')) i++
+        if (record.length === 1 && record[0] === '') continue
+        records.push(record)
+      }
+      return records
+    }
+    const cleanVal = (v: string): string | null => v === '' ? null : v
+    
+    const records = parseCsvRecords(csvText)
+    
+    if (records.length < 2) {
       return c.json({ error: 'CSVファイルにデータがありません' }, 400)
     }
     
-    console.log(`CSV Import - Table: ${tableName}, Mode: ${mode}, Rows: ${lines.length - 1}`)
+    console.log(`CSV Import - Table: ${tableName}, Mode: ${mode}, Rows: ${records.length - 1}`)
     
     let inserted = 0
     let updated = 0
     let errors = 0
-    
-    const deleteQueries = []
-    const insertQueries = []
+
+    const BATCH_SIZE = 80
+    const executeBatchInChunks = async (queries: any[]) => {
+      for (let i = 0; i < queries.length; i += BATCH_SIZE) {
+        const chunk = queries.slice(i, i + BATCH_SIZE)
+        await DB.batch(chunk)
+      }
+    }
     
     try {
-      // Replaceモード: テーブルのデータを削除
-      if (mode === 'replace') {
-        console.log(`Replace mode: preparing DELETE for table ${tableName}`)
-        const deleteQuery = DB.prepare(`DELETE FROM ${tableName}`)
-        deleteQueries.push(deleteQuery)
-      }
-      
       // ヘッダー行からカラム名を取得
-      let headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+      let headers = records[0].map((h: string) => h.trim())
       console.log(`Table ${tableName} headers:`, headers)
       
-      // usersテーブルの特別処理: password_hashが欠けている場合はデフォルト値を追加
+      // usersテーブルの特別処理
       const isUsersTable = tableName === 'users'
       const hasPasswordHash = headers.includes('password_hash')
       if (isUsersTable && !hasPasswordHash) {
         headers.push('password_hash')
-        console.log(`Added password_hash column for users table`)
       }
       
-      // データ行をインポート
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i]
-        const values = []
-        let current = ''
-        let inQuotes = false
+      // Replaceモード: 外部キーを無効化してDELETE
+      if (mode === 'replace') {
+        console.log(`Replace mode: disabling FK, deleting table ${tableName}`)
+        await DB.batch([
+          DB.prepare('PRAGMA foreign_keys = OFF'),
+          DB.prepare(`DELETE FROM ${tableName}`),
+          DB.prepare(`DELETE FROM sqlite_sequence WHERE name = ?`).bind(tableName)
+        ])
+      }
+      
+      const insertQueries: any[] = []
+      
+      for (let i = 1; i < records.length; i++) {
+        const cleanValues = records[i].map(cleanVal)
         
-        // CSVパース（クォート対応）
-        for (let j = 0; j < line.length; j++) {
-          const char = line[j]
-          if (char === '"') {
-            inQuotes = !inQuotes
-          } else if (char === ',' && !inQuotes) {
-            values.push(current.trim())
-            current = ''
-          } else {
-            current += char
-          }
-        }
-        values.push(current.trim())
-        
-        // 値の整形（クォート除去、空文字列をnullに変換）
-        const cleanValues = values.map(v => {
-          if (v === '') return null
-          if (v.startsWith('"') && v.endsWith('"')) {
-            return v.slice(1, -1).replace(/""/g, '"')
-          }
-          return v
-        })
-        
-        // usersテーブルでpassword_hashが欠けている場合、デフォルトのハッシュ値を追加
         if (isUsersTable && !hasPasswordHash) {
           cleanValues.push('ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/')
         }
-        
-        // usersテーブルでpassword_hashがNULLまたは空の場合、デフォルト値に置き換える
         if (isUsersTable && hasPasswordHash) {
-          const passwordHashIndex = headers.indexOf('password_hash')
-          if (passwordHashIndex !== -1 && (!cleanValues[passwordHashIndex] || cleanValues[passwordHashIndex] === '')) {
-            cleanValues[passwordHashIndex] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
-            console.log(`Replaced empty password_hash with default for row ${i}`)
+          const pwIdx = headers.indexOf('password_hash')
+          if (pwIdx !== -1 && (!cleanValues[pwIdx] || cleanValues[pwIdx] === '')) {
+            cleanValues[pwIdx] = 'ByeRnkKlpwWUMXXua5KZBkoC8Nhw8y/St0JD9lYz9a2rdXErR826spcfm6Rn1ZD/'
           }
         }
         
+        // ヘッダー数と値の数の不一致チェック
+        if (cleanValues.length !== headers.length) {
+          console.warn(`Table ${tableName} row ${i}: header count ${headers.length} != value count ${cleanValues.length}, skipping`)
+          errors++
+          continue
+        }
+        
         if (mode === 'merge') {
-          // Mergeモード: UPSERT（ON CONFLICT）
           const placeholders = headers.map(() => '?').join(', ')
           const updateSet = headers
             .filter(h => h !== 'id')
             .map(h => `${h} = excluded.${h}`)
             .join(', ')
-          
           const sql = `INSERT INTO ${tableName} (${headers.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateSet}`
           insertQueries.push(DB.prepare(sql).bind(...cleanValues))
           updated++
         } else {
-          // Replace/Appendモード: INSERT
+          // Replace/Appendモード
           let insertHeaders = headers
           let insertValues = cleanValues
           
           if (mode === 'append' && headers.includes('id')) {
             const idIndex = headers.indexOf('id')
-            insertHeaders = headers.filter((_, idx) => idx !== idIndex)
-            insertValues = cleanValues.filter((_, idx) => idx !== idIndex)
+            insertHeaders = headers.filter((_: any, idx: number) => idx !== idIndex)
+            insertValues = cleanValues.filter((_: any, idx: number) => idx !== idIndex)
           }
           
           const placeholders = insertHeaders.map(() => '?').join(', ')
@@ -728,28 +849,23 @@ app.post('/import/csv', authMiddleware, requireAdmin, async (c) => {
         }
       }
       
-      console.log(`Prepared ${inserted + updated} queries for ${tableName}`)
-      
-      // バッチ実行: DELETEとINSERTを1つのバッチにまとめる
-      const allQueries = []
-      
-      if (mode === 'replace' && deleteQueries.length > 0) {
-        allQueries.push(...deleteQueries)
-      }
-      
+      // バッチ実行
       if (insertQueries.length > 0) {
-        allQueries.push(...insertQueries)
+        await executeBatchInChunks(insertQueries)
+        console.log(`CSV batch execution successful: ${inserted + updated} rows`)
       }
       
-      if (allQueries.length > 0) {
-        console.log(`Executing batch with ${allQueries.length} queries...`)
-        await DB.batch(allQueries)
-        console.log('Batch execution successful')
+      // Replaceモード: 外部キーを再有効化
+      if (mode === 'replace') {
+        try { await DB.prepare('PRAGMA foreign_keys = ON').run() } catch (_) {}
       }
       
     } catch (error: any) {
+      // 外部キーを再有効化
+      if (mode === 'replace') {
+        try { await DB.prepare('PRAGMA foreign_keys = ON').run() } catch (_) {}
+      }
       console.error(`CSV Import error for table ${tableName}:`, error)
-      errors = 1
       
       return c.json({ 
         success: false, 
