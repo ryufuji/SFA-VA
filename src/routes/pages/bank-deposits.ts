@@ -337,9 +337,9 @@ app.get('/bank-deposits', async (c) => {
 
           // 削除
           async function deleteDeposit(id, payerName, amount) {
-            const msg = '以下の入金情報を削除します。\n\n'
-              + '振込人名: ' + payerName + '\n'
-              + '入金額: ¥' + Number(amount).toLocaleString() + '\n\n'
+            const msg = '以下の入金情報を削除します。\\n\\n'
+              + '振込人名: ' + payerName + '\\n'
+              + '入金額: ¥' + Number(amount).toLocaleString() + '\\n\\n'
               + 'この操作は取り消せません。よろしいですか？';
             if (!confirm(msg)) return;
 
