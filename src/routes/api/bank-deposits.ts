@@ -163,5 +163,70 @@ app.post('/:id/allocate', authMiddleware, requirePermission('payment_manage'), a
   return c.json({ success: true, message: '消込が完了しました', remaining_amount: newRemaining, status: depositStatus })
 })
 
+// 入金情報の修正（未消込のみ）
+app.put('/:id', authMiddleware, requirePermission('payment_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+
+  // 既存レコード取得
+  const deposit = await DB.prepare('SELECT * FROM bank_deposits WHERE id = ?').bind(id).first() as any
+  if (!deposit) {
+    return c.json({ success: false, error: '銀行入金が見つかりません' }, 404)
+  }
+
+  // 未消込ガードチェック
+  if (deposit.status !== '未消込') {
+    return c.json({ success: false, error: '消込済みの入金情報は修正できません。ステータスが「未消込」の場合のみ修正可能です。' }, 400)
+  }
+
+  const { deposit_date, amount, payer_name, note } = await c.req.json()
+
+  // バリデーション
+  if (!deposit_date || !amount || !payer_name) {
+    return c.json({ success: false, error: '入金日、入金額、振込人名は必須です' }, 400)
+  }
+  if (amount <= 0) {
+    return c.json({ success: false, error: '入金額は1円以上である必要があります' }, 400)
+  }
+
+  // 未消込なので remaining_amount = amount
+  await DB.prepare(`
+    UPDATE bank_deposits 
+    SET deposit_date = ?, amount = ?, payer_name = ?, note = ?, remaining_amount = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(deposit_date, amount, payer_name, note || null, amount, id).run()
+
+  return c.json({ success: true, message: '入金情報を更新しました' })
+})
+
+// 入金情報の削除（未消込のみ）
+app.delete('/:id', authMiddleware, requirePermission('payment_manage'), async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+
+  // 既存レコード取得
+  const deposit = await DB.prepare('SELECT * FROM bank_deposits WHERE id = ?').bind(id).first() as any
+  if (!deposit) {
+    return c.json({ success: false, error: '銀行入金が見つかりません' }, 404)
+  }
+
+  // 未消込ガードチェック
+  if (deposit.status !== '未消込') {
+    return c.json({ success: false, error: '消込済みの入金情報は削除できません。ステータスが「未消込」の場合のみ削除可能です。' }, 400)
+  }
+
+  // 消込レコードがないことを確認（安全策）
+  const allocCount = await DB.prepare(
+    'SELECT COUNT(*) as cnt FROM deposit_allocations WHERE bank_deposit_id = ?'
+  ).bind(id).first() as any
+  if (allocCount && allocCount.cnt > 0) {
+    return c.json({ success: false, error: '消込履歴が存在するため削除できません' }, 400)
+  }
+
+  await DB.prepare('DELETE FROM bank_deposits WHERE id = ?').bind(id).run()
+
+  return c.json({ success: true, message: '入金情報を削除しました' })
+})
+
 
 export default app

@@ -114,6 +114,38 @@ app.get('/bank-deposits', async (c) => {
             </div>
         </div>
 
+        <!-- 入金情報編集モーダル -->
+        <div id="edit-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">
+              <i class="fas fa-edit mr-2 text-amber-500"></i>入金情報編集
+            </h2>
+            <input type="hidden" id="edit-id">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">入金日 <span class="text-red-500">*</span></label>
+                <input type="date" id="edit-date" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-amber-500 focus:border-amber-500 border p-2">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">入金額（円） <span class="text-red-500">*</span></label>
+                <input type="number" id="edit-amount" min="1" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-amber-500 focus:border-amber-500 border p-2">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">振込人名 <span class="text-red-500">*</span></label>
+                <input type="text" id="edit-payer" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-amber-500 focus:border-amber-500 border p-2">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">備考</label>
+                <textarea id="edit-note" rows="2" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-amber-500 focus:border-amber-500 border p-2"></textarea>
+              </div>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+              <button onclick="closeEditModal()" class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg">キャンセル</button>
+              <button onclick="submitEdit()" id="edit-submit-btn" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold">更新</button>
+            </div>
+          </div>
+        </div>
+
         <!-- 新規入金登録モーダル -->
         <div id="create-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -196,7 +228,17 @@ app.get('/bank-deposits', async (c) => {
                   </td>
                   <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">\${d.note || '—'}</td>
                   <td class="px-6 py-4 whitespace-nowrap text-center">
-                    \${d.status !== '消込完了' ? \`<a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>\` : \`<a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 text-xs font-semibold rounded-lg"><i class="fas fa-eye mr-1"></i>詳細</a>\`}
+                    <div class="flex items-center justify-center space-x-1">
+                    \${d.status === '未消込' ? \`
+                      <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
+                      <button onclick="openEditModal(\${d.id}, '\${d.deposit_date}', \${d.amount}, \${JSON.stringify(d.payer_name)}, \${JSON.stringify(d.note || '')})" class="inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg"><i class="fas fa-edit mr-1"></i>編集</button>
+                      <button onclick="deleteDeposit(\${d.id}, \${JSON.stringify(d.payer_name)}, \${d.amount})" class="inline-flex items-center px-2 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg"><i class="fas fa-trash mr-1"></i>削除</button>
+                    \` : d.status === '一部消込' ? \`
+                      <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
+                    \` : \`
+                      <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 text-xs font-semibold rounded-lg"><i class="fas fa-eye mr-1"></i>詳細</a>
+                    \`}
+                    </div>
                   </td>
                 </tr>\`;
               }).join('');
@@ -245,6 +287,67 @@ app.get('/bank-deposits', async (c) => {
             } finally {
               btn.disabled = false;
               btn.innerHTML = '登録';
+            }
+          }
+
+          // 編集モーダル
+          function openEditModal(id, date, amount, payer, note) {
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-date').value = date;
+            document.getElementById('edit-amount').value = amount;
+            document.getElementById('edit-payer').value = payer;
+            document.getElementById('edit-note').value = note;
+            document.getElementById('edit-modal').classList.remove('hidden');
+          }
+          function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+          }
+
+          async function submitEdit() {
+            const id = document.getElementById('edit-id').value;
+            const deposit_date = document.getElementById('edit-date').value;
+            const amount = parseInt(document.getElementById('edit-amount').value);
+            const payer_name = document.getElementById('edit-payer').value.trim();
+            const note = document.getElementById('edit-note').value.trim();
+
+            if (!deposit_date || !amount || !payer_name) {
+              alert('入金日、入金額、振込人名は必須です');
+              return;
+            }
+            if (amount <= 0) {
+              alert('入金額は1円以上で入力してください');
+              return;
+            }
+
+            const btn = document.getElementById('edit-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>更新中...';
+
+            try {
+              await axios.put('/api/bank-deposits/' + id, { deposit_date, amount, payer_name, note: note || null });
+              closeEditModal();
+              loadDeposits();
+            } catch (e) {
+              alert(e.response?.data?.error || '更新に失敗しました');
+            } finally {
+              btn.disabled = false;
+              btn.innerHTML = '更新';
+            }
+          }
+
+          // 削除
+          async function deleteDeposit(id, payerName, amount) {
+            const msg = '以下の入金情報を削除します。\n\n'
+              + '振込人名: ' + payerName + '\n'
+              + '入金額: ¥' + Number(amount).toLocaleString() + '\n\n'
+              + 'この操作は取り消せません。よろしいですか？';
+            if (!confirm(msg)) return;
+
+            try {
+              await axios.delete('/api/bank-deposits/' + id);
+              loadDeposits();
+            } catch (e) {
+              alert(e.response?.data?.error || '削除に失敗しました');
             }
           }
 
