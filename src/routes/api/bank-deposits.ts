@@ -163,7 +163,7 @@ app.post('/:id/allocate', authMiddleware, requirePermission('payment_manage'), a
   return c.json({ success: true, message: '消込が完了しました', remaining_amount: newRemaining, status: depositStatus })
 })
 
-// 入金情報の修正（未消込のみ）
+// 入金情報の修正（未消込・一部消込）
 app.put('/:id', authMiddleware, requirePermission('payment_manage'), async (c) => {
   const { DB } = c.env
   const id = c.req.param('id')
@@ -174,9 +174,9 @@ app.put('/:id', authMiddleware, requirePermission('payment_manage'), async (c) =
     return c.json({ success: false, error: '銀行入金が見つかりません' }, 404)
   }
 
-  // 未消込ガードチェック
-  if (deposit.status !== '未消込') {
-    return c.json({ success: false, error: '消込済みの入金情報は修正できません。ステータスが「未消込」の場合のみ修正可能です。' }, 400)
+  // 消込完了は修正不可
+  if (deposit.status === '消込完了') {
+    return c.json({ success: false, error: '消込完了の入金情報は修正できません。' }, 400)
   }
 
   const { deposit_date, amount, payer_name, note } = await c.req.json()
@@ -189,12 +189,30 @@ app.put('/:id', authMiddleware, requirePermission('payment_manage'), async (c) =
     return c.json({ success: false, error: '入金額は1円以上である必要があります' }, 400)
   }
 
-  // 未消込なので remaining_amount = amount
+  // 消込済み額を算出
+  const consumed = deposit.amount - deposit.remaining_amount
+
+  // 一部消込の場合、消込済み額以上でなければならない
+  if (deposit.status === '一部消込' && amount < consumed) {
+    return c.json({ success: false, error: `消込済み額(¥${consumed.toLocaleString()})を下回る金額には変更できません。` }, 400)
+  }
+
+  // remaining_amount と status を再計算
+  const newRemaining = amount - consumed
+  let newStatus = deposit.status
+  if (consumed === 0) {
+    newStatus = '未消込'
+  } else if (newRemaining <= 0) {
+    newStatus = '消込完了'
+  } else {
+    newStatus = '一部消込'
+  }
+
   await DB.prepare(`
     UPDATE bank_deposits 
-    SET deposit_date = ?, amount = ?, payer_name = ?, note = ?, remaining_amount = ?, updated_at = CURRENT_TIMESTAMP
+    SET deposit_date = ?, amount = ?, payer_name = ?, note = ?, remaining_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).bind(deposit_date, amount, payer_name, note || null, amount, id).run()
+  `).bind(deposit_date, amount, payer_name, note || null, newRemaining, newStatus, id).run()
 
   return c.json({ success: true, message: '入金情報を更新しました' })
 })
@@ -226,6 +244,88 @@ app.delete('/:id', authMiddleware, requirePermission('payment_manage'), async (c
   await DB.prepare('DELETE FROM bank_deposits WHERE id = ?').bind(id).run()
 
   return c.json({ success: true, message: '入金情報を削除しました' })
+})
+
+
+// 消込履歴の取消（巻き戻し）
+app.delete('/:id/allocations/:allocationId', authMiddleware, requirePermission('payment_manage'), async (c) => {
+  const { DB } = c.env
+  const depositId = c.req.param('id')
+  const allocationId = c.req.param('allocationId')
+
+  // 消込レコード取得
+  const alloc = await DB.prepare(
+    'SELECT * FROM deposit_allocations WHERE id = ? AND bank_deposit_id = ?'
+  ).bind(allocationId, depositId).first() as any
+  if (!alloc) {
+    return c.json({ success: false, error: '消込履歴が見つかりません' }, 404)
+  }
+
+  // 銀行入金取得
+  const deposit = await DB.prepare('SELECT * FROM bank_deposits WHERE id = ?').bind(depositId).first() as any
+  if (!deposit) {
+    return c.json({ success: false, error: '銀行入金が見つかりません' }, 404)
+  }
+
+  // 対応する payment_histories レコードを特定・削除
+  const ph = await DB.prepare(`
+    SELECT id FROM payment_histories
+    WHERE monthly_detail_id = ?
+      AND payment_amount = ?
+      AND note LIKE ?
+    LIMIT 1
+  `).bind(alloc.monthly_detail_id, alloc.allocated_amount, `%銀行入金消込 (入金ID:${depositId}%`).first() as any
+  if (ph) {
+    await DB.prepare('DELETE FROM payment_histories WHERE id = ?').bind(ph.id).run()
+  }
+
+  // deposit_allocations レコード削除
+  await DB.prepare('DELETE FROM deposit_allocations WHERE id = ?').bind(allocationId).run()
+
+  // 月次明細の再計算
+  const md = await DB.prepare('SELECT * FROM monthly_details WHERE id = ?').bind(alloc.monthly_detail_id).first() as any
+  if (md) {
+    const { results: histories } = await DB.prepare(
+      'SELECT SUM(payment_amount) as total FROM payment_histories WHERE monthly_detail_id = ?'
+    ).bind(alloc.monthly_detail_id).all()
+    const totalPayment = (histories[0] as any)?.total || 0
+    const expectedAmount = md.amount_with_tax || md.amount
+
+    let paymentStatus = '未入金'
+    if (totalPayment >= expectedAmount) {
+      paymentStatus = '入金完了'
+    } else if (totalPayment > 0) {
+      paymentStatus = '部分入金'
+    }
+
+    await DB.prepare(`
+      UPDATE monthly_details
+      SET total_payment_amount = ?, payment_status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(totalPayment, paymentStatus, alloc.monthly_detail_id).run()
+
+    // 契約ステータス再判定
+    if (md.contract_id) {
+      await updateContractStatusIfCompleted(DB, md.contract_id)
+    }
+  }
+
+  // 銀行入金の remaining_amount, status を再計算
+  const newRemaining = deposit.remaining_amount + alloc.allocated_amount
+  let depositStatus = '未消込'
+  if (newRemaining <= 0) {
+    depositStatus = '消込完了'
+  } else if (newRemaining < deposit.amount) {
+    depositStatus = '一部消込'
+  }
+
+  await DB.prepare(`
+    UPDATE bank_deposits
+    SET remaining_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(newRemaining, depositStatus, depositId).run()
+
+  return c.json({ success: true, message: '消込を取り消しました', remaining_amount: newRemaining, status: depositStatus })
 })
 
 

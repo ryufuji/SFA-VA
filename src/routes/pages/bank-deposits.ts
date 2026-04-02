@@ -129,6 +129,7 @@ app.get('/bank-deposits', async (c) => {
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">入金額（円） <span class="text-red-500">*</span></label>
                 <input type="number" id="edit-amount" min="1" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-amber-500 focus:border-amber-500 border p-2">
+                <p id="edit-amount-hint" class="hidden text-xs text-orange-600 mt-1"></p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">振込人名 <span class="text-red-500">*</span></label>
@@ -236,10 +237,11 @@ app.get('/bank-deposits', async (c) => {
                     <div class="flex items-center justify-center space-x-1">
                     \${d.status === '未消込' ? \`
                       <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
-                      <button class="btn-edit inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-date="\${d.deposit_date}" data-amount="\${d.amount}" data-payer="\${escapeAttr(d.payer_name)}" data-note="\${escapeAttr(d.note || '')}"><i class="fas fa-edit mr-1"></i>編集</button>
+                      <button class="btn-edit inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-date="\${d.deposit_date}" data-amount="\${d.amount}" data-payer="\${escapeAttr(d.payer_name)}" data-note="\${escapeAttr(d.note || '')}" data-allocated="0"><i class="fas fa-edit mr-1"></i>編集</button>
                       <button class="btn-delete inline-flex items-center px-2 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-payer="\${escapeAttr(d.payer_name)}" data-amount="\${d.amount}"><i class="fas fa-trash mr-1"></i>削除</button>
                     \` : d.status === '一部消込' ? \`
                       <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
+                      <button class="btn-edit inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-date="\${d.deposit_date}" data-amount="\${d.amount}" data-payer="\${escapeAttr(d.payer_name)}" data-note="\${escapeAttr(d.note || '')}" data-allocated="\${d.amount - d.remaining_amount}"><i class="fas fa-edit mr-1"></i>編集</button>
                     \` : \`
                       <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 text-xs font-semibold rounded-lg"><i class="fas fa-eye mr-1"></i>詳細</a>
                     \`}
@@ -256,7 +258,8 @@ app.get('/bank-deposits', async (c) => {
                     btn.dataset.date,
                     Number(btn.dataset.amount),
                     btn.dataset.payer,
-                    btn.dataset.note
+                    btn.dataset.note,
+                    Number(btn.dataset.allocated || 0)
                   );
                 });
               });
@@ -318,12 +321,22 @@ app.get('/bank-deposits', async (c) => {
           }
 
           // 編集モーダル
-          function openEditModal(id, date, amount, payer, note) {
+          function openEditModal(id, date, amount, payer, note, allocated) {
             document.getElementById('edit-id').value = id;
             document.getElementById('edit-date').value = date;
             document.getElementById('edit-amount').value = amount;
             document.getElementById('edit-payer').value = payer;
             document.getElementById('edit-note').value = note;
+            const hint = document.getElementById('edit-amount-hint');
+            const amountInput = document.getElementById('edit-amount');
+            if (allocated > 0) {
+              amountInput.min = allocated;
+              hint.textContent = '\u203B \u6D88\u8FBC\u6E08\u307F\u984D: \u00A5' + Number(allocated).toLocaleString() + ' \u4EE5\u4E0A\u306E\u91D1\u984D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044';
+              hint.classList.remove('hidden');
+            } else {
+              amountInput.min = 1;
+              hint.classList.add('hidden');
+            }
             document.getElementById('edit-modal').classList.remove('hidden');
           }
           function closeEditModal() {
@@ -507,6 +520,7 @@ app.get('/bank-deposits/:id/allocate', async (c) => {
                             <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">対象月</th>
                             <th class="px-4 py-2 text-right text-xs font-medium text-gray-500">消込額</th>
                             <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">消込日時</th>
+                            <th class="px-4 py-2 text-center text-xs font-medium text-gray-500">操作</th>
                           </tr>
                         </thead>
                         <tbody id="allocation-history-body" class="divide-y divide-gray-200"></tbody>
@@ -613,8 +627,23 @@ app.get('/bank-deposits/:id/allocate', async (c) => {
                     <td class="px-4 py-2 text-sm text-gray-700">\${a.target_month}</td>
                     <td class="px-4 py-2 text-sm text-right font-semibold text-gray-900">¥\${Number(a.allocated_amount).toLocaleString()}</td>
                     <td class="px-4 py-2 text-sm text-gray-500">\${new Date(a.created_at).toLocaleString('ja-JP')}</td>
+                    <td class="px-4 py-2 text-center">
+                      <button class="btn-cancel-alloc inline-flex items-center px-2 py-1 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg" data-id="\${a.id}" data-company="\${a.company_name}" data-month="\${a.target_month}" data-amount="\${a.allocated_amount}"><i class="fas fa-undo mr-1"></i>取消</button>
+                    </td>
                   </tr>
                 \`).join('');
+
+                // 取消ボタンのイベントリスナー
+                tbody.querySelectorAll('.btn-cancel-alloc').forEach(btn => {
+                  btn.addEventListener('click', () => {
+                    cancelAllocation(
+                      btn.dataset.id,
+                      btn.dataset.company,
+                      btn.dataset.month,
+                      Number(btn.dataset.amount)
+                    );
+                  });
+                });
               }
 
               // 消込完了ならメッセージ、そうでなければ未入金一覧を表示
@@ -767,6 +796,24 @@ app.get('/bank-deposits/:id/allocate', async (c) => {
               alert(e.response?.data?.error || '消込に失敗しました');
               btn.disabled = false;
               btn.innerHTML = '<i class="fas fa-check-double mr-1"></i>消込実行';
+            }
+          }
+
+          // 消込取消
+          async function cancelAllocation(allocationId, companyName, targetMonth, amount) {
+            const msg = '以下の消込を取り消します。\\n\\n'
+              + '会社名: ' + companyName + '\\n'
+              + '対象月: ' + targetMonth + '\\n'
+              + '消込額: ¥' + Number(amount).toLocaleString() + '\\n\\n'
+              + '関連する入金履歴も削除されます。よろしいですか？';
+            if (!confirm(msg)) return;
+
+            try {
+              await axios.delete('/api/bank-deposits/' + DEPOSIT_ID + '/allocations/' + allocationId);
+              alert('消込を取り消しました');
+              window.location.reload();
+            } catch (e) {
+              alert(e.response?.data?.error || '消込の取消に失敗しました');
             }
           }
 
