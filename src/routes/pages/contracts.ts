@@ -141,7 +141,7 @@ app.get('/contracts/:id', async (c) => {
           </div>
         </nav>
 
-        <div class="max-w-7xl mx-auto p-8">
+        <div class="max-w-full mx-auto p-8">
             <!-- パンくずリスト -->
             <div class="mb-6 text-sm">
                 <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
@@ -873,7 +873,7 @@ app.get('/contracts', async (c) => {
         </div>
       </nav>
 
-      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div class="max-w-full mx-auto py-6 sm:px-6 lg:px-8">
         <!-- ページヘッダー -->
         <div class="flex justify-between items-center mb-6">
           <h1 class="text-3xl font-bold text-gray-900">

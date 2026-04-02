@@ -127,7 +127,7 @@ app.get('/monthly/:id', async (c) => {
           </div>
         </nav>
 
-        <div class="max-w-7xl mx-auto p-8">
+        <div class="max-w-full mx-auto p-8">
             <!-- パンくずリスト -->
             <div class="mb-6 text-sm">
                 <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
@@ -1075,7 +1075,7 @@ app.get('/monthly-list', async (c) => {
           </div>
         </nav>
 
-        <div class="max-w-7xl mx-auto p-8">
+        <div class="max-w-full mx-auto p-8">
             <!-- パンくずリスト -->
             <div class="mb-6 text-sm">
                 <a href="/" class="text-blue-600 hover:text-blue-800">ダッシュボード</a>
@@ -1550,7 +1550,7 @@ app.get('/monthly-details', async (c) => {
         </div>
       </nav>
 
-      <div class="max-w-7xl mx-auto py-8 px-4">
+      <div class="max-w-full mx-auto py-8 px-4">
         <div class="flex justify-between items-center mb-6">
           <h1 class="text-3xl font-bold text-gray-800">
             <i class="fas fa-calendar-alt mr-2"></i>月次明細一覧

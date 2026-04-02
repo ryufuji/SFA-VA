@@ -267,7 +267,7 @@ app.get('/leads', async (c) => {
         </div>
       </nav>
 
-      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div class="max-w-full mx-auto py-6 sm:px-6 lg:px-8">
         <!-- ページヘッダー -->
         <div class="px-4 py-6 sm:px-0 flex justify-between items-center">
           <h1 class="text-3xl font-bold text-gray-900">
@@ -790,7 +790,7 @@ app.get('/leads/:id', async (c) => {
         </div>
       </nav>
 
-      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div class="max-w-full mx-auto py-6 sm:px-6 lg:px-8">
         <!-- パンくずリスト -->
         <nav class="flex mb-4" aria-label="Breadcrumb">
           <ol class="inline-flex items-center space-x-1 md:space-x-3">

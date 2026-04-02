@@ -91,7 +91,7 @@ app.get('/projects/detail/:id', async (c) => {
           </div>
         </nav>
 
-        <div class="max-w-7xl mx-auto p-8">
+        <div class="max-w-full mx-auto p-8">
             <div class="mb-6">
                 <a href="/leads/${project.lead_id}" class="text-blue-600 hover:text-blue-800">
                     <i class="fas fa-arrow-left mr-2"></i>リード詳細に戻る
@@ -1894,7 +1894,7 @@ app.get('/projects', async (c) => {
         </div>
       </nav>
 
-      <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div class="max-w-full mx-auto py-6 sm:px-6 lg:px-8">
         <!-- ページヘッダー -->
         <div class="px-4 py-6 sm:px-0 flex justify-between items-center">
           <h1 class="text-3xl font-bold text-gray-900">
