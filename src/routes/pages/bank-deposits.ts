@@ -650,9 +650,12 @@ app.get('/bank-deposits/:id/allocate', async (c) => {
               if (depositData.remaining_amount <= 0) {
                 document.getElementById('completed-msg').classList.remove('hidden');
               } else {
-                // 未入金月次明細を取得
+                // 未入金月次明細を取得（振込人名が会社名に含まれるもののみ）
                 const unpaidRes = await axios.get('/api/monthly-details/unpaid');
-                unpaidList = unpaidRes.data.data;
+                const payerName = depositData.payer_name || '';
+                unpaidList = unpaidRes.data.data.filter(md =>
+                  md.company_name && payerName && md.company_name.includes(payerName)
+                );
 
                 if (unpaidList.length === 0) {
                   document.getElementById('unpaid-section').classList.remove('hidden');
