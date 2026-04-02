@@ -1597,13 +1597,42 @@ app.get('/projects', async (c) => {
   const sortBy = c.req.query('sortBy') || 'created_at'
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
+  // フィルターパラメータを取得
+  const filterProject = c.req.query('filterProject') || ''
+  const filterCompany = c.req.query('filterCompany') || ''
+  const filterSalesRep = c.req.query('filterSalesRep') || ''
+  const filterStatus = c.req.query('filterStatus') || ''
+  
   // ソート可能なカラムのホワイトリスト
   const allowedSortColumns = ['project_name', 'company_name', 'department', 'sales_rep_name', 'contract_count', 'status', 'created_at']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
+  // フィルター条件を構築
+  const conditions: string[] = []
+  const params: any[] = []
+  if (filterProject) {
+    conditions.push("p.project_name LIKE ?")
+    params.push(`%${filterProject}%`)
+  }
+  if (filterCompany) {
+    conditions.push("l.company_name LIKE ?")
+    params.push(`%${filterCompany}%`)
+  }
+  if (filterSalesRep) {
+    conditions.push("m.name LIKE ?")
+    params.push(`%${filterSalesRep}%`)
+  }
+  if (filterStatus) {
+    conditions.push("p.status = ?")
+    params.push(filterStatus)
+  } else {
+    conditions.push("p.status = 'active'")
+  }
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
+  
   // 全案件を取得（リード情報と契約数を含む）
-  const { results: projects } = await DB.prepare(`
+  const stmt = DB.prepare(`
     SELECT 
       p.*,
       l.company_name,
@@ -1613,9 +1642,10 @@ app.get('/projects', async (c) => {
     FROM projects p
     LEFT JOIN leads l ON p.lead_id = l.id
     LEFT JOIN members m ON p.sales_rep_id = m.id
-    WHERE p.status = 'active'
+    ${whereClause}
     ORDER BY ${sortColumn} ${order}
-  `).all()
+  `)
+  const { results: projects } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -1641,7 +1671,26 @@ app.get('/projects', async (c) => {
             newOrder = 'DESC';
           }
           
-          window.location.href = '/projects?sortBy=' + column + '&sortOrder=' + newOrder;
+          urlParams.set('sortBy', column);
+          urlParams.set('sortOrder', newOrder);
+          window.location.href = '/projects?' + urlParams.toString();
+        }
+
+        function applyFilter() {
+          const params = new URLSearchParams();
+          const project = document.getElementById('filter-project').value.trim();
+          const company = document.getElementById('filter-company').value.trim();
+          const salesRep = document.getElementById('filter-sales-rep').value.trim();
+          const status = document.getElementById('filter-status').value;
+          if (project) params.set('filterProject', project);
+          if (company) params.set('filterCompany', company);
+          if (salesRep) params.set('filterSalesRep', salesRep);
+          if (status) params.set('filterStatus', status);
+          window.location.href = '/projects?' + params.toString();
+        }
+
+        function resetFilter() {
+          window.location.href = '/projects';
         }
 
         document.addEventListener('DOMContentLoaded', async function() {
@@ -1907,6 +1956,36 @@ app.get('/projects', async (c) => {
             <button id="csv-import-button" onclick="openImportModal()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" style="display:none;">
               <i class="fas fa-file-upload mr-2"></i>CSVインポート
             </button>
+          </div>
+        </div>
+
+        <!-- フィルターバー -->
+        <div class="bg-white p-4 rounded-lg shadow mb-4">
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex-1 min-w-[180px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">案件名</label>
+              <input type="text" id="filter-project" value="${filterProject}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="flex-1 min-w-[180px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">顧客名</label>
+              <input type="text" id="filter-company" value="${filterCompany}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="flex-1 min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">営業担当</label>
+              <input type="text" id="filter-sales-rep" value="${filterSalesRep}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">ステータス</label>
+              <select id="filter-status" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">アクティブ</option>
+                <option value="active" ${filterStatus === 'active' ? 'selected' : ''}>アクティブ</option>
+                <option value="archived" ${filterStatus === 'archived' ? 'selected' : ''}>アーカイブ</option>
+              </select>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="applyFilter()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"><i class="fas fa-search mr-1"></i>検索</button>
+              <button onclick="resetFilter()" class="text-gray-600 px-4 py-2 rounded text-sm border border-gray-300 hover:bg-gray-50"><i class="fas fa-times mr-1"></i>リセット</button>
+            </div>
           </div>
         </div>
 

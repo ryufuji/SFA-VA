@@ -74,6 +74,32 @@ app.get('/payments', async (c) => {
                     </p>
                 </div>
 
+                <!-- フィルターバー -->
+                <div class="bg-white p-4 rounded-lg shadow mb-4">
+                  <div class="flex flex-wrap gap-3 items-end">
+                    <div class="flex-1 min-w-[180px]">
+                      <label class="block text-xs font-medium text-gray-500 mb-1">会社名</label>
+                      <input type="text" id="filter-company" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" oninput="applyFilter()">
+                    </div>
+                    <div class="flex-1 min-w-[150px]">
+                      <label class="block text-xs font-medium text-gray-500 mb-1">年月</label>
+                      <input type="text" id="filter-month" placeholder="例: 2026-03" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" oninput="applyFilter()">
+                    </div>
+                    <div class="min-w-[150px]">
+                      <label class="block text-xs font-medium text-gray-500 mb-1">入金状況</label>
+                      <select id="filter-status" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onchange="applyFilter()">
+                        <option value="">すべて</option>
+                        <option value="入金完了">入金完了</option>
+                        <option value="部分入金">部分入金</option>
+                        <option value="未入金">未入金</option>
+                      </select>
+                    </div>
+                    <div>
+                      <button onclick="resetFilter()" class="text-gray-600 px-4 py-2 rounded text-sm border border-gray-300 hover:bg-gray-50"><i class="fas fa-times mr-1"></i>リセット</button>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- 入金状況一覧テーブル -->
                 <div class="bg-white shadow rounded-lg overflow-hidden">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -142,73 +168,105 @@ app.get('/payments', async (c) => {
             }
           }
 
+          let allPayments = [];
+
+          function applyFilter() {
+            const companyFilter = (document.getElementById('filter-company').value || '').trim().toLowerCase();
+            const monthFilter = (document.getElementById('filter-month').value || '').trim();
+            const statusFilter = document.getElementById('filter-status').value;
+
+            const filtered = allPayments.filter(p => {
+              if (companyFilter && !(p.company_name || '').toLowerCase().includes(companyFilter)) return false;
+              if (monthFilter && !(p.target_month || '').includes(monthFilter)) return false;
+              if (statusFilter) {
+                const amountWithTax = p.total_amount_with_tax || 0;
+                const totalPayment = p.total_payment || 0;
+                let status = '未入金';
+                if (totalPayment >= amountWithTax) status = '入金完了';
+                else if (totalPayment > 0) status = '部分入金';
+                if (status !== statusFilter) return false;
+              }
+              return true;
+            });
+            renderPayments(filtered);
+          }
+
+          function resetFilter() {
+            document.getElementById('filter-company').value = '';
+            document.getElementById('filter-month').value = '';
+            document.getElementById('filter-status').value = '';
+            renderPayments(allPayments);
+          }
+
+          function renderPayments(payments) {
+            const tbody = document.getElementById('payment-table-body');
+            if (payments.length === 0) {
+              tbody.innerHTML = \`
+                <tr>
+                  <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                    <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                    条件に一致するデータがありません
+                  </td>
+                </tr>
+              \`;
+              return;
+            }
+            tbody.innerHTML = payments.map(payment => {
+              const amountBeforeTax = payment.total_amount_before_tax || 0;
+              const amountWithTax = payment.total_amount_with_tax || 0;
+              const totalPayment = payment.total_payment || 0;
+              let statusBadge = '';
+              let statusColor = '';
+              if (totalPayment >= amountWithTax) {
+                statusBadge = '入金完了';
+                statusColor = 'bg-green-100 text-green-800';
+              } else if (totalPayment > 0) {
+                statusBadge = '部分入金';
+                statusColor = 'bg-yellow-100 text-yellow-800';
+              } else {
+                statusBadge = '未入金';
+                statusColor = 'bg-gray-100 text-gray-800';
+              }
+              return \`
+                <tr class="hover:bg-gray-50">
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900">\${payment.company_name || '-'}</div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    \${payment.department || '-'}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    \${payment.target_month}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                    ¥\${amountBeforeTax.toLocaleString()}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
+                    ¥\${amountWithTax.toLocaleString()}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
+                    ¥\${totalPayment.toLocaleString()}
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full \${statusColor}">
+                      \${statusBadge}
+                    </span>
+                  </td>
+                </tr>
+              \`;
+            }).join('');
+          }
+
           // 入金状況一覧を読み込む
           async function loadPayments() {
             try {
               const response = await axios.get('/api/payment-summary');
               const payments = response.data.data;
+              allPayments = payments;
 
               const tbody = document.getElementById('payment-table-body');
               
-              if (payments.length === 0) {
-                tbody.innerHTML = \`
-                  <tr>
-                    <td colspan="7" class="px-6 py-12 text-center text-gray-500">
-                      <i class="fas fa-inbox text-4xl mb-3 block"></i>
-                      入金データがありません
-                    </td>
-                  </tr>
-                \`;
-              } else {
-                tbody.innerHTML = payments.map(payment => {
-                  const amountBeforeTax = payment.total_amount_before_tax || 0;
-                  const amountWithTax = payment.total_amount_with_tax || 0;
-                  const totalPayment = payment.total_payment || 0;
-                  
-                  // 入金状況の判定
-                  let statusBadge = '';
-                  let statusColor = '';
-                  if (totalPayment >= amountWithTax) {
-                    statusBadge = '入金完了';
-                    statusColor = 'bg-green-100 text-green-800';
-                  } else if (totalPayment > 0) {
-                    statusBadge = '部分入金';
-                    statusColor = 'bg-yellow-100 text-yellow-800';
-                  } else {
-                    statusBadge = '未入金';
-                    statusColor = 'bg-gray-100 text-gray-800';
-                  }
-
-                  return \`
-                    <tr class="hover:bg-gray-50">
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900">\${payment.company_name || '-'}</div>
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        \${payment.department || '-'}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        \${payment.target_month}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        ¥\${amountBeforeTax.toLocaleString()}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                        ¥\${amountWithTax.toLocaleString()}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right font-semibold">
-                        ¥\${totalPayment.toLocaleString()}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-center">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full \${statusColor}">
-                          \${statusBadge}
-                        </span>
-                      </td>
-                    </tr>
-                  \`;
-                }).join('');
-              }
-
+              renderPayments(payments);
               document.getElementById('loading').style.display = 'none';
             } catch (error) {
               console.error('入金状況一覧の読み込みに失敗しました:', error);

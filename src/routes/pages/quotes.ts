@@ -6,7 +6,41 @@ const app = new Hono<AppEnv>()
 app.get('/quotes', async (c) => {
   const { DB } = c.env
   
-  const { results: quotes } = await DB.prepare(`
+  // フィルターパラメータを取得
+  const filterQuoteNumber = c.req.query('filterQuoteNumber') || ''
+  const filterCompany = c.req.query('filterCompany') || ''
+  const filterProject = c.req.query('filterProject') || ''
+  const filterStatus = c.req.query('filterStatus') || ''
+  
+  // ソートパラメータ
+  const sortBy = c.req.query('sortBy') || 'created_at'
+  const sortOrder = c.req.query('sortOrder') || 'DESC'
+  const allowedSortColumns = ['quote_number', 'issue_date', 'company_name', 'project_name', 'subject', 'status', 'total', 'created_at']
+  const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
+  const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  
+  // フィルター条件を構築
+  const conditions: string[] = []
+  const qParams: any[] = []
+  if (filterQuoteNumber) {
+    conditions.push("q.quote_number LIKE ?")
+    qParams.push(`%${filterQuoteNumber}%`)
+  }
+  if (filterCompany) {
+    conditions.push("l.company_name LIKE ?")
+    qParams.push(`%${filterCompany}%`)
+  }
+  if (filterProject) {
+    conditions.push("p.project_name LIKE ?")
+    qParams.push(`%${filterProject}%`)
+  }
+  if (filterStatus) {
+    conditions.push("q.status = ?")
+    qParams.push(filterStatus)
+  }
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
+  
+  const stmt = DB.prepare(`
     SELECT 
       q.*,
       p.project_name,
@@ -14,8 +48,10 @@ app.get('/quotes', async (c) => {
     FROM quotes q
     LEFT JOIN projects p ON q.project_id = p.id
     LEFT JOIN leads l ON q.lead_id = l.id
-    ORDER BY q.created_at DESC
-  `).all()
+    ${whereClause}
+    ORDER BY ${sortColumn} ${order}
+  `)
+  const { results: quotes } = qParams.length > 0 ? await stmt.bind(...qParams).all() : await stmt.all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -78,23 +114,56 @@ app.get('/quotes', async (c) => {
           </div>
         </nav>
 
-        <div class="max-w-7xl mx-auto p-8">
+        <div class="max-w-full mx-auto p-8">
             <h1 class="text-3xl font-bold text-gray-800 mb-6">
                 <i class="fas fa-file-invoice mr-2 text-purple-600"></i>見積書一覧
             </h1>
+
+            <!-- フィルターバー -->
+            <div class="bg-white p-4 rounded-lg shadow mb-4">
+              <div class="flex flex-wrap gap-3 items-end">
+                <div class="flex-1 min-w-[150px]">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">見積番号</label>
+                  <input type="text" id="filter-quote-number" value="${filterQuoteNumber}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+                </div>
+                <div class="flex-1 min-w-[150px]">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">顧客名</label>
+                  <input type="text" id="filter-company" value="${filterCompany}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+                </div>
+                <div class="flex-1 min-w-[150px]">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">案件名</label>
+                  <input type="text" id="filter-project" value="${filterProject}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+                </div>
+                <div class="min-w-[150px]">
+                  <label class="block text-xs font-medium text-gray-500 mb-1">ステータス</label>
+                  <select id="filter-status" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="">すべて</option>
+                    <option value="draft" ${filterStatus === 'draft' ? 'selected' : ''}>下書き</option>
+                    <option value="pending" ${filterStatus === 'pending' ? 'selected' : ''}>承認待ち</option>
+                    <option value="approved" ${filterStatus === 'approved' ? 'selected' : ''}>承認済み</option>
+                    <option value="rejected" ${filterStatus === 'rejected' ? 'selected' : ''}>却下</option>
+                    <option value="expired" ${filterStatus === 'expired' ? 'selected' : ''}>期限切れ</option>
+                  </select>
+                </div>
+                <div class="flex gap-2">
+                  <button onclick="applyFilter()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"><i class="fas fa-search mr-1"></i>検索</button>
+                  <button onclick="resetFilter()" class="text-gray-600 px-4 py-2 rounded text-sm border border-gray-300 hover:bg-gray-50"><i class="fas fa-times mr-1"></i>リセット</button>
+                </div>
+              </div>
+            </div>
 
             ${quotes.length > 0 ? `
             <div class="bg-white rounded-lg shadow overflow-hidden">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">見積番号</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">発行日</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">顧客</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">案件</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">件名</th>
-                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ステータス</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">金額</th>
+                            <th data-sort="quote_number" onclick="sortTable('quote_number')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">見積番号 <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="issue_date" onclick="sortTable('issue_date')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">発行日 <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="company_name" onclick="sortTable('company_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">顧客 <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="project_name" onclick="sortTable('project_name')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">案件 <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="subject" onclick="sortTable('subject')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">件名 <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="status" onclick="sortTable('status')" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">ステータス <i class="sort-icon fas fa-sort ml-1"></i></th>
+                            <th data-sort="total" onclick="sortTable('total')" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100">金額 <i class="sort-icon fas fa-sort ml-1"></i></th>
                             <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">操作</th>
                         </tr>
                     </thead>
@@ -165,6 +234,51 @@ app.get('/quotes', async (c) => {
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
       <script src="/static/auth.js"></script>
         <script>
+
+            // ソート機能
+            function sortTable(column) {
+              const urlParams = new URLSearchParams(window.location.search);
+              const currentSort = urlParams.get('sortBy');
+              const currentOrder = urlParams.get('sortOrder') || 'DESC';
+              let newOrder = 'ASC';
+              if (currentSort === column && currentOrder === 'ASC') {
+                newOrder = 'DESC';
+              }
+              urlParams.set('sortBy', column);
+              urlParams.set('sortOrder', newOrder);
+              window.location.href = '/quotes?' + urlParams.toString();
+            }
+
+            function applyFilter() {
+              const params = new URLSearchParams();
+              const quoteNumber = document.getElementById('filter-quote-number').value.trim();
+              const company = document.getElementById('filter-company').value.trim();
+              const project = document.getElementById('filter-project').value.trim();
+              const status = document.getElementById('filter-status').value;
+              if (quoteNumber) params.set('filterQuoteNumber', quoteNumber);
+              if (company) params.set('filterCompany', company);
+              if (project) params.set('filterProject', project);
+              if (status) params.set('filterStatus', status);
+              window.location.href = '/quotes?' + params.toString();
+            }
+
+            function resetFilter() {
+              window.location.href = '/quotes';
+            }
+
+            // ソートアイコン更新
+            (function() {
+              const urlParams = new URLSearchParams(window.location.search);
+              const sb = urlParams.get('sortBy');
+              const so = urlParams.get('sortOrder');
+              if (sb) {
+                const header = document.querySelector('[data-sort="' + sb + '"]');
+                if (header) {
+                  const icon = header.querySelector('.sort-icon');
+                  if (icon) icon.className = 'sort-icon fas fa-sort-' + (so === 'ASC' ? 'up' : 'down');
+                }
+              }
+            })();
 
             AUTH_UTILS.checkAuth();
             AUTH_UTILS.setupAxios();

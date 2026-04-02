@@ -1160,13 +1160,50 @@ app.get('/monthly-details', async (c) => {
   const sortBy = c.req.query('sortBy') || 'target_month'
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
+  // フィルターパラメータを取得
+  const filterCompany = c.req.query('filterCompany') || ''
+  const filterProject = c.req.query('filterProject') || ''
+  const filterContract = c.req.query('filterContract') || ''
+  const filterBilling = c.req.query('filterBilling') || ''
+  const filterPayment = c.req.query('filterPayment') || ''
+  const filterMonth = c.req.query('filterMonth') || ''
+  
   // ソート可能なカラムのホワイトリスト
   const allowedSortColumns = ['target_month', 'amount', 'amount_with_tax', 'contract_name', 'project_name', 'company_name', 'billing_status', 'payment_status']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'target_month'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
+  // フィルター条件を構築
+  const conditions: string[] = []
+  const mParams: any[] = []
+  if (filterCompany) {
+    conditions.push("l.company_name LIKE ?")
+    mParams.push(`%${filterCompany}%`)
+  }
+  if (filterProject) {
+    conditions.push("p.project_name LIKE ?")
+    mParams.push(`%${filterProject}%`)
+  }
+  if (filterContract) {
+    conditions.push("c.contract_name LIKE ?")
+    mParams.push(`%${filterContract}%`)
+  }
+  if (filterBilling) {
+    conditions.push("md.billing_status = ?")
+    mParams.push(filterBilling)
+  }
+  if (filterPayment) {
+    conditions.push("md.payment_status = ?")
+    mParams.push(filterPayment)
+  }
+  if (filterMonth) {
+    conditions.push("md.target_month = ?")
+    mParams.push(filterMonth)
+  }
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
+  
   // 全ての月次明細を取得（契約情報と案件情報を含む）
-  const { results: monthlyDetails } = await DB.prepare(`
+  const stmt = DB.prepare(`
     SELECT 
       md.id,
       md.target_month,
@@ -1183,8 +1220,10 @@ app.get('/monthly-details', async (c) => {
     LEFT JOIN contracts c ON md.contract_id = c.id
     LEFT JOIN projects p ON c.project_id = p.id
     LEFT JOIN leads l ON p.lead_id = l.id
+    ${whereClause}
     ORDER BY ${sortColumn} ${order}, md.id DESC
-  `).all()
+  `)
+  const { results: monthlyDetails } = mParams.length > 0 ? await stmt.bind(...mParams).all() : await stmt.all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -1210,7 +1249,30 @@ app.get('/monthly-details', async (c) => {
             newOrder = 'DESC';
           }
           
-          window.location.href = '/monthly-details?sortBy=' + column + '&sortOrder=' + newOrder;
+          urlParams.set('sortBy', column);
+          urlParams.set('sortOrder', newOrder);
+          window.location.href = '/monthly-details?' + urlParams.toString();
+        }
+
+        function applyFilter() {
+          const params = new URLSearchParams();
+          const company = document.getElementById('filter-company').value.trim();
+          const project = document.getElementById('filter-project').value.trim();
+          const contract = document.getElementById('filter-contract').value.trim();
+          const billing = document.getElementById('filter-billing').value;
+          const payment = document.getElementById('filter-payment').value;
+          const month = document.getElementById('filter-month').value;
+          if (company) params.set('filterCompany', company);
+          if (project) params.set('filterProject', project);
+          if (contract) params.set('filterContract', contract);
+          if (billing) params.set('filterBilling', billing);
+          if (payment) params.set('filterPayment', payment);
+          if (month) params.set('filterMonth', month);
+          window.location.href = '/monthly-details?' + params.toString();
+        }
+
+        function resetFilter() {
+          window.location.href = '/monthly-details';
         }
 
         document.addEventListener('DOMContentLoaded', async function() {
@@ -1569,6 +1631,49 @@ app.get('/monthly-details', async (c) => {
         </div>
 
 
+
+        <!-- フィルターバー -->
+        <div class="bg-white p-4 rounded-lg shadow mb-4">
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex-1 min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">顧客名</label>
+              <input type="text" id="filter-company" value="${filterCompany}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="flex-1 min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">案件名</label>
+              <input type="text" id="filter-project" value="${filterProject}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="flex-1 min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">契約名</label>
+              <input type="text" id="filter-contract" value="${filterContract}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="min-w-[120px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">請求</label>
+              <select id="filter-billing" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">すべて</option>
+                <option value="請求済" ${filterBilling === '請求済' ? 'selected' : ''}>請求済</option>
+                <option value="未請求" ${filterBilling === '未請求' ? 'selected' : ''}>未請求</option>
+              </select>
+            </div>
+            <div class="min-w-[120px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">入金</label>
+              <select id="filter-payment" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">すべて</option>
+                <option value="入金完了" ${filterPayment === '入金完了' ? 'selected' : ''}>入金完了</option>
+                <option value="部分入金" ${filterPayment === '部分入金' ? 'selected' : ''}>部分入金</option>
+                <option value="未入金" ${filterPayment === '未入金' ? 'selected' : ''}>未入金</option>
+              </select>
+            </div>
+            <div class="min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">対象月</label>
+              <input type="month" id="filter-month" value="${filterMonth}" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+            <div class="flex gap-2">
+              <button onclick="applyFilter()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"><i class="fas fa-search mr-1"></i>検索</button>
+              <button onclick="resetFilter()" class="text-gray-600 px-4 py-2 rounded text-sm border border-gray-300 hover:bg-gray-50"><i class="fas fa-times mr-1"></i>リセット</button>
+            </div>
+          </div>
+        </div>
 
         ${monthlyDetails.length > 0 ? `
         <div class="bg-white rounded-lg shadow overflow-hidden">

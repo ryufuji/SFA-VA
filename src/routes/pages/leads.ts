@@ -10,13 +10,35 @@ app.get('/leads', async (c) => {
   const sortBy = c.req.query('sortBy') || 'created_at'
   const sortOrder = c.req.query('sortOrder') || 'DESC'
   
+  // フィルターパラメータを取得
+  const filterCompany = c.req.query('filterCompany') || ''
+  const filterDepartment = c.req.query('filterDepartment') || ''
+  const filterStatus = c.req.query('filterStatus') || ''
+  
   // ソート可能なカラムのホワイトリスト
   const allowedSortColumns = ['company_name', 'department', 'project_count', 'earliest_contract', 'latest_contract', 'status', 'created_at']
   const sortColumn = allowedSortColumns.includes(sortBy) ? sortBy : 'created_at'
   const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
   
+  // フィルター条件を構築
+  const conditions: string[] = []
+  const params: any[] = []
+  if (filterCompany) {
+    conditions.push("l.company_name LIKE ?")
+    params.push(`%${filterCompany}%`)
+  }
+  if (filterDepartment) {
+    conditions.push("l.department LIKE ?")
+    params.push(`%${filterDepartment}%`)
+  }
+  if (filterStatus) {
+    conditions.push("l.status = ?")
+    params.push(filterStatus)
+  }
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
+  
   // リード一覧と関連する案件数、契約情報を取得
-  const { results: leads } = await DB.prepare(`
+  const stmt = DB.prepare(`
     SELECT 
       l.*,
       COUNT(DISTINCT p.id) as project_count,
@@ -26,9 +48,11 @@ app.get('/leads', async (c) => {
     LEFT JOIN projects p ON l.id = p.lead_id
     LEFT JOIN contracts c ON p.id = c.project_id
     LEFT JOIN monthly_details md ON c.id = md.contract_id
+    ${whereClause}
     GROUP BY l.id, l.company_name, l.department, l.contact_person, l.email, l.phone, l.status, l.memo, l.created_at, l.updated_at
     ORDER BY ${sortColumn} ${order}
-  `).all()
+  `)
+  const { results: leads } = params.length > 0 ? await stmt.bind(...params).all() : await stmt.all()
   
   return c.html(`
     <!DOCTYPE html>
@@ -54,7 +78,24 @@ app.get('/leads', async (c) => {
             newOrder = 'DESC';
           }
           
-          window.location.href = '/leads?sortBy=' + column + '&sortOrder=' + newOrder;
+          urlParams.set('sortBy', column);
+          urlParams.set('sortOrder', newOrder);
+          window.location.href = '/leads?' + urlParams.toString();
+        }
+
+        function applyFilter() {
+          const params = new URLSearchParams();
+          const company = document.getElementById('filter-company').value.trim();
+          const department = document.getElementById('filter-department').value.trim();
+          const status = document.getElementById('filter-status').value;
+          if (company) params.set('filterCompany', company);
+          if (department) params.set('filterDepartment', department);
+          if (status) params.set('filterStatus', status);
+          window.location.href = '/leads?' + params.toString();
+        }
+
+        function resetFilter() {
+          window.location.href = '/leads';
         }
 
         document.addEventListener('DOMContentLoaded', async function() {
@@ -283,6 +324,32 @@ app.get('/leads', async (c) => {
             <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
               <i class="fas fa-plus mr-2"></i>新規リード作成
             </button>
+          </div>
+        </div>
+
+        <!-- フィルターバー -->
+        <div class="bg-white p-4 rounded-lg shadow mb-4">
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex-1 min-w-[180px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">会社名</label>
+              <input type="text" id="filter-company" value="${filterCompany}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="flex-1 min-w-[180px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">部署名</label>
+              <input type="text" id="filter-department" value="${filterDepartment}" placeholder="検索..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" onkeydown="if(event.key==='Enter')applyFilter()">
+            </div>
+            <div class="min-w-[150px]">
+              <label class="block text-xs font-medium text-gray-500 mb-1">ステータス</label>
+              <select id="filter-status" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">すべて</option>
+                <option value="active" ${filterStatus === 'active' ? 'selected' : ''}>アクティブ</option>
+                <option value="archived" ${filterStatus === 'archived' ? 'selected' : ''}>アーカイブ</option>
+              </select>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="applyFilter()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"><i class="fas fa-search mr-1"></i>検索</button>
+              <button onclick="resetFilter()" class="text-gray-600 px-4 py-2 rounded text-sm border border-gray-300 hover:bg-gray-50"><i class="fas fa-times mr-1"></i>リセット</button>
+            </div>
           </div>
         </div>
 
