@@ -202,6 +202,11 @@ app.get('/bank-deposits', async (c) => {
             }
           }
 
+          // HTML属性用エスケープ
+          function escapeAttr(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          }
+
           // 銀行入金一覧を読み込む
           async function loadDeposits() {
             try {
@@ -231,8 +236,8 @@ app.get('/bank-deposits', async (c) => {
                     <div class="flex items-center justify-center space-x-1">
                     \${d.status === '未消込' ? \`
                       <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
-                      <button onclick="openEditModal(\${d.id}, '\${d.deposit_date}', \${d.amount}, \${JSON.stringify(d.payer_name)}, \${JSON.stringify(d.note || '')})" class="inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg"><i class="fas fa-edit mr-1"></i>編集</button>
-                      <button onclick="deleteDeposit(\${d.id}, \${JSON.stringify(d.payer_name)}, \${d.amount})" class="inline-flex items-center px-2 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg"><i class="fas fa-trash mr-1"></i>削除</button>
+                      <button class="btn-edit inline-flex items-center px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-date="\${d.deposit_date}" data-amount="\${d.amount}" data-payer="\${escapeAttr(d.payer_name)}" data-note="\${escapeAttr(d.note || '')}"><i class="fas fa-edit mr-1"></i>編集</button>
+                      <button class="btn-delete inline-flex items-center px-2 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-lg" data-id="\${d.id}" data-payer="\${escapeAttr(d.payer_name)}" data-amount="\${d.amount}"><i class="fas fa-trash mr-1"></i>削除</button>
                     \` : d.status === '一部消込' ? \`
                       <a href="/bank-deposits/\${d.id}/allocate" class="inline-flex items-center px-2 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg"><i class="fas fa-check-double mr-1"></i>消込</a>
                     \` : \`
@@ -242,6 +247,28 @@ app.get('/bank-deposits', async (c) => {
                   </td>
                 </tr>\`;
               }).join('');
+
+              // data-* 属性からイベントリスナーを設定
+              tbody.querySelectorAll('.btn-edit').forEach(btn => {
+                btn.addEventListener('click', () => {
+                  openEditModal(
+                    btn.dataset.id,
+                    btn.dataset.date,
+                    Number(btn.dataset.amount),
+                    btn.dataset.payer,
+                    btn.dataset.note
+                  );
+                });
+              });
+              tbody.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.addEventListener('click', () => {
+                  deleteDeposit(
+                    btn.dataset.id,
+                    btn.dataset.payer,
+                    Number(btn.dataset.amount)
+                  );
+                });
+              });
             } catch (e) {
               console.error('銀行入金一覧の読み込みに失敗:', e);
             }
