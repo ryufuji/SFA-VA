@@ -986,13 +986,15 @@ app.get('/settings/data-backup', (c) => {
                 responseType: 'blob'
               });
 
-              downloadBlob(response.data, \`backup_selective_\${new Date().toISOString().slice(0,10)}.zip\`);
+              const tsSelective = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo', hour12: false }).replace(/[- ]/g, m => m === ' ' ? '_' : '').replace(/:/g, '');
+              downloadBlob(response.data, \`backup_selective_\${tsSelective}.zip\`);
             } else {
               const response = await axios.get(url, {
                 responseType: 'blob'
               });
 
-              downloadBlob(response.data, \`backup_all_\${new Date().toISOString().slice(0,10)}.zip\`);
+              const tsAll = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo', hour12: false }).replace(/[- ]/g, m => m === ' ' ? '_' : '').replace(/:/g, '');
+              downloadBlob(response.data, \`backup_all_\${tsAll}.zip\`);
             }
 
             alert('エクスポートが完了しました！');

@@ -56,8 +56,8 @@ app.get('/export/all', authMiddleware, requireAdmin, async (c) => {
     // ZIPファイルを生成
     const zippedData = zipSync(zipFiles, { level: 6 })
     
-    // タイムスタンプを生成
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    // タイムスタンプを生成（日本時間）
+    const timestamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo', hour12: false }).replace(/[- ]/g, m => m === ' ' ? '_' : '').replace(/:/g, '')
     const filename = `backup_all_${timestamp}.zip`
     
     // ログ記録
@@ -142,7 +142,7 @@ app.post('/export/selective', authMiddleware, requireAdmin, async (c) => {
     // ZIPファイルを生成
     const zippedData = zipSync(zipFiles, { level: 6 })
     
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const timestamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo', hour12: false }).replace(/[- ]/g, m => m === ' ' ? '_' : '').replace(/:/g, '')
     const filename = `backup_selective_${timestamp}.zip`
     
     // ログ記録
