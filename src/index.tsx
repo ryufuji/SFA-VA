@@ -23,6 +23,8 @@ import dashboardApi from './routes/api/dashboard'
 import companyInfoApi from './routes/api/company-info'
 import quotesApi from './routes/api/quotes'
 import invoicesApi from './routes/api/invoices'
+import esignApi from './routes/api/esign'
+import esignPublicApi from './routes/api/esign-public'
 
 // Page Routes (分割済み)
 import miscPages from './routes/pages/misc'
@@ -40,6 +42,8 @@ import paymentsPages from './routes/pages/payments'
 import detailsPages from './routes/pages/details'
 import settingsPages from './routes/pages/settings'
 import adminPages from './routes/pages/admin'
+import signPages from './routes/pages/sign'
+import esignPages from './routes/pages/esign'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -63,6 +67,8 @@ app.route('/api/dashboard', dashboardApi)
 app.route('/api/company-info', companyInfoApi)
 app.route('/api/quotes', quotesApi)
 app.route('/api/invoices', invoicesApi)
+app.route('/api/esign', esignApi)
+app.route('/api/sign', esignPublicApi)
 
 // Page ルート登録
 app.route('/', miscPages)
@@ -70,6 +76,7 @@ app.route('/', authPages)
 app.route('/', dashboardPages)
 app.route('/', leadsPages)
 app.route('/', projectsPages)
+app.route('/', esignPages)
 app.route('/', contractsPages)
 app.route('/', monthlyPages)
 app.route('/', membersPages)
@@ -80,5 +87,6 @@ app.route('/', paymentsPages)
 app.route('/', detailsPages)
 app.route('/', settingsPages)
 app.route('/', adminPages)
+app.route('/', signPages)
 
 export default app

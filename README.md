@@ -213,6 +213,53 @@
 | POST | `/api/admin/data/import/csv` | CSVインポート |
 | GET | `/api/admin/data/tables` | テーブル一覧 |
 
+## 電子署名（電子契約）機能 ★新規
+
+クライアントとの契約合意を電磁的に行う「電子サイン（合意記録型）」機能。
+日本の電子署名法・電子帳簿保存法・JIIMA電子契約活用ガイドラインを踏まえた合意証跡を記録します。
+
+### 実装状況（フェーズ）
+- ✅ **フェーズ1・2（コア機能）実装済み**
+  - 契約書ドキュメントの作成・確定（テキスト作成／PDFアップロードの両対応）
+  - 確定時の SHA-256 ハッシュ記録（改ざん検知の基準値）
+  - 署名依頼の発行（推測不能な一意トークン＋有効期限14日）
+  - 公開署名ページ（ログイン不要・トークンで本人特定）
+  - 合意フロー（氏名入力＋同意チェック＋合意ボタン）
+  - 合意証跡（閲覧・合意・拒否）の監査ログ記録（IP・UA・時刻・ハッシュ）
+  - 改ざん検知（合意時にハッシュ再計算・照合）／二重署名防止／期限切れ制御
+- ⏳ **フェーズ3（未実装）**: Resendによる署名依頼メールの自動送信（現状は署名URLを画面表示して手動送付）
+- ⏳ **フェーズ4（未実装）**: 合意証明書PDFの生成＋Google Drive保存（サービスアカウント方式）
+- ⏳ **フェーズ5（一部）**: 検索要件（取引年月日・金額・取引先）強化、削除ロックの厳格化
+
+### 画面
+| 画面 | パス | 用途 |
+|------|------|------|
+| 電子署名管理 | `/contracts/:id/esign` | 自社担当者用。契約書作成・署名依頼発行・署名URL表示・証跡確認 |
+| 公開署名ページ | `/sign/:token` | クライアント用（ログイン不要）。契約書閲覧・合意 |
+
+### API
+**管理用（要認証・`contract_manage`権限）**
+- `POST /api/esign/documents` — 契約書ドキュメント作成・確定
+- `GET /api/esign/contracts/:contractId/documents` — 契約のドキュメント＋署名依頼状況
+- `POST /api/esign/documents/:documentId/requests` — 署名依頼発行（署名URLを返す）
+- `POST /api/esign/requests/:requestId/cancel` — 署名依頼の取消
+- `GET /api/esign/requests/:requestId/audit-logs` — 合意証跡（監査ログ）取得
+
+**公開用（認証不要・トークン特定）**
+- `GET /api/sign/:token` — 署名情報取得（閲覧ログ記録）
+- `POST /api/sign/:token/agree` — 合意処理（ハッシュ照合・証跡記録）
+- `POST /api/sign/:token/decline` — 合意拒否
+
+### 追加テーブル（3テーブル）
+`contract_documents`（契約書本体・ハッシュ）, `signature_requests`（署名依頼・トークン・期限）, `signature_audit_logs`（合意証跡・INSERT専用）
+
+### 準備が必要な外部連携（フェーズ3・4）
+- **Resend**: APIキー（`re_...`）＋認証済み送信元ドメイン
+- **Google Drive**: GCPサービスアカウントJSON＋保存先DriveフォルダID（共有ドライブ推奨）
+- ※いずれも `wrangler secret` で安全に管理予定（コード・Gitには残さない）
+
+> ⚠️ 本機能は電子署名法3条の「推定効」を直接得るものではなく、適切な証跡（監査ログ・ハッシュ・タイムスタンプ）により実務上の証拠力を確保する方式です。運用開始前のリーガルチェックを推奨します。
+
 ## データモデル
 
 ### エンティティ構造
@@ -226,7 +273,10 @@
               │     ├── 1:N → 入金履歴 (PaymentHistory)
               │     ├── 1:N → 請求書 (Invoice) → 請求明細 (InvoiceItem)
               │     └── N:M → メンバー (MonthlyMemberAssignment)
-              └── N:M → メンバー (ContractMemberAssignment)
+              ├── N:M → メンバー (ContractMemberAssignment)
+              └── 1:N → 契約書ドキュメント (ContractDocument)  ★電子署名
+                    └── 1:N → 署名依頼 (SignatureRequest)
+                          └── 1:N → 合意証跡 (SignatureAuditLog)
 
 銀行入金 (BankDeposit) → 1:N → 入金配分 (DepositAllocation)
 ```

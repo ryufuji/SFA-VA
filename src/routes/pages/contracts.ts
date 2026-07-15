@@ -222,6 +222,23 @@ app.get('/contracts/:id', async (c) => {
                 ` : ''}
             </div>
 
+            <!-- 電子署名（電子契約） -->
+            <div class="bg-white rounded-lg shadow-md mb-6">
+                <div class="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        <i class="fas fa-file-signature mr-2 text-blue-600"></i>電子署名（電子契約）
+                    </h2>
+                    <a href="/contracts/${id}/esign" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-arrow-up-right-from-square mr-1"></i>署名管理を開く
+                    </a>
+                </div>
+                <div class="p-6">
+                    <div id="esign-summary" class="text-sm text-gray-500">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>読み込み中...
+                    </div>
+                </div>
+            </div>
+
             <!-- 月次明細 -->
             <div class="bg-white rounded-lg shadow-md mb-6">
                 <div class="border-b border-gray-200 px-6 py-4">
@@ -392,6 +409,39 @@ app.get('/contracts/:id', async (c) => {
             const CONTRACT_ID = ${id};
             let currentUser = null;
 
+            // 電子署名サマリーを読み込む
+            async function loadEsignSummary() {
+                const el = document.getElementById('esign-summary');
+                if (!el) return;
+                try {
+                    const token = AUTH_UTILS.getToken();
+                    const res = await axios.get('/api/esign/contracts/' + CONTRACT_ID + '/documents', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    const docs = res.data.data || [];
+                    if (docs.length === 0) {
+                        el.innerHTML = '<div class="text-gray-500"><i class="fas fa-info-circle mr-2"></i>まだ電子契約書は作成されていません。「署名管理を開く」から契約書を作成し、署名依頼を送れます。</div>';
+                        return;
+                    }
+                    const statusLabel = { draft: '下書き', sent: '送信済み', signed: '合意済み', declined: '拒否', expired: '期限切れ' };
+                    const statusColor = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', signed: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700', expired: 'bg-orange-100 text-orange-700' };
+                    let html = '<div class="space-y-2">';
+                    docs.forEach(function(d) {
+                        const reqCount = (d.signature_requests || []).length;
+                        const signedCount = (d.signature_requests || []).filter(function(r){return r.status==='signed';}).length;
+                        html += '<div class="flex items-center justify-between border rounded px-3 py-2">'
+                            + '<div><span class="font-medium text-gray-800">' + (d.title || '(無題)') + '</span>'
+                            + ' <span class="text-xs text-gray-400 ml-2">署名依頼 ' + signedCount + '/' + reqCount + '</span></div>'
+                            + '<span class="text-xs px-2 py-1 rounded ' + (statusColor[d.status]||'bg-gray-100') + '">' + (statusLabel[d.status]||d.status) + '</span>'
+                            + '</div>';
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+                } catch (e) {
+                    el.innerHTML = '<div class="text-red-500 text-sm"><i class="fas fa-triangle-exclamation mr-2"></i>署名情報の読み込みに失敗しました</div>';
+                }
+            }
+
             // ユーザー情報を取得
             async function loadUserInfo() {
                 currentUser = await AUTH_UTILS.getCurrentUser();
@@ -559,6 +609,7 @@ app.get('/contracts/:id', async (c) => {
                 AUTH_UTILS.checkAuth();
                 AUTH_UTILS.setupAxios();
                 loadUserInfo();
+                loadEsignSummary();
             });
         </script>
     </body>
