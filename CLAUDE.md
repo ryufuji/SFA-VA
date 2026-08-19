@@ -2,11 +2,15 @@
 
 > **このファイルを最初に読んでください。**
 > このプロジェクトで作業する前に、必ず ARCHITECTURE.md も確認してください。
+> **引き継ぎ情報（現在の実装状況・残タスク・落とし穴）は `HANDOFF.md` にまとめてあります。**
 
 ## プロジェクト概要
 
 SFA（営業支援システム）- Hono + Cloudflare Pages + D1 のWebアプリケーション。
 131ルート（API 118 + HTML画面 13）を持つ業務システム。
+
+**直近の開発**: 電子署名（電子契約・合意記録型）機能のフェーズ1・2を実装・本番デプロイ済み。
+次はフェーズ3（Resendメール送信）／フェーズ4（Google Drive保存＋証明書PDF）。詳細は `HANDOFF.md`。
 
 ## 最重要ルール
 
@@ -116,3 +120,14 @@ src/lib/helpers.ts      → escapeCsvValue, exportTableToCsv, updateContractStat
 src/lib/import-helpers.ts → transformRecord, normalizeStatus, validateRecord, checkDuplicate, insertRecord
 public/static/auth.js   → AUTH_UTILS（フロントエンド認証）、全ページから参照
 ```
+
+## 電子署名機能の注意点（フェーズ1・2実装済み / 詳細は HANDOFF.md）
+
+- **ローカル起動で `--d1=DB` を付けない** — 別の空DBが生成され「no such table」500になる。
+  `wrangler.toml` から自動検出されるため `wrangler pages dev dist --ip 0.0.0.0 --port 3000`（フラグなし）。
+- **Node の `crypto` は使えない** — Web Crypto（`crypto.subtle`, `crypto.randomUUID()`）を使う。
+  共通処理は `src/lib/esign-helpers.ts` に集約済み。
+- **ルート登録順序** — `esignPages` は `contractsPages` より前に登録（`/contracts/:id/esign` が飲まれないため）。
+- **`logAction` は7引数** — `logAction(DB, userId, action, resourceType, resourceId, details, ipAddress)`。
+- 関連ファイル: `migrations/0033_add_esign.sql`, `src/routes/api/esign.ts`, `src/routes/api/esign-public.ts`,
+  `src/routes/pages/sign.ts`, `src/routes/pages/esign.ts`。
