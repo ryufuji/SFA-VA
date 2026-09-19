@@ -11,7 +11,7 @@
 - 本体は **Hono + Cloudflare Pages + D1(SQLite)** のSFA（営業支援システム）。全体像は `README.md` / `ARCHITECTURE.md`。
 - 直近で **電子署名（電子契約・合意記録型）機能のフェーズ1・2** を実装・本番デプロイ済み。
 - 次にやること: **フェーズ3（Resendメール送信）** と **フェーズ4（Google Drive保存＋合意証明書PDF）**。どちらも外部クレデンシャル待ち。
-- 本番: https://webapp-85s.pages.dev/ ／ GitHub: `VALUEARCHITECTS/VA-SFA`（`main` ブランチ）。
+- 本番: https://webapp-85s.pages.dev/ ／ GitHub: `ryufuji/SFA-VA`（`main` ブランチ）。
 
 ---
 
@@ -39,8 +39,8 @@
 
 ```bash
 # 1) クローン
-git clone https://github.com/VALUEARCHITECTS/VA-SFA.git
-cd VA-SFA
+git clone https://github.com/ryufuji/SFA-VA.git
+cd SFA-VA
 
 # 2) 依存インストール
 npm install
@@ -257,7 +257,7 @@ bash test_all_routes.sh  # 期待: 26 PASS, 2 FAIL（データ不足の既知404
 
 | 項目 | 値 |
 |------|-----|
-| GitHub | `VALUEARCHITECTS/VA-SFA`（`main`） |
+| GitHub | `ryufuji/SFA-VA`（`main`）※旧: `VALUEARCHITECTS/VA-SFA` から移行 |
 | 別ブランチ | `refactor/split-index-tsx`（作業中の分割リファクタ） |
 | 本番URL | https://webapp-85s.pages.dev/ |
 | CFアカウント | admin@value-arc.com |
