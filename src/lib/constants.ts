@@ -13,6 +13,7 @@ export const EXPORT_TABLES = [
   { name: 'bank_deposits', label: '銀行入金' },
   // 第1レベル依存
   { name: 'user_permissions', label: 'ユーザー権限' },
+  { name: 'payer_aliases', label: '振込人名の対応' },
   { name: 'projects', label: '案件' },
   // 第2レベル依存
   { name: 'contracts', label: '契約' },

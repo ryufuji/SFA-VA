@@ -84,9 +84,14 @@ app.get('/bank-deposits', async (c) => {
                                 銀行口座への入金を登録し、月次明細への消込を行います
                             </p>
                         </div>
-                        <button onclick="openCreateModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow">
-                            <i class="fas fa-plus mr-2"></i>新規入金登録
-                        </button>
+                        <div class="flex flex-wrap gap-2">
+                          <a href="/bank-deposits/import" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 px-4 rounded-lg shadow">
+                              <i class="fas fa-file-import mr-2"></i>振込明細をアップロードして突合
+                          </a>
+                          <button onclick="openCreateModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow">
+                              <i class="fas fa-plus mr-2"></i>新規入金登録
+                          </button>
+                        </div>
                     </div>
 
                     <!-- 銀行入金一覧テーブル -->
