@@ -14,6 +14,7 @@ import contractsApi from './routes/api/contracts'
 import monthlyDetailsApi from './routes/api/monthly-details'
 import paymentsApi from './routes/api/payments'
 import bankDepositsApi from './routes/api/bank-deposits'
+import bankReconcileApi from './routes/api/bank-reconcile'
 import authRoutesApi from './routes/api/auth-routes'
 import adminUsersApi from './routes/api/admin-users'
 import adminDataApi from './routes/api/admin-data'
@@ -38,6 +39,7 @@ import membersPages from './routes/pages/members'
 import quotesPages from './routes/pages/quotes'
 import invoicesPages from './routes/pages/invoices'
 import bankDepositsPages from './routes/pages/bank-deposits'
+import bankReconcilePages from './routes/pages/bank-reconcile'
 import paymentsPages from './routes/pages/payments'
 import detailsPages from './routes/pages/details'
 import settingsPages from './routes/pages/settings'
@@ -58,6 +60,7 @@ app.route('/api/contracts', contractsApi)
 app.route('/api/monthly-details', monthlyDetailsApi)
 app.route('/api', paymentsApi)
 app.route('/api/bank-deposits', bankDepositsApi)
+app.route('/api/bank-reconcile', bankReconcileApi)
 app.route('/api/auth', authRoutesApi)
 app.route('/api/admin', adminUsersApi)
 app.route('/api/admin/data', adminDataApi)
@@ -82,6 +85,7 @@ app.route('/', monthlyPages)
 app.route('/', membersPages)
 app.route('/', quotesPages)
 app.route('/', invoicesPages)
+app.route('/', bankReconcilePages)
 app.route('/', bankDepositsPages)
 app.route('/', paymentsPages)
 app.route('/', detailsPages)

@@ -21,6 +21,8 @@ src/
 │   ├── constants.ts             # 共通定数（EXPORT_TABLES, PERMISSION_LABELS）
 │   ├── helpers.ts               # 共通ヘルパー（escapeCsvValue, exportTableToCsv, updateContractStatusIfCompleted）
 │   ├── import-helpers.ts        # データインポート関連（transformRecord, validateRecord, checkDuplicate, insertRecord）
+│   ├── deposit-helpers.ts       # 銀行入金の消込処理（allocateDeposit）。手動消込と自動突合で共用
+│   ├── bank-reconcile.ts        # 自動突合ロジック（normalizeName, suggestMatches）。DB非依存・tests/ でテスト
 │   └── layout.ts                # HTMLレイアウトテンプレート（将来の共通化用）
 │
 ├── routes/
@@ -33,6 +35,7 @@ src/
 │   │   ├── quotes.ts            # GET/POST/PUT/DELETE /api/quotes
 │   │   ├── invoices.ts          # GET/POST/PUT/DELETE /api/invoices
 │   │   ├── bank-deposits.ts     # GET/POST /api/bank-deposits
+│   │   ├── bank-reconcile.ts    # 振込明細の取込・自動突合 /api/bank-reconcile (import, suggestions, confirm)
 │   │   ├── payments.ts          # GET/POST/DELETE /api/payment-*
 │   │   ├── dashboard.ts         # GET /api/dashboard/*
 │   │   ├── auth-routes.ts       # POST /api/auth/*
@@ -52,6 +55,7 @@ src/
 │       ├── quotes.ts            # GET /quotes, /quotes/:id, /quotes/create
 │       ├── invoices.ts          # GET /invoices, /invoices/:id, /invoices/create
 │       ├── bank-deposits.ts     # GET /bank-deposits, /bank-deposits/:id
+│       ├── bank-reconcile.ts    # GET /bank-deposits/import（振込明細アップロード・突合画面）
 │       ├── payments.ts          # GET /payments
 │       ├── settings.ts          # GET /settings, /settings/company, /settings/data-backup
 │       ├── admin.ts             # GET /admin/users, /admin/import

@@ -43,6 +43,7 @@
 | 請求書PDF | `/invoices/:id/pdf` | 請求書のPDF表示 |
 | 入金状況一覧 | `/payments` | リード単位の月毎入金集計、税抜/税込/入金総額、入金状況バッジ |
 | 入金消込 | `/bank-deposits` | 銀行入金一覧 |
+| 振込明細の取込・突合 | `/bank-deposits/import` | 銀行の振込明細CSVをアップロードし、未入金の月次明細と自動で突合。確認して一括確定 |
 | 入金消込配分 | `/bank-deposits/:id/allocate` | 入金の配分設定 |
 | メンバー管理 | `/members` | メンバー一覧、追加・編集・ステータス変更 |
 | 詳細一覧ハブ | `/details` | 月次明細・見積書・請求書・入金一覧へのナビゲーション |
@@ -141,6 +142,14 @@
 | GET | `/api/bank-deposits/:id` | 銀行入金詳細 |
 | POST | `/api/bank-deposits` | 銀行入金登録 |
 | POST | `/api/bank-deposits/:id/allocate` | 入金配分 |
+
+**振込明細の取込・自動突合** (`/api/bank-reconcile`)
+
+| メソッド | パス | 概要 |
+|---|---|---|
+| POST | `/api/bank-reconcile/import` | 振込明細を銀行入金として一括登録（重複はスキップ） |
+| GET | `/api/bank-reconcile/suggestions` | 未消込の入金すべてに突合候補を付けて返す |
+| POST | `/api/bank-reconcile/confirm` | 選んだ突合候補を一括で確定（消込） |
 
 **見積書管理** (`/api/quotes`)
 | メソッド | パス | 概要 |

@@ -266,3 +266,16 @@ bash test_all_routes.sh  # 期待: 26 PASS, 2 FAIL（データ不足の既知404
 | 直近コミット | `fae5f3e`（電子契約フェーズ1・2を追加） |
 
 > 他のCFプロジェクト（同アカウント）: webapp-2（apps.value-arc.com）, thailand-auto-collector, bomberapp, threelink。**本SFAは `webapp` プロジェクト**。
+
+---
+
+## 振込明細アップロード・自動突合（2026-11 追加）
+
+- 画面 `/bank-deposits/import`：銀行の振込明細CSVをアップロード → 未入金の月次明細と自動突合 → 確認して一括確定。
+- **本番反映前にマイグレーションが必要**: `npm run db:migrate:prod`（`0034_add_bank_import.sql`。`bank_deposits.import_batch_id` 列と `payer_aliases` テーブルを追加）。
+- CSVの読み取りはブラウザ側（`public/static/bank-csv.js`。Shift_JIS対応、列は自動判定＋手動で選び直し可）。
+- 突合ルールは `src/lib/bank-reconcile.ts`。振込人名（学習済み → 取引先名との一致）で取引先を特定し、金額が一致する未入金明細（請求済のみ）を古い月から選ぶ。
+  確定のたびに「振込人名 → 取引先」を `payer_aliases` に覚える。
+- テスト: `node --test tests/*.test.ts`（Node 22.18 以降）。
+- 未対応: 全銀フォーマット（固定長）、PDF。実際の銀行のCSVでの確認はまだ（サンプル形式のみ）。
+
